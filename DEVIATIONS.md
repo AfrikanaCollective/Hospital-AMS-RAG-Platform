@@ -2199,3 +2199,42 @@ not retroactively. When in doubt, log it.
 - **Side effect:** the 170 source records no longer have an `auto_generated` question, so `_used_patient_ids` treats them as unused again. A future holdout or review-queue top-up may seed new (current-topic) questions from them.
 - **Not yet done:** `20260925T064650Z-81570c93` still contains these 170 questions; a re-run is needed to reflect the reduced pool.
 - **Reversible?:** yes, while the backup tables exist. Re-insert in parent-first order: `eval_question` → `result` → `rating_round` → `rubric_rating`.
+
+### 210. Unified ablation re-run on the 1,419-question pool (`20260928T041704Z-4f9a3403`) after #208/#209; the Level-2 change is confounded by a vocabulary edit
+- **Date / phase:** 2026-09-28, Phase 8 — operator: "rebuild the api image and re-run the ablation".
+- **Requirement ID(s):** PRD-112, ARCH-043
+- **What was done**:
+  - Rebuilt the `api` image (`docker compose --profile dev build api`) and recreated `api` with `redis`/`qdrant`, using `--no-deps` because Postgres was already up. The new image contains #208's runner change.
+  - The rebuilt image again lacked the `retrieval-tuning`/`local-models` extras (the recurring gap from #203 finding 6, still not fixed in the Dockerfile). Installed them inside the container, not on the host.
+  - Ran `MODEL_ABLATION_BACKEND=local python -m scripts.run_unified_ablation --run-id 20260928T041704Z-4f9a3403`, which took about 6 minutes on CPU. It produced 1,419 questions / 1,419 records / 340,560 rows (1,419 × 4 arms × 6 weights × 10 K). Copied the output out with `docker cp`, since `results/` is still not mounted (#204).
+  - **Judgment call — supplementary plots rendered on the host.** `plot_recall_by_bm25_weight` segfaulted inside the container, another native crash like #203's, not root-caused. The three plot scripts only read `per_query_results.jsonl`, so they were run with the host's existing `backend/.venv`, which already had pandas/seaborn; nothing was installed on the host.
+- **Headline results (Recall@12; previous run's figures from #207 in brackets)**: Level 1 -0.112 [-0.119,-0.106] (was -0.101). Level 2 present_only -0.046 [-0.054,-0.038] (was -0.075), all_assessed -0.067 [-0.074,-0.059] (was -0.105). Level 3 endpoints -0.493 to -0.715 (was -0.441 to -0.660). Best weight is still 0.0 vs BM25: +0.582 [+0.562,+0.601] (was +0.589). All p<0.0001.
+- **Consistency check**: on the 1,419 retained questions, the **raw** (un-enriched) arms' mean Recall@12 is **identical** between the two runs at both weight endpoints. This is expected: #208 left their text unchanged and retrieval is deterministic. So the raw-arm shifts in the headlines come only from dropping the 170 questions (#209).
+- **Confound — flagged**: the **enriched** arms differ between runs on the *same* 1,419 questions (e.g. all_assessed/enriched at bm25_weight=1.0: 0.093 → 0.319; at 0.0: 0.812 → 0.829). #208/#209 cannot explain this. `data/clinical_concepts.yaml` differed between the runs: it was already locally modified at session start, last edited 07:06 before this run began at 07:17, and later committed as `1a81105`. The Level-2 deltas therefore mix two changes, the pool reduction and a vocabulary edit, and are not a clean before/after of #209. `configuration.json` records only the vocabulary's attestation status, not a content hash, so the exact version the 09-25 run used can't be recovered from its outputs.
+- **Not yet done**: record a vocabulary content hash in `configuration.json` so future runs are attributable (suggested, not implemented); fix the Dockerfile extras gap; mount `results/`.
+- **Reversible?:** yes. The run is additive, and `20260925T064650Z-81570c93` is left in place.
+
+### 211. `configuration.json` records a SHA-256 of the concept vocabulary (`concepts_sha256`)
+- **Date / phase:** 2026-09-28, Phase 8 — operator: "yes, add the vocabulary hash to configuration.json" (follow-up to the confound flagged in #210).
+- **Requirement ID(s):** PRD-112, ARCH-043
+- **What was done**: `app.eval.unified_ablation.per_query.file_sha256()` (SHA-256 of the raw file bytes, `None` if the file is missing). `scripts/run_unified_ablation.py` writes it to `configuration.json` as `concepts_sha256`, next to `vocabulary_attested`/`concepts_path`. Tests are in `tests/test_unified_ablation_per_query.py` (new); `results/ablation/README.md` was updated.
+  - **Judgment call — hash at load time.** The hash is taken right after `load_attested_vocabulary`, not when `configuration.json` is written, because the file can change during a run (#210's edit landed close to that run's start). A hash taken at write time could name a version the run never used.
+  - **Judgment call — hash even when not attested.** An unattested file still exists and was still read, so recording it costs nothing. The field is `null` only when the file is absent.
+  - **Judgment call — raw bytes, not parsed content.** A comment or whitespace edit changes the hash without changing enrichment. That errs toward reporting a difference rather than hiding one.
+- **Existing runs are not backfilled** (their `configuration.json` stays the record of what ran). For reference: `data/clinical_concepts.yaml` at `1a81105`, which is unchanged in the working tree and was last modified before `20260928T041704Z-4f9a3403` started, hashes to `c7652305a3f248f8701b002471add889320db20b6f267aaec0a04e3eb156a86f`. That is almost certainly the version that run used. `76ecfbf`'s version hashes to `1073c60df46d4a893563ddb07d816464b84d037134bbee31fb22dc6b053a33d7`. The version the `20260925T064650Z-81570c93` run used is still unknown (it predates `76ecfbf`'s commit).
+- **Verified**: full backend suite passes (733 tests); ruff is clean apart from one pre-existing format issue in `scripts/plot_recall_by_bm25_weight.py`; mypy is clean on the changed module.
+- **Not yet done**: the running `api` image predates this change, so the next run needs `docker compose --profile dev build api` first.
+- **Reversible?:** yes — an additive field.
+
+### 212. `unified_ablation_report.png` no longer generated; `app/eval/unified_ablation/report.py` and `--out-dir` removed
+- **Date / phase:** 2026-09-28, Phase 8 — operator: "The unified_ablation_report.png is now unnecessary. Do not generate it. Remove its generation from future runs".
+- **Requirement ID(s):** PRD-112, ARCH-043
+- **What was done**: `scripts/run_unified_ablation.py` no longer calls `generate_report`. The statistics are still computed, printed and written to `statistical_summary.json` exactly as before.
+  - **Judgment call — deleted `app/eval/unified_ablation/report.py`** rather than leaving it unused. The CLI was its only caller and no test imported it; it is recoverable from git history.
+  - **Judgment call — removed the `--out-dir` flag.** Its only use was choosing where the PNG went, and keeping it would advertise a flag that does nothing.
+  - The `make unified-ablation-report` target keeps its name (renaming would break operator muscle-memory); its description no longer promises a PNG.
+  - Docs updated: README.md (Makefile table and a new status paragraph), `results/ablation/README.md` (run layout), ARCHITECTURE.md §16 code home, and TRACEABILITY.md PRD-112/ARCH-043 rows. ARCHITECTURE-ESSENTIALS.md didn't mention the report, so no change was needed there. Historical narrative paragraphs describing the report at the time were left as history.
+- **Not changed**: existing run directories keep their `unified_ablation_report.png`. The supplementary `scripts/plot_*` figures are unaffected (they read `per_query_results.jsonl` independently).
+- **Verified**: full backend suite passes (733 tests); ruff is clean; `--help` no longer lists `--out-dir`; no remaining import of `unified_ablation.report`.
+- **Not yet done**: the `api` image still has the old code; rebuild before the next run.
+- **Reversible?:** yes — restore `report.py` and the call from git history.

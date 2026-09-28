@@ -1,4 +1,4 @@
-"""CLI: python -m scripts.run_unified_ablation [--out-dir DIR]
+"""CLI: python -m scripts.run_unified_ablation
 [--concepts-path PATH] [--k-values 2,4,...,20]
 [--bm25-weight-values 0.0,...,1.0] [--run-id ID] [--results-root DIR]
 (PRD-112 / ARCH-043; UNIFIED-ABLATION-PROPOSAL.md §3.9, §12; Makefile
@@ -12,8 +12,10 @@ collection and the real `eval.eval_question` table, writes the per-query
 results and a reproducibility snapshot to `results/ablation/<run_id>/`
 (operator-specified layout, DEVIATIONS.md #192), computes the three
 Level 1/2/3 statistical comparisons (`app.eval.unified_ablation.summary`,
-primary metric recall@k), and renders the combined 3-panel PNG report
-alongside them in the same run directory.
+primary metric recall@k), persisting them to `statistical_summary.json`
+in the same run directory. No combined PNG report is rendered (dropped at
+operator request, DEVIATIONS.md #212); the supplementary `scripts/plot_*`
+figures read `per_query_results.jsonl` separately.
 
 Needs a real Postgres + Qdrant with an already-ingested guideline corpus and
 an already-seeded auto-generated question set — not runnable against
@@ -50,11 +52,11 @@ from app.eval.bootstrap import DEFAULT_BOOTSTRAP_SEED
 from app.eval.orchestration_ablation.ablation import load_attested_vocabulary
 from app.eval.unified_ablation.per_query import (
     PerQueryResult,
+    file_sha256,
     run_dir_for,
     write_configuration,
     write_per_query_results,
 )
-from app.eval.unified_ablation.report import generate_report
 from app.eval.unified_ablation.runner import run_unified_ablation
 from app.eval.unified_ablation.summary import (
     Level1Summary,
@@ -155,7 +157,6 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Unified hierarchical (Level 1 x 2 x 3) ablation (PRD-112/ARCH-043)"
     )
-    parser.add_argument("--out-dir", type=Path, default=None, help="default: the run directory")
     parser.add_argument("--concepts-path", type=Path, default=_DEFAULT_CONCEPTS_PATH)
     parser.add_argument("--k-values", type=str, default=None, help="comma-separated, e.g. 2,4,6")
     parser.add_argument(
@@ -179,6 +180,10 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     vocabulary, vocab_error = load_attested_vocabulary(args.concepts_path)
+    # Hashed at load time, not at write time: the file can be edited during a
+    # long run, and the hash must identify the version actually loaded
+    # (DEVIATIONS.md #211).
+    concepts_sha256 = file_sha256(args.concepts_path)
     if vocabulary is None:
         print(
             f"[unified-ablation] Level 2 enrichment skipped — {args.concepts_path} is not "
@@ -190,7 +195,6 @@ def main(argv: list[str] | None = None) -> int:
         args.run_id or datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ") + f"-{uuid.uuid4().hex[:8]}"
     )
     run_dir = run_dir_for(run_id, results_root=args.results_root)
-    out_dir = args.out_dir or run_dir
 
     store = QdrantVectorStore(
         url=settings.qdrant_url,
@@ -239,6 +243,7 @@ def main(argv: list[str] | None = None) -> int:
             },
             "vocabulary_attested": vocabulary is not None,
             "concepts_path": str(args.concepts_path),
+            "concepts_sha256": concepts_sha256,
             "n_rows": len(rows),
             "distinct_queries_evaluated": len({r.query_id for r in rows}),
             "distinct_records_used": len({r.patient_id_or_case_id for r in rows}),
@@ -248,12 +253,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"[unified-ablation] wrote {run_dir / 'per_query_results.jsonl'}")
 
     k = mrr_k()
-    l1, l2, l3 = _report_statistics(
-        rows, k=k, weights=bm25_weight_values(), ks=k_values(), run_dir=run_dir
-    )
-
-    report_path = generate_report(l1, l2, l3, k=k, out_dir=out_dir)
-    print(f"[unified-ablation] wrote {report_path}")
+    _report_statistics(rows, k=k, weights=bm25_weight_values(), ks=k_values(), run_dir=run_dir)
     return 0
 
 

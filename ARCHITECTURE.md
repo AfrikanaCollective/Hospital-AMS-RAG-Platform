@@ -1431,9 +1431,10 @@ results persist to `results/ablation/<run_id>/
 table (operator decision, `UNIFIED-ABLATION-PROPOSAL.md` §4 point 2) —
 rather than the other two modules' PNG-only convention, since a run's
 per-query row count (16 arms × alphas × K, per query) is materially larger
-than anything a report needs to retain; the PNG report itself still
-renders alongside it in the same run directory. Code home:
-`app/eval/unified_ablation/{runner.py,summary.py,report.py,per_query.py}`,
+than anything a report needs to retain. The combined PNG report was
+removed on 2026-09-28 (DEVIATIONS.md #212); statistics persist to
+`statistical_summary.json`. Code home:
+`app/eval/unified_ablation/{runner.py,summary.py,per_query.py}`,
 `app/eval/ablation_config.py`, `app/eval/bootstrap.py`,
 `scripts/run_unified_ablation.py`; tests: `tests/test_unified_ablation_
 {blend,runner,summary}.py`, `tests/test_ablation_config.py`,

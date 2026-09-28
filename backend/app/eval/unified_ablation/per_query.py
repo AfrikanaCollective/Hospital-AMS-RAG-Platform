@@ -17,6 +17,7 @@ pre-existing `reciprocal_rank_at_k` (MRR, now secondary).
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass
@@ -64,6 +65,18 @@ def run_dir_for(run_id: str, *, results_root: Path | None = None) -> Path:
     d = root / run_id
     d.mkdir(parents=True, exist_ok=True)
     return d
+
+
+def file_sha256(path: Path) -> str | None:
+    """SHA-256 of `path`'s raw bytes, or `None` if it doesn't exist.
+    Recorded in `configuration.json` for the concept vocabulary so a run's
+    Level-2 results can be tied to the exact file version they used —
+    attestation status alone can't tell two edited versions apart
+    (DEVIATIONS.md #210/#211)."""
+    try:
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+    except FileNotFoundError:
+        return None
 
 
 def write_configuration(run_dir: Path, config: dict) -> Path:

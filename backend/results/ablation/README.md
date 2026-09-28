@@ -7,12 +7,18 @@ Written by `python -m scripts.run_unified_ablation` (PRD-112 / ARCH-043,
 results/ablation/<run_id>/
 ├── configuration.json       # reproducibility snapshot (model ids/versions,
 │                             K/alpha grids, seed, timestamp, template
-│                             version, vocabulary-attestation status)
+│                             version, vocabulary-attestation status,
+│                             `concepts_sha256` of the vocabulary file
+│                             as loaded)
 ├── per_query_results.jsonl  # one JSON line per (query, level1, level2,
 │                             level3, alpha, k) row — see
 │                             app.eval.unified_ablation.per_query.PerQueryResult
 │                             for the exact field list
-└── unified_ablation_report.png  # combined 3-panel summary (Level 1/2/3)
+└── statistical_summary.json # Level 1/2/3 deltas with bootstrap CIs/p-values,
+                              full Recall@k x bm25_weight grid (no combined
+                              PNG report since DEVIATIONS.md #212; runs
+                              before that also contain
+                              unified_ablation_report.png)
 ```
 
 Optional supplementary figure (reads only `per_query_results.jsonl`;

@@ -1146,6 +1146,27 @@ the fixed test set 7 (was 9). Backups are in the
 `eval.bak_20260928_*` tables; drop them once the deletion is final.
 Full account in `DEVIATIONS.md` #209.
 
+**Re-run on the 1,419-question pool (2026-09-28,
+`results/ablation/20260928T041704Z-4f9a3403/`, 340,560 rows).** Recall@12
+deltas: Level 1 -0.112; Level 2 present_only -0.046 and all_assessed
+-0.067; Level 3 endpoints -0.493 to -0.715; best weight (0.0) vs BM25
++0.582; all p<0.0001. On the same questions, the raw arms reproduce the
+previous run exactly. The enriched arms don't, because
+`data/clinical_concepts.yaml` changed between the runs, so the Level-2
+change is not purely an effect of the pool reduction (`DEVIATIONS.md`
+#210).
+Runs now record `concepts_sha256`, a hash of the vocabulary file as loaded, in
+`configuration.json`, so that kind of change is visible from the outputs
+(`DEVIATIONS.md` #211).
+
+**Combined PNG report removed (2026-09-28).** `run_unified_ablation` no
+longer renders `unified_ablation_report.png`. `app/eval/unified_ablation/report.py`
+and the `--out-dir` flag, which existed only for it, are deleted. A run
+now writes `configuration.json`, `per_query_results.jsonl` and
+`statistical_summary.json`. Figures come from the supplementary
+`scripts/plot_*` scripts. PNGs already in existing run directories are
+left in place (`DEVIATIONS.md` #212).
+
 ### Repository layout
 
 ```
@@ -1341,7 +1362,7 @@ cd ../frontend && npm install && npm run dev
 | `make retrieval-tuning-report` | Phase 6 BM25/vector weight × depth sweep → 1 combined 3-panel PNG report, 18cm×21cm @ 600dpi (PRD-109/ARCH-040); needs a real Qdrant + Postgres with an ingested corpus and seeded eval questions, and the `retrieval-tuning` extra (`pip install -e .[retrieval-tuning]`) |
 | `make model-ablation-report` | SapBERT/MedCPT/BM25 embedding ablation → 1 combined 2-panel PNG report (PRD-110/ARCH-041); needs a real Qdrant + Postgres with an ingested corpus and seeded eval questions, the `retrieval-tuning` + `local-models` extras, and `MODEL_ABLATION_BACKEND=local` for real (non-stub) models |
 | `make orchestration-ablation-report` | Phase 7 single-stage/criteria-reuse/operator-vocabulary orchestration ablation → 1 combined 3-panel PNG report (PRD-111); needs a real Qdrant + Postgres with an ingested corpus and seeded eval questions, and the `retrieval-tuning` extra; the operator-vocabulary arm additionally needs an attested `data/clinical_concepts.yaml` |
-| `make unified-ablation-report` | Phase 8 unified Level 1 × 2 × 3 hierarchical ablation (BM25/SapBERT weighted-rank-fusion sweep, 6 weight points {0.0, 0.2, …, 1.0} × K, primary metric Recall@K) → `results/ablation/<run_id>/` + `statistical_summary.json` (deltas w/ bootstrap p-values, full weight×k grid, post-hoc best-weight-vs-BM25 test — DEVIATIONS #202) + 1 combined 3-panel PNG report (PRD-112/ARCH-043); needs a real Qdrant + Postgres with an ingested corpus and seeded eval questions, the `retrieval-tuning` + `local-models` extras, and an attested `data/clinical_concepts.yaml` for Level 2 enrichment |
+| `make unified-ablation-report` | Phase 8 unified Level 1 × 2 × 3 hierarchical ablation (BM25/SapBERT weighted-rank-fusion sweep, 6 weight points {0.0, 0.2, …, 1.0} × K, primary metric Recall@K) → `results/ablation/<run_id>/` + `statistical_summary.json` (deltas w/ bootstrap p-values, full weight×k grid, post-hoc best-weight-vs-BM25 test — DEVIATIONS #202) (PRD-112/ARCH-043; the combined PNG report was dropped in DEVIATIONS #212, and supplementary figures come from the `plot-*` targets); needs a real Qdrant + Postgres with an ingested corpus and seeded eval questions, the `retrieval-tuning` + `local-models` extras, and an attested `data/clinical_concepts.yaml` for Level 2 enrichment |
 | `make recall-by-bm25-weight-plot [RUN_ID=<run_id>]` | Recall@K vs K, one line per BM25 score weight, faceted 2×2 over Present-only/All-assessed × Raw/Enriched → `results/ablation/<run_id>/recall_at_k_by_bm25_weight.png`, 18cm×18cm @ 300dpi (PRD-112/ARCH-043); reads only an existing run's `per_query_results.jsonl` (no DB/Qdrant/models), defaults to the latest run; needs the `retrieval-tuning` extra |
 | `make recall-vs-bm25-weight-by-k-plot [RUN_ID=<run_id>] [K_VALUES=8,10,12,14]` | Recall@K vs. BM25 score weight, one line per K (default 8, 10, 12, 14), same 2×2 facets → `results/ablation/<run_id>/recall_at_k_vs_bm25_weight_by_k.png`, 18cm×18cm @ 300dpi (PRD-112/ARCH-043); reads only an existing run's `per_query_results.jsonl`, defaults to the latest run; needs pandas + seaborn in the active env |
 

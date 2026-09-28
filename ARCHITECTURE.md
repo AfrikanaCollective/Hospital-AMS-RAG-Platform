@@ -116,6 +116,7 @@ is **untrusted** and is never treated as instructions.
 | **ARCH-012** | **Reranker: config-driven cross-encoder, decided to run locally** (`RERANKER_BACKEND=local`, not gateway-routed). Placeholder default `BAAI/bge-reranker-v2-m3` — **UNVERIFIED, flagged**; `RERANKER_MODEL_ID`. | Same model-config rationale as ARCH-004. Local (not gateway) because: (1) unlike the confirmed-working embeddings gateway endpoint (DEVIATIONS.md #42), cross-encoder rerank serving was never confirmed available on the operator's gateway; (2) rerank sits on the synchronous query path (unlike ingestion-time embeddings), so an extra network hop per query is the thing to avoid; (3) `sentence-transformers.CrossEncoder` needs no separate serving stack — the `local-models` extra already covers it (DEVIATIONS.md #43/#44). | Pinned model (violates C6), no reranker (precision loss), gateway-routed rerank (adds a per-query network hop for an unconfirmed capability). |
 | **ARCH-038** | **Document ingest metadata is operator-supplied via a per-file manifest; never inferred from PDF metadata.** `POST /ingest/documents` takes the file **plus** a metadata object (`title`, `publisher`, `external_ref`, `version_label`, `effective_date`, `licence`, `topic_tags`, optional `format_profile`, optional `language`). Batch/bundled ingestion reads the same fields per file from a sidecar `data/excerpt_guidelines/manifest.json`. A cover-page heuristic may *suggest* values for the admin to confirm; it never auto-commits. Adds `document.licence` and `document_version.format_profile`. **Extension (DEVIATIONS.md #166):** an optional per-file `source_pages: list[int]` manifest field, for a file that is itself a partial page-range extract of a larger publication (e.g. 4 pages pulled from a 100-page guideline) — one entry per physical page in the file, giving that page's true page number in the original publication. `app.ingestion.page_provenance` remaps `ParsedDocument.page_starts` through it before chunking, so every `Chunk.page_start`/`page_end` (and therefore every citation) reflects the real source pagination, not the extract's own 1..N. Fails closed (rejects ingestion) if `len(source_pages)` doesn't match the file's actual page count. The full original publication a `source_pages` extract was pulled from, if kept at all, lives in the sibling `data/guideline_sources/` directory — never `data/excerpt_guidelines/` itself, and never scanned or read by any ingestion code path (DEVIATIONS.md #167). | Real guideline PDFs routinely ship with absent or wrong PDF metadata (all three bundled dev PDFs have an empty `/Title`); version/effective-date live in the filename or cover page. PRD-A2 also requires a per-document licence record, which had no home. See DEVIATIONS.md #29. Extension motivated by wanting to ingest only the handful of pages relevant to a topic out of a much larger guideline, without corrupting citation page numbers — see DEVIATIONS.md #166. | Parsing metadata out of the PDF (unreliable, and a silent-error source for citations); a global config block (doesn't scale past one document). For the extension: extracting the sub-PDF with no provenance field at all (silently wrong page citations, discovered this session); a new DB column on `document`/`document_version` for the true source title (deferred — `title`/`topic_tags` already cover the descriptive need; only the page-number problem lacked a mechanism). |
 | **ARCH-039** | **Patient-data classes + EAV/mapping-spec ingestion + a `PatientDataSource` seam.** A `data_class ∈ {synthetic, deidentified}` (`patient.data_class`, `patient_record.dataset_id`). `deidentified` data is admitted **only** with a complete operator **attestation** (`DATASET.md` front-matter: source, collection period, site, de-identification method + standard, consent basis, licence, attested-by/date) **and** an explicit intent flag; it is then handled **exactly as PHI** everywhere downstream. Record ingestion supports both wide (one row/patient) and **EAV / long** (`key, field_name, field_value, context`) inputs; EAV is pivoted long→wide and mapped onto `app/schemas/record.py` by a **declarative `field_mapping.yaml`** (per source field → target path + named transform; `list_targets` for repeated-field families). The same mapping spec is the contract for file ingestion now and a `RestApiPullSource` (stub) later. | The operator supplied a real de-identified newborn dataset (40,871 patients, EAV, 32 variables not matching `record.py`) and instructed it be used instead of synthetic records — a departure from constraint #1 that only the operator can authorise, and a format the wide-row ingestion path could not consume. A declarative mapping keeps the transform auditable and reusable for a future pull-API. See DEVIATIONS.md #33, #34, #38. | Hard-coding the pivot + field renames in Python (not auditable, not reusable); accepting de-identified data with no attestation (weakens constraint #1 with nothing recorded); one-off scripts per dataset. |
+| **ARCH-044** | **OCR is permitted in the MVP; guideline PDFs are to be parsed layout-aware** (Docling for layout labels, reading order, TableFormer cells and crops; pdfplumber for fonts, positions and vector drawings), with flowcharts kept as a node/edge graph. **Text-provenance rule:** citable text is only text-layer text, OCR text, or deterministic serializations of *verified* structure; model-generated text (vision-model descriptions, Mermaid, summaries) is retrieval-only and never citable. OCR'd numeric content is held for admin confirmation. **Decision recorded 2026-09-28; implementation pending Checkpoint 9** (`LAYOUT-INGESTION-PROPOSAL.md`). | The live corpus loses a whole dosing page with no text layer (Kenya MoH p. 48) and flattens flowchart decision logic (p. 47); running headers and footers leak into citable chunks; `pypdf` exposes no fonts or positions. DEVIATIONS.md #213. | Keeping OCR out of scope (dose tables and algorithm logic unretrievable); letting a vision model write citable text (breaks grounding and no-independent-advice); PyMuPDF (AGPL); LangChain loaders (the stack doesn't use LangChain). |
 
 ---
 
@@ -169,7 +170,7 @@ tables also carry `created_by`. Times are UTC.
 | ordinal | int | position within document_version |
 | parent_chunk_id | uuid FK → chunk, null | for context expansion; also links a `figure`/`table` to the `protocol_step` or section it belongs to |
 | chunk_type | text | `prose` \| `recommendation` \| `protocol_step` \| `table` \| `figure` \| `list` \| `criteria` |
-| text | text | normalized chunk text (verbatim slice). For `figure`: caption + nearest heading + any text present in the PDF's embedded text layer for the figure region (no OCR — §5.1) |
+| text | text | normalized chunk text (verbatim slice). For `figure`: caption + nearest heading + any text present in the PDF's embedded text layer for the figure region, plus OCR text for regions without one (OCR permitted in MVP — ARCH-044, §5.1) |
 | figure_ref | jsonb, null | for `chunk_type = figure`: `{page, bbox, image_sha256}` so the citation view can render the figure crop |
 | token_count | int | |
 | vector_id | text | Qdrant point id (kept in sync) |
@@ -452,8 +453,14 @@ clinicians (a `is_clinician` flag), because rubric raters must be clinicians.
    stable character index, plus a **section tree** (heading detection from font
    size/numbering/regex on `^\d+(\.\d+)*\s`). Detect figure/table regions and
    record page + bounding box for each. Compute `parse_quality` (extractable-
-   text ratio + heading-detection confidence). **OCR is out of scope for MVP**:
-   image-only regions contribute no text. If `parse_quality <
+   text ratio + heading-detection confidence). **OCR is permitted in the MVP**
+   (ARCH-044, DEVIATIONS.md #213, superseding the earlier exclusion of #28).
+   It runs locally in the worker on regions without a text layer; text-layer
+   text always wins over OCR for the same region; OCR'd numeric content is
+   held for admin confirmation before it is retrievable. Design:
+   `LAYOUT-INGESTION-PROPOSAL.md`. *Until that is implemented, the running
+   `pypdf` path still does no OCR, so image-only regions contribute no
+   text.* If `parse_quality <
    INGEST_MIN_PARSE_QUALITY` the document is flagged, badged, and held for
    admin review before its chunks become retrievable.
 3. **Chunk** per §6, using the `format_profile`. Persist `chunk` rows with
@@ -579,8 +586,10 @@ Rules, in priority order:
 3b. **Figures / algorithms are chunks.** One `chunk_type = figure` chunk per
    figure, holding the caption + nearest heading + any text present in the
    PDF's **embedded text layer** for the figure region, plus `figure_ref =
-   {page, bbox, image_sha256}`. **OCR is out of scope for MVP** (DEVIATIONS.md
-   #28): a figure with no embedded text (`meta.has_embedded_text = false`) is
+   {page, bbox, image_sha256}`. **OCR is permitted in the MVP** (ARCH-044,
+   DEVIATIONS.md #213, superseding #28's exclusion): once implemented, OCR text
+   from the figure region joins its text, subject to §5.1's numeric gate. A
+   figure that still has no text layer and no OCR text (`meta.has_embedded_text = false`) is
    embedded from its caption only, down-weighted in dense retrieval, and — per
    §8.3 — can be **at most `weak` support** for a claim and never its sole
    support. `parent_chunk_id` links the figure to its `protocol_step` or
@@ -746,8 +755,8 @@ For each **claim segment**:
    dosing/therapy specifics absent from the cited quote, or population claims
    not in the quote. Fail → `unsupported` (`scope_violation`).
 5. **Figure support cap.** If a claim segment's *only* citation is a `figure`
-   chunk with `meta.has_embedded_text = false` (caption-only, no OCR — §6 rule
-   3b), the segment is capped at `weak` regardless of the entailment result,
+   chunk with `meta.has_embedded_text = false` (caption-only: no text layer
+   and no OCR text — §6 rule 3b), the segment is capped at `weak` regardless of the entailment result,
    and a figure can never be the sole support for a claim. The reviewer is
    shown the figure crop (`figure_ref`) so a human can confirm what the
    flowchart actually says.
@@ -1692,8 +1701,10 @@ not silently accepted.
    MOH protocol (174 pp) carries much of its clinical logic in **algorithm
    flowcharts**, which are now a first-class `figure` chunk type (§6 rule 3b,
    DEVIATIONS.md #28) but hold **no machine-readable content without OCR**
-   (out of scope for MVP) — so a protocol whose decision logic lives in
-   flowcharts will retrieve poorly until those are transcribed. Mitigation:
+   — so a protocol whose decision logic lives in flowcharts will retrieve
+   poorly until those are transcribed. OCR and flowchart-graph extraction are
+   now permitted in the MVP (ARCH-044, DEVIATIONS.md #213) and designed in
+   `LAYOUT-INGESTION-PROPOSAL.md`, which is pending approval. Mitigation:
    a `parse_quality` score per document, a visible "low parse confidence"
    badge + admin hold below `INGEST_MIN_PARSE_QUALITY`, page-granularity
    citation fallback, and `figure` chunks that are down-weighted, flagged

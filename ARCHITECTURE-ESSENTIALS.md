@@ -105,8 +105,12 @@ adapter / `field_mapping.yaml`; no source-specific field enters the schema.
 2. Chunk within deepest heading; target 350–600 tokens, ~15% prose overlap
    (overlap has no citation authority).
 3. Tables = one chunk (`table`), serialized Markdown + caption + heading.
-3b. Figures/algorithms = one `figure` chunk: caption + heading + **embedded
-   text layer only (no OCR)** + `figure_ref {page, bbox, image_sha256}`. A
+3b. Figures/algorithms = one `figure` chunk: caption + heading + embedded
+   text layer + `figure_ref {page, bbox, image_sha256}`. **OCR is permitted in
+   the MVP** (ARCH-044, DEVIATIONS #213); the layout-aware parser, OCR, and
+   flowchart-graph design are in `LAYOUT-INGESTION-PROPOSAL.md` (pending
+   Checkpoint 9; the running `pypdf` path still does no OCR). Only text-layer,
+   OCR, or verified-structure text is citable, never model-generated text. A
    caption-only figure (`has_embedded_text=false`) is down-weighted and, per
    §3, capped at `weak` support — never the sole support for a claim.
 4. Criteria lists = `criteria` chunks with structured `meta.criteria[]`

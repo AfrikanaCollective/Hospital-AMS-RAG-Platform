@@ -2238,3 +2238,31 @@ not retroactively. When in doubt, log it.
 - **Verified**: full backend suite passes (733 tests); ruff is clean; `--help` no longer lists `--out-dir`; no remaining import of `unified_ablation.report`.
 - **Not yet done**: the `api` image still has the old code; rebuild before the next run.
 - **Reversible?:** yes — restore `report.py` and the call from git history.
+
+### 213. OCR permitted in the MVP (superseding #28's exclusion); layout-aware ingestion proposed as Phase 9 (`LAYOUT-INGESTION-PROPOSAL.md`)
+- **Date / phase:** 2026-09-28, post-Phase-8. Operator: "Write the design proposal. Ensure use of a layout-aware parser, that can give positions and fonts, table cells, together with layout labels plus tables that can also maintain flowchart's decision logic. Update architecture to explicitly allow use of OCR for the MVP." A reference LangChain/Docling ingestion design was supplied as input.
+- **Requirement ID(s):** ARCH-044 (new), PRD-113 (proposed); touches ARCH-013 (§6), ARCH-015 (§8.3), ARCH-038 (manifest).
+- **Decision (operator-directed):** OCR moves from out of scope (#28, ARCH §5.1/§6 rule 3b) to **permitted in the MVP**. ARCHITECTURE.md §5.1 step 2, §4.1 chunk-table `text` row, §6 rule 3b, §8.3 rule 5 wording, §21a risk item 2, the decision table (new ARCH-044 row) and ARCHITECTURE-ESSENTIALS.md rule 3b are updated. Each edit says explicitly that the running `pypdf` path **still does no OCR** until the proposal is approved and implemented, so the docs don't claim unbuilt behaviour.
+- **Judgment calls in the proposal** (to be confirmed at Checkpoint 9, listed so they aren't silently adopted):
+  - **Docling + pdfplumber** as the parser pair. pdfplumber supplies fonts, positions and vector drawings, which the operator required and Docling's document model doesn't reliably expose. **PyMuPDF was not chosen because it is AGPL.** LangChain loaders were not chosen because the stack doesn't use LangChain.
+  - **Text-provenance rule:** model-generated text (vision-model Mermaid, path walk-throughs, summaries, image-cell descriptions) is never citable. The reference design stores it as chunk content, which here would let model text be quoted as guideline text, breaking CLAUDE.md §3 rules 2–3.
+  - **Flowchart edges come from vector geometry first** (deterministic), with the vision model as a fallback whose output is verified against source text. Only verified edges are serialized into citable text.
+  - **OCR'd numeric content is held from retrieval until an admin confirms it.** Dose tables are the highest-risk OCR target (Kenya p. 48).
+  - **The boilerplate repeat fallback has a 3-page floor.** The reference design's 50%-of-pages rule would drop any margin text on a 2-page excerpt.
+  - **The vision path is disabled until the self-hosted gateway is verified to accept images** (`VISION_MODEL_ID` placeholder). The configured `MODEL_ID` is not assumed to be multimodal.
+- **Gap found while drafting (not fixed here):** ARCH §8.3 rule 5 (figure support cap) is documented but not implemented. `app/grounding/verifier.py` has no `chunk_type`/`has_embedded_text` check. The proposal implements it in sub-phase 9a. Recorded in the TRACEABILITY ARCH-044 row.
+- **Correction to an earlier in-session statement:** the Kenya p. 47 criterion "Temperature less than or equal to 38°C or more than 35.5°C" was called a probable parse misread. Rendering the page shows it is **verbatim source text**, so it is not an extraction error.
+- **Also fixed:** README.md's repository layout still listed `report` under `unified_ablation/` after #212 removed it.
+- **Not done:** no code, dependency, config or schema changes. Those await Checkpoint 9 approval per CLAUDE.md §2. `PRD.md` was not edited: PRD-113 is proposed in the proposal document only, pending approval.
+- **Reversible?:** yes — revert the ARCHITECTURE.md/ESSENTIALS edits to restore #28's OCR exclusion.
+
+### 214. Attested text corrections (errata) added to the Phase 9 proposal, sub-phase 9a
+- **Date / phase:** 2026-09-28, post-Phase-8 (proposal only). Operator: the Kenya MoH p. 47 criterion "Temperature less than or equal to 38°C or more than 35.5°C" is a source typo and should be ingested as "Temperature less than 35.5°C or more than or equal to 38°C". Operator asked for it to be added to the proposal as part of 9a.
+- **Requirement ID(s):** ARCH-044 (proposed), ARCH-038 (manifest), ARCH-014/§8.1 (citation object), ARCH-015 (grounding).
+- **What was done:** `LAYOUT-INGESTION-PROPOSAL.md` gains D11 and a new §5.11. The rest of the proposal was aligned: §3 adds an `attested` text origin, §6 a span check, §8 folds OCR overrides into the same structure, §9 adds the manifest and citation fields, §13 the SCOPE-2.4 distinction, §15 tests and acceptance, §16 puts it in 9a, and §17 lists the docs to update. No code changed.
+- **Judgment calls (to be confirmed at Checkpoint 9):**
+  - **Explicit, displayed correction rather than a silent edit or an erratum note chunk.** A silent edit breaks the promise that a quote is what the source says. A separate note chunk leaves the wrong criterion retrievable and quotable. The corrected text is citable, carries `attested` provenance, and every citation and answer using it shows the printed original.
+  - **Fail closed on the match:** the original must be found exactly once on the named page (whitespace-tolerant), or ingestion of that document stops.
+  - **Deterministic scope limit:** the numeric and unit tokens must be unchanged as a multiset, and any new word must come from a relational/function-word allowlist. This keeps errata from becoming a route to local guidance changes. **Recorded here as the line between an erratum and SCOPE-2.4:** SCOPE-2.4 adapts guidance to local constraints not in the source; an erratum restores the source's evident intent within those token limits, with a named clinician attester and evidence.
+  - Correcting the text is a clinical judgment, so the manifest entry requires a clinician attester, a rationale and evidence. The operator's proposed wording has **not** been verified here against another statement in the same protocol or a corrigendum; the `evidence` field is left for the attester.
+- **Reversible?:** yes (proposal text only).

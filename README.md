@@ -1190,7 +1190,7 @@ backend/
     rubric/         11 domains, workflow state machine, IRR, tasks
     eval/           harness, metrics, run CLI, question_gen/ (planner/generate/validate),
                     retrieval_tuning/, model_ablation/, orchestration_ablation/,
-                    unified_ablation/ (runner/summary/report/per_query), ablation_config.py,
+                    unified_ablation/ (runner/summary/per_query), ablation_config.py,
                     bootstrap.py
     records/        criteria matching, field access/policy, concepts.py (SCOPE-2.6, eval-only)
     llm/            LLMGateway, offline stub + stub_server
@@ -1235,6 +1235,7 @@ data/               record_schema.json; clinical_concepts.yaml (SCOPE-2.6
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Full technical design (`ARCH-###`, `SCOPE-#.#`). |
 | [ARCHITECTURE-ESSENTIALS.md](ARCHITECTURE-ESSENTIALS.md) | Short-form critical decisions — start here. |
 | [CDS-FUTURE.md](CDS-FUTURE.md) | Excluded capabilities and the hard boundary. |
+| [LAYOUT-INGESTION-PROPOSAL.md](LAYOUT-INGESTION-PROPOSAL.md) | Phase 9 proposal (pending approval): layout-aware PDF ingestion with OCR, table structure and flowchart decision logic (`ARCH-044`). |
 | [TRACEABILITY.md](TRACEABILITY.md) | Requirement → file → test → status matrix. |
 | [DEVIATIONS.md](DEVIATIONS.md) | Append-only log of judgment calls. |
 | [CLAUDE.md](CLAUDE.md) / [AGENTS.md](AGENTS.md) | How coding agents work in this repo. |

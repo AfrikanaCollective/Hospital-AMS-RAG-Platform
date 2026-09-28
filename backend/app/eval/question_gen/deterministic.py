@@ -102,10 +102,26 @@ def _examination_findings_lines(record: dict, *, include_absent: bool) -> list[s
     return lines
 
 
+_QUESTION_PREFIX = "What does the guideline recommend about "
+_QUESTION_SUFFIX = " based only on the content provided below:"
+
+
+def extract_topic(question_text: str) -> str | None:
+    """Recover the `topic` a stored narrative was built with (the inverse of
+    `_build_narrative`'s first line), or `None` when `question_text` wasn't
+    built by this module's template. Lets the unified ablation rebuild a
+    question with the SAME topic its gold set was produced from, even after
+    `app.eval.auto_seed._TOPIC` changed (DEVIATIONS.md #208)."""
+    first_line = question_text.split("\n", 1)[0]
+    if not (first_line.startswith(_QUESTION_PREFIX) and first_line.endswith(_QUESTION_SUFFIX)):
+        return None
+    topic = first_line[len(_QUESTION_PREFIX) : -len(_QUESTION_SUFFIX)]
+    return topic or None
+
+
 def _build_narrative(record: dict, *, topic: str, include_absent: bool) -> str:
     lines: list[str] = [
-        f"What does the guideline recommend about {topic} based only on "
-        "the content provided below:",
+        f"{_QUESTION_PREFIX}{topic}{_QUESTION_SUFFIX}",
         "",
         _patient_sentence(record),
     ]

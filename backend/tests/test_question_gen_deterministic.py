@@ -7,6 +7,7 @@ from __future__ import annotations
 from app.eval.question_gen.deterministic import (
     build_deterministic_narrative,
     build_present_only_narrative,
+    extract_topic,
 )
 
 RECORD = {
@@ -190,3 +191,16 @@ def test_present_only_and_all_assessed_agree_on_everything_but_the_absent_clause
     assert "heart rate (bpm) 190.0" in all_assessed
     assert "the patient had grunting, and difficulty feeding." in present_only
     assert "the patient had grunting, and difficulty feeding." in all_assessed
+
+
+def test_extract_topic_round_trips_both_builders() -> None:
+    """DEVIATIONS.md #208: the unified ablation recovers a stored question's
+    topic with `extract_topic`."""
+    topic = "antibiotics or infection in hospital settings for this newborn's presentation"
+    assert extract_topic(build_deterministic_narrative(RECORD, topic=topic)) == topic
+    assert extract_topic(build_present_only_narrative(RECORD, topic=topic)) == topic
+
+
+def test_extract_topic_returns_none_for_non_template_text() -> None:
+    assert extract_topic("What antibiotics are used for neonatal sepsis?") is None
+    assert extract_topic("") is None

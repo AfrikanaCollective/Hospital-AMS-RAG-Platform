@@ -45,6 +45,7 @@ from app.eval.orchestration_ablation.augment import (
 from app.eval.question_gen.deterministic import (
     build_deterministic_narrative,
     build_present_only_narrative,
+    extract_topic,
 )
 from app.eval.retrieval_tuning.sweep import SweepQuestion, fetch_calibration_questions
 from app.eval.unified_ablation.blend import blend_bm25_dense, bm25_raw_scores, cosine_raw_scores
@@ -137,12 +138,19 @@ def sweep_questions(
         if record is None:
             continue
 
+        # The topic the question was actually generated (and its gold set
+        # produced) with, read back from the stored text -- not the current
+        # `_TOPIC`, which changed after the earliest review-queue rows were
+        # seeded (DEVIATIONS.md #208). `_TOPIC` only as a fallback for text
+        # not built by the deterministic template.
+        topic = extract_topic(question.text) or _TOPIC
+
         for level1, builder in _LEVEL1_BUILDERS.items():
-            # `topic` is fixed and operator-supplied (DEVIATIONS.md #190/
-            # #191) -- the SAME topic for both Level-1 branches, so the only
-            # thing that differs between them is present/absent handling,
-            # per the comparability requirement (proposal §III).
-            base_text = builder(record.model_dump(mode="json"), topic=_TOPIC)
+            # The SAME topic for both Level-1 branches (DEVIATIONS.md #190/
+            # #191), so the only thing that differs between them is
+            # present/absent handling, per the comparability requirement
+            # (proposal §III).
+            base_text = builder(record.model_dump(mode="json"), topic=topic)
 
             enriched_text = base_text
             if vocabulary is not None:

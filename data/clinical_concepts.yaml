@@ -53,7 +53,8 @@ concepts:
     operator: ">="
     value: 60
     source: "operator-curated"
-    synonyms: ["fast breathing", "high respiratory rate", "tachypnea", "rapid breathing", "≥ 60 breaths per minute"]
+    synonyms: ["fast breathing", "high respiratory rate", "tachypnea", "rapid breathing", "≥ 60 breaths per minute",
+               "respiratory distress"]
     notes: "neonatal, RR at rest"
 
   fever:
@@ -61,7 +62,7 @@ concepts:
     operator: ">="
     value: 38.0
     source: "operator-curated"
-    synonyms: ["high body temperature", "≥ 38 °C", "temperature instability", "hyperthermia"]
+    synonyms: ["high body temperature", "≥ 38 °C", "temperature instability", "hyperthermia", "temperature abnormality"]
     notes: "neonatal, A rectal temperature (gold). armpit or ear readings (unreliable)"
 
   hypothermia:
@@ -69,7 +70,7 @@ concepts:
     operator: "<"
     value: 35.5
     source: "operator-curated"
-    synonyms: ["low body temperature", "< 35.5 °C", "temperature instability"]
+    synonyms: ["low body temperature", "< 35.5 °C", "temperature instability", "temperature abnormality"]
     notes: "neonatal, rectal temperature (gold); armpit or ear readings (unreliable)"
 
   slow capillary refill:
@@ -101,7 +102,7 @@ concepts:
     operator: "<"
     value: 90
     source: "operator-curated"
-    synonyms: ["hypoxemia", "SPO2 < 90%"]
+    synonyms: ["hypoxemia", "SPO2 < 90%", "reduced oxygen saturation"]
     notes: "Pulse oximetry less than 90% in newborns"
 
   # Based on baby's demographics
@@ -126,7 +127,7 @@ concepts:
     operator: "<"
     value: 3
     source: "operator-curated"
-    synonyms: ["< 3 days"]
+    synonyms: ["< 3 days", "< 72 hours"]
     notes: "WHO: Early onset"
 
   late onset:
@@ -135,7 +136,7 @@ concepts:
     low: 3
     high: 6
     source: "operator-curated"
-    synonyms: ["3 days to < 7 days"]
+    synonyms: ["3 days to < 7 days", "> 72 hours"]
     notes: "WHO: Range between 3 days <7 days"
 
   0–6 days:
@@ -181,14 +182,14 @@ concepts:
     field: examination_findings.floppy
     operator: "present"
     source: "operator-curated"
-    synonyms: ["floppy", "movement only when stimulated", "no movement at all", "lethargy"]
+    synonyms: ["floppiness", "movement only when stimulated", "no movement at all", "lethargy"]
     notes: "fires only when floppy was assessed and present"
 
   difficulty feeding:
     field: examination_findings.difficulty_feeding
     operator: "present"
     source: "operator-curated"
-    synonyms: ["difficulty feeding", "not feeding well", "poor feeding"]
+    synonyms: ["feeding difficulties", "not feeding well", "poor feeding"]
     notes: "fires only when difficulty feeding was assessed and present"
 
   bulging_fontanelle:

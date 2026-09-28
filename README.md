@@ -1124,6 +1124,28 @@ volume the way `data/` is, so this run's output existed only inside the
 (undocumented; the two prior real runs must have been retrieved the same
 way). Full account in `DEVIATIONS.md` #203–#205.
 
+**Level-1 topic now read from each stored question (2026-09-28).** The
+runner used to rebuild every question with the current
+`auto_seed._TOPIC`, but 79 review-queue questions were seeded under an
+earlier topic ("this newborn's presentation"). Their gold chunks were
+cited in answer to that older wording, so the ablation scored them
+against text they were never produced from. The runner now recovers each
+question's own topic from its stored text
+(`question_gen.deterministic.extract_topic`) and rebuilds both Level-1
+arms with it. Checked against the live pool: all 1,498 parseable
+questions now rebuild byte-identical to their stored text (all-assessed
+arm). 91 older free-text LLM-written questions don't match the
+deterministic template and still fall back to `_TOPIC`, which is the
+previous behavior. `20260925T064650Z-81570c93` predates this and needs
+a re-run to reflect it. Full account in `DEVIATIONS.md` #208.
+The 170 questions not built with the current topic (the 91 above plus
+the 79 older-topic ones) were then **deleted** from the database at
+operator request, together with their 167 results, 2 rating rounds and 22
+clinician rubric ratings. The calibration pool is now 1,419 questions and
+the fixed test set 7 (was 9). Backups are in the
+`eval.bak_20260928_*` tables; drop them once the deletion is final.
+Full account in `DEVIATIONS.md` #209.
+
 ### Repository layout
 
 ```

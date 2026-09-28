@@ -18,8 +18,10 @@ import pytest
 
 from app.config import get_settings
 from app.eval.ablation_config import ALL_ARMS
+from app.eval.auto_seed import _TOPIC
 from app.eval.model_ablation.ablation import _l2_normalize_rows, fetch_corpus
 from app.eval.model_ablation.encoders import get_sapbert_encoder
+from app.eval.question_gen.deterministic import build_deterministic_narrative
 from app.eval.retrieval_tuning.sweep import SweepQuestion
 from app.eval.unified_ablation.per_query import PerQueryResult
 from app.eval.unified_ablation.runner import sweep_questions
@@ -216,3 +218,43 @@ def test_multiple_questions_each_produce_their_own_full_row_set(store: QdrantVec
     )
     assert len(rows) == 32  # 16 rows x 2 questions
     assert {r.query_id for r in rows} == {"q1", "q2"}
+
+
+def test_stored_question_topic_is_used_for_both_level1_conditions(
+    store: QdrantVectorStore,
+) -> None:
+    """DEVIATIONS.md #208: a question seeded under an earlier topic is
+    rebuilt with THAT topic (the one its gold set was produced from), not
+    the current `auto_seed._TOPIC` -- and the all-assessed rebuild then
+    reproduces the stored text exactly."""
+    stored_text = build_deterministic_narrative(RECORD, topic="this newborn's presentation")
+    question = SweepQuestion(
+        question_id="q1",
+        text=stored_text,
+        gold_chunk_ids=frozenset({"gold-chunk"}),
+        source_record_id=RECORD_ID,
+    )
+    rows = _sweep(store, questions=[question], record_index={RECORD_ID: RECORD})
+    assert all(
+        r.query_text.startswith(
+            "What does the guideline recommend about this newborn's presentation based only on"
+        )
+        for r in rows
+        if r.level2_condition == "raw"
+    )
+    assert {
+        r.query_text
+        for r in rows
+        if r.level1_condition == "all_assessed" and r.level2_condition == "raw"
+    } == {stored_text}
+
+
+def test_unparseable_stored_text_falls_back_to_current_topic(store: QdrantVectorStore) -> None:
+    question = SweepQuestion(
+        question_id="q1",
+        text="ignored",
+        gold_chunk_ids=frozenset({"gold-chunk"}),
+        source_record_id=RECORD_ID,
+    )
+    rows = _sweep(store, questions=[question], record_index={RECORD_ID: RECORD})
+    assert all(f"recommend about {_TOPIC} based only on" in r.query_text for r in rows)

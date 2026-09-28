@@ -141,6 +141,56 @@ class Settings(BaseSettings):
     guidelines_allow_synthetic: bool = False  # opt-in CI-only synthetic fixture set
     ingest_min_parse_quality: float = 0.60  # below -> document badged + held for admin review
 
+    # ── layout-aware PDF ingestion (ARCH-044 / PRD-113 / LAYOUT-INGESTION-PROPOSAL.md) ──
+    # `layout` = Docling + pdfplumber + local OCR; `pypdf` = the original
+    # text-only path (also the automatic fallback if the layout parser fails).
+    ingest_parser: str = "pypdf"  # pypdf | layout
+    # OCR engine for the layout parser: rapidocr | easyocr | tesseract. Chosen
+    # by the side-by-side bake-off (proposal §5.1), never hardcoded in code.
+    ingest_ocr_engine: str = "rapidocr"
+    # Force full-page OCR when a page has fewer programmatic text characters
+    # than this (vector-outline text, e.g. Kenya MoH p. 48).
+    ingest_ocr_force_page_below_chars: int = 200
+    ingest_images_scale: float = 2.0  # crop render scale (small box text)
+    # Header/footer fallback (proposal §5.3): margin zone as a fraction of page
+    # height, repeat ratio across pages, and the minimum page count for the
+    # repeat rule to apply at all (short excerpts rely on labels + patterns).
+    ingest_margin_zone: float = 0.08
+    ingest_boilerplate_repeat_ratio: float = 0.5
+    ingest_boilerplate_min_pages: int = 3
+    # Tables above this approximate token count are split by row group with
+    # the header repeated (proposal §5.5).
+    ingest_table_max_tokens: int = 700
+    # Rendered figure/table crops for the reviewer UI (content-addressed PNGs).
+    ingest_crop_dir: str = "data/ingest_artifacts/crops"
+
+    # ── vision-LLM table transcription (ARCH-044 D12, LAYOUT-INGESTION-PROPOSAL.md §18) ──
+    # off | ocr_only. `ocr_only` re-transcribes tables whose cells came from
+    # OCR through the gateway's image endpoint; every such table is held for
+    # admin review. (`all` — cross-checking text-layer tables — is specified
+    # but not enabled.)
+    ingest_vlm_tables: str = "off"
+    vision_endpoint_path: str = "/generate-with-image"
+    # The model the gateway is EXPECTED to answer with (it picks the model
+    # server-side). The placeholder disables the path; any response from a
+    # different model is rejected (CLAUDE.md §3 rule 5).
+    vision_model_id: str = PLACEHOLDER_MODEL_ID
+    vision_model_id_verified: bool = False
+    ingest_vlm_crop_scale: float = 3.0
+    ingest_vlm_crop_pad_pt: float = 6.0
+    ingest_vlm_max_image_mb: float = 8.0
+    ingest_vlm_timeout_s: float = 300.0
+    ingest_vlm_max_retries: int = 2
+    ingest_vlm_cache_dir: str = "data/ingest_artifacts/vlm_cache"
+    ingest_vlm_refresh: bool = False  # true = ignore the cache and call again
+
+    @property
+    def vision_enabled(self) -> bool:
+        return self.ingest_vlm_tables == "ocr_only" and self.vision_model_id.strip() not in (
+            "",
+            PLACEHOLDER_MODEL_ID,
+        )
+
     # ── patient records (ARCH-039 / DEVIATIONS #30, #33, #34) ──
     patient_records_dir: str = "data/patient_records"
     record_domain: str = (

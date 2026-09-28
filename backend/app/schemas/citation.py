@@ -40,3 +40,28 @@ class Citation(BaseModel):
     quote: str
     quote_char_start: int = Field(ge=0)
     quote_char_end: int = Field(ge=0)
+
+    # Operator-attested corrections the quote overlaps (ARCH-044,
+    # LAYOUT-INGESTION-PROPOSAL.md §5.11): the source prints `original`, the
+    # stored (and quoted) text reads `corrected`. Always displayed with the
+    # citation; set by `app.citations.model.build_citation`, never by a model.
+    corrections: list[dict] = Field(default_factory=list)
+
+
+def correction_notice(correction: dict) -> str:
+    """The fixed wording shown wherever a corrected quote appears."""
+    return (
+        f"Corrected at ingestion by {correction.get('attested_by')} on "
+        f'{correction.get("attested_on")}. The source prints: "{correction.get("original")}"'
+    )
+
+
+def correction_notices(citations: list[Citation] | list[dict]) -> list[str]:
+    seen: list[str] = []
+    for c in citations:
+        corrections = c.get("corrections") or [] if isinstance(c, dict) else c.corrections
+        for corr in corrections:
+            notice = correction_notice(corr)
+            if notice not in seen:
+                seen.append(notice)
+    return seen

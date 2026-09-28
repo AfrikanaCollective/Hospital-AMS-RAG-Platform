@@ -29,6 +29,17 @@ class PageProvenanceError(ValueError):
     fails closed rather than ingesting with silently wrong page citations."""
 
 
+def load_manifest_entry(sample_guidelines_dir: str | Path, filename: str) -> dict | None:
+    """The whole manifest entry for `filename` (ARCH-038), or `None`. The layout
+    parser reads its per-document options from it (`text_corrections`,
+    `boilerplate_patterns`, `flowchart_attestations`, `source_pages`)."""
+    manifest_path = Path(sample_guidelines_dir) / "manifest.json"
+    if not manifest_path.exists():
+        return None
+    files = json.loads(manifest_path.read_text(encoding="utf-8")).get("files", {})
+    return files.get(filename)
+
+
 def load_source_pages(sample_guidelines_dir: str | Path, filename: str) -> list[int] | None:
     """`source_pages` for `filename` from `manifest.json`, or `None` if there
     is no manifest, no entry for this file, or the entry doesn't declare

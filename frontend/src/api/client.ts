@@ -6,6 +6,7 @@ import type {
   DevLoginResponse,
   EscalationDetail,
   EscalationSummary,
+  HeldChunk,
   HitlDecisionResponse,
   QueryJobAccepted,
   QueryJobStatus,
@@ -135,6 +136,26 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+
+  // Corpus review gate (ARCH-044): admin confirms or rejects held chunks.
+  getCorpusReviewQueue: () => req<HeldChunk[]>("/corpus/review-queue"),
+
+  reviewChunk: (chunkId: string, decision: "confirmed" | "rejected", note?: string) =>
+    req<HeldChunk>(`/corpus/chunks/${chunkId}/review`, {
+      method: "POST",
+      body: JSON.stringify({ decision, note: note || undefined }),
+    }),
+
+  // Crops need the bearer token, so they're fetched as a blob and shown via
+  // an object URL rather than a plain <img src>.
+  getCropObjectUrl: async (sha256: string): Promise<string> => {
+    const auth = getStoredAuth();
+    const res = await fetch(`${BASE}/corpus/crops/${sha256}.png`, {
+      headers: auth ? { Authorization: `Bearer ${auth.token}` } : {},
+    });
+    if (!res.ok) throw new ApiError(res.status, res.statusText);
+    return URL.createObjectURL(await res.blob());
+  },
 };
 
 export { ApiError };

@@ -77,6 +77,9 @@ services:
       # (ARCH-038: "the same directory an operator manually drops PDFs
       # into") and makes uploads survive a container recreate.
       - ./data/excerpt_guidelines:/app/data/excerpt_guidelines
+      # Figure/table crops written at ingestion for the reviewer UI
+      # (ARCH-044, INGEST_CROP_DIR); shared so `worker` writes what `api` serves.
+      - ./data/ingest_artifacts:/app/data/ingest_artifacts
       # Read-only: archival full-publication originals a source_pages excerpt
       # was pulled from (DEVIATIONS.md #167/#173). Never scanned by
       # scripts/prepare_sample_guidelines.py (which only walks
@@ -131,6 +134,9 @@ services:
       - hf-model-cache:/home/appuser/.cache/huggingface
       # Shared with `api` — see the matching comment there (DEVIATIONS.md #95).
       - ./data/excerpt_guidelines:/app/data/excerpt_guidelines
+      # Figure/table crops written at ingestion for the reviewer UI
+      # (ARCH-044, INGEST_CROP_DIR); shared so `worker` writes what `api` serves.
+      - ./data/ingest_artifacts:/app/data/ingest_artifacts
       - ./data/guideline_sources:/app/data/guideline_sources:ro
       - ./data/patient_records:/app/data/patient_records
       # Operator-editable clinical-concept vocabulary (SCOPE-2.6/ARCH-042,

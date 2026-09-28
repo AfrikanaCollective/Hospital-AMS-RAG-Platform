@@ -43,7 +43,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-from app.ingestion.pdf_parse import ParsedDocument
+from app.ingestion.pdf_parse import Block, ParsedDocument
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +90,13 @@ class _Chunk:
 
     def to_dict(self) -> dict:
         embedding_text = f"{self.section_path}\n\n{self.text}" if self.section_path else self.text
+        # Retrieval-only additions (table row renderings, flowchart path
+        # summaries — deterministic, never model-written). They help a query
+        # find the chunk; they are not citable (ARCH-044 text-provenance rule).
+        meta = dict(self.meta)
+        extra = meta.pop("embedding_extra", None)
+        if extra:
+            embedding_text = f"{embedding_text}\n\n{extra}"
         return {
             "ordinal": self.ordinal,
             "section_path": self.section_path,
@@ -104,7 +111,7 @@ class _Chunk:
             "figure_ref": self.figure_ref,
             "token_count": _approx_tokens(self.text),
             "parent_ordinal": self.parent_ordinal,
-            "meta": {**self.meta, "embedding_text": embedding_text},
+            "meta": {**meta, "embedding_text": embedding_text},
         }
 
 
@@ -368,9 +375,211 @@ def _chunk_section(
     return builder.ordinal
 
 
+def _block_provenance(blocks: list[Block]) -> dict:
+    """Chunk-level provenance summary + the OCR review gate (ARCH-044;
+    LAYOUT-INGESTION-PROPOSAL.md §3, §8). A chunk containing OCR text with
+    digits is held (`review_status = pending`) until an admin confirms it
+    against the page crop: OCR'd numbers (doses) are the highest-risk
+    extraction."""
+    origins = sorted({b.origin for b in blocks})
+    meta: dict[str, Any] = {"text_origins": origins}
+    ocr = [b.meta["ocr"] for b in blocks if b.meta.get("ocr")]
+    if ocr:
+        confs = [o["min_confidence"] for o in ocr if o.get("min_confidence") is not None]
+        meta["ocr"] = {
+            "min_confidence": min(confs) if confs else None,
+            "has_digits": any(o.get("has_digits") for o in ocr),
+        }
+        if meta["ocr"]["has_digits"]:
+            meta["review_status"] = "pending"
+            meta.setdefault("review_reasons", []).append("ocr_numeric")
+    # D12 (proposal §18.7): a vision-LLM transcription is always held until an
+    # admin confirms it against the crop, whether or not it agreed with OCR.
+    if any(b.origin == "vlm_transcription" for b in blocks):
+        meta["review_status"] = "pending"
+        meta.setdefault("review_reasons", []).append("vlm_transcription")
+        for b in blocks:
+            for key in ("vlm", "cell_diff", "ocr_alternative"):
+                if key in b.meta:
+                    meta[key] = b.meta[key]
+    corrections = [c for b in blocks for c in b.meta.get("corrections", [])]
+    if corrections:
+        meta["corrections"] = [
+            {k: v for k, v in c.items() if k not in ("start", "end")} for c in corrections
+        ]
+    return meta
+
+
+def _flowchart_path_summary(graph_meta: dict) -> str:
+    """Deterministic, retrieval-only walk of the verified edges, using each
+    node's first line ("Has ONE of the following —Yes→ Severe neonatal
+    sepsis"). Built from the graph, never by a model."""
+    first = {
+        n["id"]: n["text"].splitlines()[0] if n["text"] else n["id"] for n in graph_meta["nodes"]
+    }
+    lines = []
+    for e in graph_meta["edges"]:
+        if not e["verified"]:
+            continue
+        arrow = f" —{e['label']}→ " if e.get("label") else " → "
+        lines.append(f"{first[e['from']]}{arrow}{first[e['to']]}")
+    return "\n".join(lines)
+
+
+class _LayoutSectionBuilder(_SectionBuilder):
+    """Emits atomic table / flowchart / figure chunks from layout blocks
+    (ARCH §6 rules 3, 3b; ARCH-044), alongside the unchanged prose and
+    atomic-clause handling inherited from `_SectionBuilder`."""
+
+    def __init__(self, section: dict, chunks: list[_Chunk], start_ordinal: int) -> None:
+        super().__init__(section, chunks, start_ordinal)
+        self.prose_blocks: list[Block] = []
+
+    def flush_prose(self, doc: ParsedDocument) -> None:
+        blocks, self.prose_blocks = self.prose_blocks, []
+        for text, cstart, cend in _window_prose(self.prose_buffer):
+            covered = [b for b in blocks if b.char_start < cend and cstart < b.char_end]
+            self._emit(
+                chunk_type="prose",
+                text=text,
+                char_start=cstart,
+                char_end=cend,
+                page_start=doc.page_for_offset(cstart),
+                page_end=doc.page_for_offset(max(cend - 1, cstart)),
+                parent_ordinal=self.section_first_ordinal,
+                meta=_block_provenance(covered or blocks),
+            )
+        self.prose_buffer = []
+
+    def _anchor(self) -> int | None:
+        return (
+            self.open_step_ordinal
+            if self.open_step_ordinal is not None
+            else self.section_first_ordinal
+        )
+
+    def emit_block(self, block: Block, doc: ParsedDocument) -> None:
+        text = doc.normalized_text[block.char_start : block.char_end]
+        page = doc.page_for_offset(block.char_start)
+        base = _block_provenance([block])
+        figure_ref = None
+        if block.meta.get("figure_ref"):
+            figure_ref = {"page": page, **block.meta["figure_ref"]}
+        if block.kind == "table":
+            heading = self.section.get("heading") or ""
+            is_criteria = "criteria" in heading.lower()
+            parts = block.meta.get("table_parts") or [text]
+            split_group_id = (
+                hashlib.sha256(text.encode("utf-8")).hexdigest()[:16] if len(parts) > 1 else None
+            )
+            cursor = block.char_start
+            for i, part in enumerate(parts):
+                start = doc.normalized_text.index(part, cursor)
+                end = start + len(part)
+                meta = dict(base)
+                meta["embedding_extra"] = (
+                    "\n".join(block.meta.get("row_texts", [])) if i == 0 else None
+                )
+                if split_group_id:
+                    meta.update(split_group_id=split_group_id, table_part=i)
+                if is_criteria:
+                    meta["criteria"] = _extract_criteria(part)
+                if block.meta.get("caption"):
+                    meta["caption"] = block.meta["caption"]
+                self._emit(
+                    chunk_type="criteria" if is_criteria else "table",
+                    text=part,
+                    char_start=start,
+                    char_end=end,
+                    page_start=page,
+                    page_end=doc.page_for_offset(max(end - 1, start)),
+                    parent_ordinal=self._anchor(),
+                    meta=meta,
+                    figure_ref=figure_ref if i == 0 else None,
+                )
+                cursor = end
+            return
+        if block.kind == "flowchart":
+            graph = block.meta["flowchart"]
+            meta = {
+                **base,
+                "flowchart": graph,
+                "embedding_extra": _flowchart_path_summary(graph),
+            }
+            if block.meta.get("caption"):
+                meta["caption"] = block.meta["caption"]
+            self._emit(
+                chunk_type="flowchart",
+                text=text,
+                char_start=block.char_start,
+                char_end=block.char_end,
+                page_start=page,
+                page_end=doc.page_for_offset(max(block.char_end - 1, block.char_start)),
+                parent_ordinal=self._anchor(),
+                meta=meta,
+                figure_ref=figure_ref,
+            )
+            return
+        # figure
+        meta = {**base, "has_embedded_text": bool(block.meta.get("has_embedded_text"))}
+        self._emit(
+            chunk_type="figure",
+            text=text,
+            char_start=block.char_start,
+            char_end=block.char_end,
+            page_start=page,
+            page_end=page,
+            parent_ordinal=self._anchor(),
+            meta=meta,
+            figure_ref=figure_ref,
+        )
+
+
+_ATOMIC_BLOCK_KINDS = frozenset({"table", "flowchart", "figure"})
+
+
+def _chunk_section_layout(
+    section: dict,
+    doc: ParsedDocument,
+    format_profile: str,
+    chunks: list[_Chunk],
+    start_ordinal: int,
+) -> int:
+    assert doc.blocks is not None
+    builder = _LayoutSectionBuilder(section, chunks, start_ordinal)
+    for block in doc.blocks:
+        if block.char_start < section["char_start"] or block.char_start >= section["char_end"]:
+            continue
+        if block.kind == "heading":
+            continue  # the section's own heading line: carried as section_path/heading
+        if block.kind in _ATOMIC_BLOCK_KINDS:
+            builder.flush_prose(doc)
+            builder.emit_block(block, doc)
+            continue
+        para = doc.normalized_text[block.char_start : block.char_end]
+        chunk_type = _atomic_chunk_type(para, format_profile)
+        if chunk_type is not None:
+            builder.flush_prose(doc)
+            before = len(chunks)
+            builder.emit_atomic_clause(
+                para, block.char_start, block.char_end, doc, chunk_type=chunk_type
+            )
+            for c in chunks[before:]:
+                c.meta.update(_block_provenance([block]))
+            continue
+        builder.prose_buffer.append((para, block.char_start, block.char_end))
+        builder.prose_blocks.append(block)
+    builder.flush_prose(doc)
+    return builder.ordinal
+
+
 def chunk_document(doc: ParsedDocument, *, format_profile: str = "narrative") -> list[dict]:
     chunks: list[_Chunk] = []
     ordinal = 0
+    if doc.blocks is not None:
+        for section in doc.sections:
+            ordinal = _chunk_section_layout(section, doc, format_profile, chunks, ordinal)
+        return [c.to_dict() for c in sorted(chunks, key=lambda c: c.ordinal)]
     sections = doc.sections or [
         {
             "number": None,

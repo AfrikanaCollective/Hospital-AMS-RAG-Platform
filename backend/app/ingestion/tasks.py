@@ -19,6 +19,15 @@ own page numbers are remapped to the true source pages before chunking, so
 real document's pagination, not the extract's own 1..N. See
 `app.ingestion.page_provenance`.
 
+**Parser selection (ARCH-044, PRD-113):** `INGEST_PARSER=layout` uses the
+layout-aware parser (`app.ingestion.layout.pipeline.parse_with_layout`:
+Docling + pdfplumber + local OCR, with the manifest's `text_corrections`,
+`boilerplate_patterns` and `flowchart_attestations`); the default `pypdf`
+keeps the original text-only path. Either way, a document whose
+`parse_quality` is below `INGEST_MIN_PARSE_QUALITY` has every chunk held for
+admin review (`app.ingestion.review`), which ARCH §5.1 always specified but
+nothing enforced before (DEVIATIONS.md #215).
+
 `process_record_batch` (async ingestion of a large record batch) and
 `reembed_corpus` (full corpus re-embed on an `EMBEDDING_MODEL_ID` change)
 remain unimplemented — DEVIATIONS.md #60: both need infrastructure ARCH
@@ -40,8 +49,14 @@ from app.db.session import session_scope
 from app.ingestion.chunk_persistence import persist_chunks
 from app.ingestion.chunking import chunk_document
 from app.ingestion.embed import embed_texts
-from app.ingestion.page_provenance import apply_source_pages, load_source_pages
+from app.ingestion.layout.pipeline import parse_with_layout
+from app.ingestion.page_provenance import (
+    apply_source_pages,
+    load_manifest_entry,
+    load_source_pages,
+)
 from app.ingestion.pdf_parse import parse_document
+from app.ingestion.review import hold_low_quality_chunks
 from app.retrieval.vectorstore import QdrantVectorStore, VectorStore
 from app.worker import celery_app
 
@@ -70,23 +85,30 @@ def _run_process_document(
     if document is None or not document.source_uri:
         raise ValueError(f"document {version.document_id} has no source_uri to parse")
 
-    parsed = parse_document(document.source_uri)
-    source_pages = load_source_pages(
-        get_settings().sample_guidelines_dir, Path(document.source_uri).name
-    )
+    settings = get_settings()
+    filename = Path(document.source_uri).name
+    if settings.ingest_parser == "layout":
+        manifest_entry = load_manifest_entry(settings.sample_guidelines_dir, filename)
+        parsed = parse_with_layout(document.source_uri, manifest_entry)
+    else:
+        parsed = parse_document(document.source_uri)
+    source_pages = load_source_pages(settings.sample_guidelines_dir, filename)
     if source_pages is not None:
         apply_source_pages(parsed, source_pages)
     version.page_count = parsed.page_count
     version.parse_quality = parsed.parse_quality
+    version.parser_version = parsed.parser_version or "pypdf"
+    version.parse_report = parsed.parse_report or None
 
     format_profile = version.format_profile or "narrative"
     chunk_dicts = chunk_document(parsed, format_profile=format_profile)
+    hold_low_quality_chunks(chunk_dicts, parsed.parse_quality, settings.ingest_min_parse_quality)
 
     store = vectorstore or _default_vectorstore()
     dense_dim = len(embed_texts(["dimension probe"])[0])
     store.ensure_collection(dense_dim=dense_dim)
 
-    return persist_chunks(
+    rows = persist_chunks(
         session,
         store,
         document_version_id=version.id,
@@ -97,6 +119,13 @@ def _run_process_document(
         chunk_dicts=chunk_dicts,
         document_topic_tags=topic_tags or [],
     )
+    # A new version may have superseded an older one (ARCH §5.1 step 6).
+    # Retrieval filters on the Qdrant payload, which supersession never
+    # updated before (DEVIATIONS.md #215), so push the status there too.
+    superseded_id = getattr(version, "supersedes_id", None)
+    if superseded_id is not None:
+        store.set_payload_by_version(str(superseded_id), {"status": "superseded"})
+    return rows
 
 
 @celery_app.task(name="ingestion.process_document")

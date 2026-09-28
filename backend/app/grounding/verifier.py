@@ -30,6 +30,7 @@ from dataclasses import dataclass, field
 from app.citations.model import build_citation, find_verbatim_quote
 from app.config import get_settings
 from app.grounding.wording import scan_segment
+from app.ingestion.review import NOT_RETRIEVABLE
 from app.schemas.citation import Citation
 from app.schemas.enums import GroundingVerdict, SegmentType
 
@@ -73,7 +74,8 @@ _STOPWORDS = frozenset(
 class SegmentVerdict:
     segment_index: int
     verdict: GroundingVerdict
-    # reason: citation_not_retrieved | quote_mismatch | not_entailed | scope_violation
+    # reason: citation_not_retrieved | quote_mismatch | chunk_under_review |
+    # not_entailed | scope_violation
     reason: str | None = None
     # For a SUPPORTED/WEAK claim segment (DEVIATIONS.md #107): the subset of
     # the segment's own citation_ids whose chunk actually contains the quote
@@ -157,6 +159,26 @@ def _verify_framing_segment(idx: int, seg: dict) -> SegmentVerdict:
     return SegmentVerdict(idx, GroundingVerdict.SUPPORTED, None)
 
 
+def _under_review(chunk: dict | None) -> bool:
+    if not chunk:
+        return False
+    return (chunk.get("meta") or {}).get("review_status") in NOT_RETRIEVABLE
+
+
+def _weak_support_only(chunk: dict | None) -> bool:
+    """A chunk that can't be a claim's sole full support (ARCH §8.3 rule 5):
+    a figure with no text layer or OCR text, or a flowchart whose edges are
+    not all verified."""
+    if not chunk:
+        return True
+    meta = chunk.get("meta") or {}
+    if chunk.get("chunk_type") == "figure":
+        return not meta.get("has_embedded_text", False)
+    if chunk.get("chunk_type") == "flowchart":
+        return (meta.get("flowchart") or {}).get("verification") != "verified"
+    return False
+
+
 def _verify_claim_segment(
     idx: int,
     seg: dict,
@@ -179,13 +201,25 @@ def _verify_claim_segment(
         for cid, c in zip(citation_ids, chunks, strict=True)
         if c and quote and find_verbatim_quote(quote, c.get("text", ""))
     ]
+    # Defence in depth (ARCH-044): a chunk held for review (OCR'd numbers,
+    # low parse quality) or rejected by a reviewer is excluded from retrieval
+    # and so should never be here — but if it is, it can't support a claim.
+    by_cid = dict(zip(citation_ids, chunks, strict=True))
+    held = [cid for cid in verified_ids if _under_review(by_cid[cid])]
+    verified_ids = [cid for cid in verified_ids if cid not in held]
     if not verified_ids:
-        return SegmentVerdict(idx, GroundingVerdict.UNSUPPORTED, "quote_mismatch")
+        reason = "chunk_under_review" if held else "quote_mismatch"
+        return SegmentVerdict(idx, GroundingVerdict.UNSUPPORTED, reason)
 
     if scan_segment(text, cited_quotes=[quote]):
         return SegmentVerdict(idx, GroundingVerdict.UNSUPPORTED, "scope_violation")
 
     verdict = _entailment_verdict(text, quote, mode=mode, entailment_fn=entailment_fn)
+    # ARCH §8.3 rule 5 (+ ARCH-044): when every chunk supporting the claim is
+    # a caption-only figure or a flowchart whose structure isn't verified,
+    # the claim is at most `weak` and never released as fully supported.
+    if verdict == "yes" and all(_weak_support_only(by_cid[cid]) for cid in verified_ids):
+        verdict = "partly"
     if verdict == "no":
         return SegmentVerdict(idx, GroundingVerdict.UNSUPPORTED, "not_entailed")
     if verdict == "partly":

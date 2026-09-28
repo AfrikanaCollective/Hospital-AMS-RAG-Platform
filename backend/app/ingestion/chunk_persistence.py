@@ -102,6 +102,9 @@ def persist_chunks(
                     "version_label": version_label,
                     "effective_date": effective_date.isoformat() if effective_date else None,
                     "status": "active",
+                    # `pending`/`rejected` chunks are excluded from retrieval
+                    # (ARCH-044, app.ingestion.review); absent = no review needed.
+                    "review_status": row.meta.get("review_status"),
                     "chunk_type": row.chunk_type,
                     "topic_tags": topic_tags,
                     "heading": row.heading,

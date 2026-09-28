@@ -27,6 +27,7 @@ from app.agents.state import RetrievalItem
 from app.audit.log import write_event
 from app.config import get_settings
 from app.ingestion.embed import embed_texts
+from app.ingestion.review import NOT_RETRIEVABLE
 from app.retrieval.confidence import assess
 from app.retrieval.conflict import detect_conflicts
 from app.retrieval.rerank import rerank
@@ -133,6 +134,7 @@ def retrieve(
 
     flt = dict(access_filter or {})
     flt.setdefault("status", "active")
+    flt.setdefault("exclude_review_status", list(NOT_RETRIEVABLE))
 
     candidates = store.hybrid_search(
         dense=dense,

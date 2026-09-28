@@ -2266,3 +2266,94 @@ not retroactively. When in doubt, log it.
   - **Deterministic scope limit:** the numeric and unit tokens must be unchanged as a multiset, and any new word must come from a relational/function-word allowlist. This keeps errata from becoming a route to local guidance changes. **Recorded here as the line between an erratum and SCOPE-2.4:** SCOPE-2.4 adapts guidance to local constraints not in the source; an erratum restores the source's evident intent within those token limits, with a named clinician attester and evidence.
   - Correcting the text is a clinical judgment, so the manifest entry requires a clinician attester, a rationale and evidence. The operator's proposed wording has **not** been verified here against another statement in the same protocol or a corrigendum; the `evidence` field is left for the attester.
 - **Reversible?:** yes (proposal text only).
+
+### 215. Layout-aware ingestion implemented (Phase 9, sub-phases 9a + 9b): judgment calls, gaps found and fixed, OCR engine bake-off
+- **Date / phase:** 2026-09-28, Phase 9. Operator: "implement LAYOUT-INGESTION-PROPOSAL.md proposals". Operator decisions, asked before starting: **9a + 9b in one pass** (treated as approval of both checkpoints; 9c, the vision-model path, not built), **re-ingest + map gold ids**, **admin role** reviews held chunks, OCR engine chosen **side by side** (then: **RapidOCR**), the p. 47 temperature correction **skipped for now** (no attester given; the printed wording is ingested verbatim).
+- **Requirement ID(s):** PRD-113, ARCH-044; ARCH-013 (§6), ARCH-014 (§8.1), ARCH-015 (§8.3), ARCH-038 (manifest), ARCH §5.1.
+- **What was built:**
+  - `app/ingestion/layout/`: `model.py` (parser-independent layout dataclasses, JSON round-trip), `docling_adapter.py` (the only module importing Docling/pdfplumber), `boilerplate.py`, `headings.py`, `tables.py`, `flowchart.py` (path A: geometry), `assemble.py` (blocks -> normalized text -> sections), `pipeline.py` (manifest options, pypdf fallback, crop store). Also `app/ingestion/corrections.py` (attested errata), `app/ingestion/review.py` (review gate), `app/ingestion/lineage.py` (old -> new chunk mapping).
+  - Chunking: a layout-block path in `chunking.py` (atomic `table`/`flowchart`/`figure` chunks, chunk-level provenance, the OCR hold). Grounding: review guard and figure/flowchart support cap in `verifier.py`. Citations: `corrections` field and fixed correction notices on `QueryResponse` and the final answer.
+  - API: `GET /corpus/review-queue`, `POST /corpus/chunks/{id}/review`, `GET /corpus/crops/{sha}.png` (admin; crops for all corpus readers). Frontend: correction marker on citations, answer notices, admin **Corpus review** page.
+  - Migration `c3a1f9d2e7b4`: `document_version.parser_version` / `parse_report`, `corpus.chunk_lineage`. Scripts: `fetch_layout_models`, `reingest_layout`. Config: `INGEST_PARSER` (code default `pypdf`, `.env.example` and this deployment's `.env` set `layout`), `INGEST_OCR_ENGINE`, margin/repeat/min-pages, table cap, crop dir.
+  - Build: `requirements-layout.txt` (the extra's pinned closure, installed `--no-deps` after the lock; it resolved against the lock without moving any locked version). Compose mounts `./data/ingest_artifacts` into `api` and `worker`.
+- **Gaps found in existing code and fixed (needed for re-ingestion to be safe):**
+  1. **Supersession and withdrawal never reached Qdrant.** Retrieval filters on the Qdrant `status` payload, but `create_or_supersede_document_version` and `withdraw_version` changed Postgres only, so superseded or withdrawn chunks stayed retrievable. Re-ingestion would have doubled every document in retrieval. Fixed: the task pushes `superseded` to the prior version's points, and withdrawal pushes `withdrawn` (`VectorStore.set_payload_by_version`). The model ablation's `fetch_corpus` also scrolled the whole collection and now takes only active, retrievable chunks.
+  2. **The `INGEST_MIN_PARSE_QUALITY` hold (ARCH §5.1) was documented but never enforced.** Now every chunk of a document below the threshold is held (`review_status = pending`) and excluded from retrieval until reviewed.
+  3. **ARCH §8.3 rule 5 (figure support cap) was not implemented** (found while drafting #213). It now caps caption-only figures and flowcharts whose edges aren't all verified at `weak`.
+- **Judgment calls (flag for review):**
+  - **Chunk-level rather than span-level provenance.** The proposal (§3, §6.2) described per-span origins. Prose windows carry an overlap prefix whose offsets are approximate (DEVIATIONS #47), which makes span offsets unreliable. Each chunk therefore records `text_origins`, `ocr {min_confidence, has_digits}` and `corrections`, and the gates act on the whole chunk: any OCR digits hold the whole chunk. This is stricter, not looser.
+  - **Flowchart reviewer confirmation goes through the manifest** (`flowchart_attestations`), not the review endpoint. A confirmed edge changes the chunk's citable text, which must stay consistent with offsets and embeddings, so it is applied on re-ingest, like `text_corrections`. The review endpoint confirms or rejects whole held chunks.
+  - **Table image cells (`[image]` token) are not implemented.** Docling doesn't identify image cells, and the vision path (9c) that would describe them wasn't built.
+  - **Table title rule:** a first-row header cell spanning ≥ 60% of the columns is the table's title line. TableFormer split Kenya p. 48's full-width title unevenly (6 of 8 columns).
+  - **OCR language:** Docling's defaults are multi-language (fr/de/es/en). The manifest `language` (default `en`) is mapped per engine; Tesseract failed outright without this. RapidOCR is left on its default `ch` model, which reads Latin script well.
+  - **`parse_quality` for the layout path:** `0.6 + 0.4 × mean OCR confidence`, minus 0.3 × the share of pages without text and 0.1 × the share of unverified flowcharts. The pypdf fallback is capped at 0.5 so it is always held.
+  - **Unlabelled flowcharts:** ≥ 3 text-bearing stroked boxes joined by connectors, not already inside a picture or table, are promoted to a flowchart region.
+  - **Crop directory permissions:** `chmod -R a+rwX data/ingest_artifacts` on the host (container uid 10001, host uid 1000), the same dev-only fix as #95.
+- **OCR bake-off (Kenya p. 48, all OCR; operator chose RapidOCR):**
+  - RapidOCR got all 96 table body numbers and every number in the notes right, 14 s. Header misreads remain: "Weight ()" lost "kg", and "1.V" appears for "I.V".
+  - Tesseract got the table body right, but two whole notes were missing (Amoxycillin dosing; the first Metronidazole note), with checkmarks read as "v"/"AN" and stray "/" in headers, 9 s.
+  - EasyOCR missed three Gentamycin cells, garbled note numbers ("sOmg", "1Omg", "S0mg") and dropped the "<" from "< 7days", which changes the meaning, 19 s.
+  - EasyOCR and Tesseract were installed only inside the running container for the bake-off and were not added to the image.
+  - Ground truth was checked against a 220-dpi render. My own earlier 80-dpi reading of one cell was wrong and the engines were right, which is itself evidence for the human review gate.
+- **Also observed:** the image build segfaulted once (pip, exit 139, while checking conflicts on the unchanged lock step) and succeeded on retry. This is the same class of intermittent native crash as #203, not root-caused. One early in-container run hit an `IndexError` inside the layout step that three later runs didn't reproduce; the fallback handled it as designed.
+- **Verified:** the full backend suite passes (778 tests, including 45 new ones in `test_layout_flowchart.py`, `test_layout_components.py`, `test_layout_pipeline.py`, `test_corpus_review.py`, all on synthetic fixtures with no real guideline text). ruff is clean. mypy is clean on changed modules (the remaining errors are in untouched modules). Frontend `tsc` and eslint are clean. An in-container end-to-end run on the Kenya excerpt gave both p. 48 tables as held OCR chunks, the p. 47 flowchart as one verified 6-node/5-edge chunk, all six header/footer instances dropped, and every chunk an exact slice of the normalized text.
+- **Reversible?:** yes. Set `INGEST_PARSER=pypdf`. Superseded pypdf versions are still in Postgres and Qdrant, and #216 records how to revert their status.
+
+### 216. Corpus re-ingested with the layout parser; gold ids remapped (lineage rule corrected twice before use); ablation re-run on the new corpus
+- **Date / phase:** 2026-09-28, Phase 9 (operator decision §14.3: "re-ingest + map gold ids").
+- **Requirement ID(s):** PRD-113, ARCH-044, PRD-112 / ARCH-043.
+- **Re-ingest** (`scripts/reingest_layout.py`, RapidOCR, `INGEST_PARSER=layout`): all 5 manifest documents got a new layout-parsed version, and each prior pypdf version is `superseded` in both Postgres and Qdrant.
+
+  | Document | Chunks (pypdf → layout) | Held | parse_quality |
+  |---|---|---|---|
+  | WHO SBI pp. 16–20 | 10 → 13 | 0 | 1.0 |
+  | WHO SBI pp. 76–77 | 1 → 6 | 0 | 1.0 |
+  | Kenya MoH pp. 47–48 | 2 → 7 | 4 (p. 48 OCR) | 0.995 |
+  | MoH National Antibiotic Use Guidelines | 144 → 211 | 4 | 0.99 |
+  | NICE NG195 | 154 → 186 | 0 | 1.0 |
+
+  Retrieval now sees 415 of 734 Qdrant points: 423 active minus 8 held, with 311 superseded. No retrievable chunk contains the NICE or Kenya running header/footer, and no active chunk has the NG195 mid-sentence heading. The active corpus has 66 `table`, 1 `flowchart` (Kenya p. 47, verified) and 14 `figure` chunks.
+- **Lineage rule, corrected before any result used it:**
+  - **`word_containment_v1`** (all words ≥ 2 characters, greedy cover to 80%, as first implemented) over-linked. Shared function words ("the/with/and") gave most chunk pairs about 20% containment, so ~70 old chunks linked to 6–18 new ones and the mean gold set grew from 1.80 to 7.54. An ablation run on that gold (`20260928T070240Z-9020ca38`) is **invalid**. Its directory is kept only as evidence of the defect, and its numbers must not be used.
+  - **`content_word_containment_v2`**, replacing v1:
+    - only content words count (≥ 3 characters, minus a function-word list);
+    - the best new chunk is linked if it holds ≥ 30% of the old chunk's content words, with ties going to the highest Jaccard (most specific) match;
+    - a further new chunk is linked only if it is a **piece** of the old chunk: it holds ≥ 20% of the old chunk's words, ≥ 60% of its own words come from the old chunk, and the old chunk has ≥ 8 content words.
+    - The reverse-containment and minimum-words conditions were added after an intermediate v2 still linked short domain-vocabulary chunks ("…early-onset neonatal infection… babies in neonatal units") to up to 95 new chunks. Those intermediate rows were deleted before use.
+  - **Final result:** 304 old chunks; 220 map to exactly one new chunk and the rest to at most 7.
+  - `--remap-from` rebuilt the lineage and remapped gold **from the saved pre-remap originals** (`data/ingest_artifacts/gold_remap_20260928T070202Z.json`), never from already-remapped gold. v1 lineage rows are kept in `corpus.chunk_lineage` as history (`method` column); only v2 rows drive gold.
+  - Regression tests were added for both failure modes.
+- **Gold after the remap:** 1,422 questions remapped. The mean gold set went from 1.80 to 2.87 chunks, because large pypdf windows really did split into several layout chunks. 15 questions now have no gold (e.g. gold was the Kenya p. 48 header/footer-only chunk the new parser drops), so the calibration pool is 1,405.
+- **Ablation re-run** (`20260928T071358Z-d18a9400`, 1,405 questions, same vocabulary hash `c7652305…`):
+  - **Recall@12 is not comparable across corpora.** A question whose single old gold chunk became three new gold chunks needs all three in the top 12, so Recall@12 fell mechanically, e.g. all_assessed/raw at w=0.0 went 0.850 → 0.497.
+  - **Hit@12 (any gold chunk in the top 12) is the comparable measure.** It **improved** in every arm that uses SapBERT: 0.92–0.95 → 0.97–0.98 at w ≤ 0.8.
+  - **Pure BM25 (w=1.0) changed in both directions.** all_assessed/raw went 0.557 → 0.907, present_only/enriched 0.229 → 0.043, present_only/raw 0.106 → 0.085.
+  - **Headline deltas (Recall@12):** Level 1 −0.047; Level 2 +0.016 (present_only), −0.007 (all_assessed); Level 3 endpoints −0.038 to −0.534.
+  - These deltas describe the new corpus and gold. They are not a like-for-like continuation of `20260928T041704Z-4f9a3403`.
+- **Not done / flagged:**
+  1. **The 8 held chunks are waiting for admin review.** They are the Kenya p. 48 dose tables and notes plus 4 OCR chunks in the MoH guidelines, and until confirmed on `/corpus-review` they are neither retrievable nor usable as gold.
+  2. **Chunk-id gold is fragile under re-chunking.** A remap can only approximate "the passage the pipeline cited". Regenerating the auto-seeded pools against the new corpus (the other §14.3 option) would give clean gold.
+  3. **The p. 47 temperature correction is still unattested** (#215).
+- **Reversible?:** yes. Set the pypdf versions back to `active` and the layout versions to `superseded` (Postgres + `set_payload_by_version`), and restore gold from the backup JSON.
+
+### 217. 9c re-specified as vision-LLM table transcription via the gateway's image endpoint; proposes amending the text-provenance rule (D3 → D12) — not implemented
+- **Date / phase:** 2026-09-28, Phase 9 (proposal only). Operator: tabular data can be extracted with vision LLMs rather than OCR, through the gateway's image endpoint; "Specify mechanism to ingest the pdf tables using the LLM". The operator supplied the gateway's `app.py` source.
+- **Requirement ID(s):** PRD-113, ARCH-044 (proposed amendment).
+- **What was done:** `LAYOUT-INGESTION-PROPOSAL.md` §18 (+ D12, and a status header corrected to say 9a/9b are implemented). No code changed.
+- **Judgment calls flagged for approval:**
+  - **D12 amends D3.** A model *transcription* of printed table content (origin `vlm_transcription`) may become citable, but only after deterministic cross-checks and admin confirmation against the crop. Every such chunk is always held regardless of agreement. A real text layer is never overridden. Numeric disagreements with OCR always go to a human. Model *interpretation* stays never citable. This is a change to a safety-relevant rule, so it is proposed, not adopted.
+  - **Endpoint path.** The message said `POST /generate_with_image`; the supplied source serves `/generate-with-image` (and lists `/v1/generate-with-image`). The path is made config (`VISION_ENDPOINT_PATH`) and must be confirmed against the running gateway. A read-only `GET /` / `/health` check couldn't be run this session: the tool-permission check was unavailable.
+  - **Model identity.** The endpoint picks its model server-side (no `model` field), so `VISION_MODEL_ID` is the *expected* model. The placeholder disables the path, and any response whose `model` differs is rejected (CLAUDE.md §3 rule 5).
+  - **The gateway's JSON post-processing** unwraps a top-level `"response"` key and otherwise may return a string, dict or list. The client handles all three, and the transcription schema avoids a top-level `response` key.
+  - **Reproducibility.** The endpoint exposes no temperature or seed, so transcriptions are cached by crop hash + prompt version and reused on re-ingestion.
+- **Reversible?:** yes (proposal text only).
+
+### 218. Gateway image endpoint confirmed; raster-flowchart vision path out of scope
+- **Date / phase:** 2026-09-28, Phase 9 (proposal only; follows #217). Operator confirmed with a live `curl` that `POST https://localhost:8443/generate-with-image` (Bearer key, multipart `image` + `prompt`) works, and put raster flowcharts via the vision model out of scope ("this spec covers tables only").
+- **Requirement ID(s):** PRD-113, ARCH-044.
+- **Recorded (contract facts only).** The test image and the model's description of it are not reproduced anywhere in the repo: the image appeared to be a clinical form, and its content is patient-level data.
+  - The response reported `model: "qwen3.6:35b"`, the same as `MODEL_ID` (#103), from backend `ollama-secondary-1`, `done_reason: "stop"`, in about 15 s.
+  - `response` was a plain-text/Markdown string, not JSON. Given an open prompt, the model added headings, emoji, expanded abbreviations and a "clinical interpretation" absent from the image. That is direct evidence for the §18.5 rule that only strict-schema JSON is accepted and nothing interpretive is ever citable.
+- **Judgment call:** `VISION_MODEL_ID=qwen3.6:35b` with `VISION_MODEL_ID_VERIFIED=true`, on the gateway's own response, the same standard #103 applied to `MODEL_ID`. The per-response model check stays, because the gateway fails over between backends.
+- **Still open:** D12 approval and scope (`ocr_only` vs `all`). Nothing is implemented.
+- **Reversible?:** yes (proposal text only).

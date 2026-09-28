@@ -31,6 +31,7 @@ evaluation workflow.
 | **6** | Hybrid retrieval weight & depth calibration | ✅ complete (Checkpoint 6 approved 2026-09-17, see [PHASE6-PROPOSAL.md](PHASE6-PROPOSAL.md)) |
 | **7** | Single-stage vs. multi-step orchestration ablation | ✅ implemented + run live (Checkpoint 7 approved 2026-09-19, see [PHASE7-PROPOSAL.md](PHASE7-PROPOSAL.md)); real result inconclusive on this deployment's data — see DEVIATIONS #150 |
 | **8** | Unified hierarchical (Level 1 × 2 × 3) ablation, superseding Phases 6/7's separate tools; Level 3 restructured (2026-09-23) to a single BM25/SapBERT weighted-rank sweep, MedCPT/RRF dropped, primary metric Recall@K; every delta now carries a bootstrap p-value, plus a full Recall@k×weight grid and a post-hoc best-weight-vs-BM25 test (DEVIATIONS #202) | ✅ implemented + run live (approved via [UNIFIED-ABLATION-PROPOSAL.md](UNIFIED-ABLATION-PROPOSAL.md); offline-verified + live-smoke-tested against the real corpus after both the restructure and the statistics extension — see DEVIATIONS #192–#202); **full-scale re-run complete (2026-09-25, `results/ablation/20260925T064650Z-81570c93/`, 1,589 real calibration questions, 699,160 rows)** — the ablation-holdout pool tops out at 1,992/2,500 (a genuine diversity-filter saturation wall, not a transient failure) and the operator accepted this run as final rather than relaxing the filter (DEVIATIONS #203–#205); Level 3 grid reduced to 6 weights {0.0, 0.2, …, 1.0} on 2026-09-25 and this run's summary + figures re-derived at that grid (DEVIATIONS #207) |
+| **9** | Layout-aware guideline ingestion (`PRD-113` / `ARCH-044`): Docling + pdfplumber + local RapidOCR, header/footer removal, font-fused headings, cell-structured tables, flowchart decision logic from vector geometry, attested text corrections, admin review gate for OCR'd numbers, corpus re-ingested with gold-id remap | ✅ 9a + 9b implemented (approved 2026-09-28, see [LAYOUT-INGESTION-PROPOSAL.md](LAYOUT-INGESTION-PROPOSAL.md); DEVIATIONS #213-#216); 9c (vision model) not built — gateway image support unverified |
 
 Phase 1 delivers a **navigable skeleton**: folder structure, stub modules,
 data models, database schema (28 tables across 7 Postgres schemas, including
@@ -1167,6 +1168,34 @@ now writes `configuration.json`, `per_query_results.jsonl` and
 `scripts/plot_*` scripts. PNGs already in existing run directories are
 left in place (`DEVIATIONS.md` #212).
 
+**Layout-aware guideline ingestion (Phase 9, 2026-09-28).** Guideline PDFs
+are now parsed with Docling (layout labels, reading order, TableFormer
+cells, crops) plus pdfplumber (fonts, positions, vector drawings) and local
+RapidOCR (`app/ingestion/layout/`, `INGEST_PARSER=layout`). Running headers
+and footers are dropped before chunking. Heading levels come from numbering,
+structure and font, with a guard against headings that end mid-sentence.
+Tables are built from cells, with flattened header paths. A vector
+flowchart's boxes, arrows and Yes/No labels become one `flowchart` chunk
+whose verified edges are citable (`[n1] → Yes → [n2]`). Only source text is
+citable; model-generated text never is. Chunks containing OCR'd numbers are
+held until an admin confirms them on the new **Corpus review** page
+(`/corpus-review`), and so is every chunk of a low-parse-quality document.
+Evident source errors can be fixed only through an attested manifest
+`text_corrections` entry, which is shown on every citation. Supersession and
+withdrawal now also update Qdrant, so superseded chunks leave retrieval,
+which they didn't before. The corpus was re-ingested with the layout parser
+(`make reingest-layout`) and eval gold ids remapped through
+`corpus.chunk_lineage`. Design: [LAYOUT-INGESTION-PROPOSAL.md](LAYOUT-INGESTION-PROPOSAL.md).
+Re-ingest result: 5 documents; retrieval now sees 415 chunks (8 held for
+review, 311 superseded excluded). Gold ids were remapped through
+content-word lineage (mean 1.80 → 2.87 chunks per question, because large
+pypdf windows split; pool 1,405). Ablation re-run
+`20260928T071358Z-d18a9400`: Hit@12 improved to 0.97–0.98 in every
+SapBERT-bearing arm. Recall@12 is not comparable with earlier runs because
+the gold sets grew. An earlier run, `20260928T070240Z-9020ca38`, used an
+over-linking lineage rule and is invalid.
+Full account in `DEVIATIONS.md` #215-#216.
+
 ### Repository layout
 
 ```
@@ -1184,7 +1213,9 @@ backend/
     retrieval/      vectorstore adapter, hybrid, rerank, confidence, conflict
     grounding/      segmentation, grounding gate, wording filter
     citations/      citation object build + re-verification
-    ingestion/      pdf parse, chunking, embed, records, celery tasks
+    ingestion/      pdf parse, chunking, embed, records, celery tasks, corrections,
+                    review gate, lineage; layout/ (Docling+pdfplumber adapter,
+                    boilerplate, headings, tables, flowchart, assemble, pipeline)
     memory/         conversation, patient_context (recommendation guard), checkpointer
     hitl/           escalation, decisions (accept-axis effects), triggers
     rubric/         11 domains, workflow state machine, IRR, tasks
@@ -1311,6 +1342,7 @@ cp .env.example .env
 make up            # docker compose --profile dev up -d  (api, worker, redis,
                    # postgres, qdrant, proxy, frontend, llm-gateway stub)
 make migrate       # alembic upgrade head
+make fetch-layout-models  # once: cache layout/OCR model weights (ARCH-044)
 make seed          # create schemas/roles + seed rubric domains + demo users
 make gen-data      # synthetic patient records — FALLBACK (RECORD_DOMAIN, default: neonatal)
 # --- patient records: preferred source is a de-identified dataset ---
@@ -1351,6 +1383,8 @@ cd ../frontend && npm install && npm run dev
 |---|---|
 | `make up` / `make down` | start / stop the dev compose stack |
 | `make migrate` | `alembic upgrade head` |
+| `make fetch-layout-models` | cache the layout parser's model weights (Docling layout/TableFormer + OCR) once, so ingestion needs no network (ARCH-044) |
+| `make reingest-layout [ARGS=...]` | re-parse every manifest document with the layout parser as a new, superseding version; records `corpus.chunk_lineage` and remaps eval gold ids (previous gold saved under `data/ingest_artifacts/`) |
 | `make seed` | schemas + roles + rubric domains + demo users |
 | `make gen-data` | synthetic patient records (fallback); domain via `RECORD_DOMAIN` (default `neonatal`) |
 | `make ingest-deid DATASET=<dir>` | map an attested de-identified dataset onto `record.py` (ARCH-039); refuses without a complete `DATASET.md` attestation |
@@ -1392,6 +1426,11 @@ All config is via environment variables / `.env` (secrets via
 | `AUTH_PROVIDER` | `devjwt` | `devjwt` \| `oidc` |
 | `PATIENT_RECORD_VECTORS_ENABLED` | `false` | keep off unless deliberately enabling record vectorization |
 | `LOCAL_ADAPTATION_ENABLED` | `false` | inert extension-seam flag; see CDS-FUTURE.md |
+| `INGEST_PARSER` | `pypdf` (code) / `layout` (`.env.example`) | `layout` = Docling + pdfplumber + local OCR (ARCH-044); `pypdf` = original text-only path, also the automatic fallback (held for review) |
+| `INGEST_OCR_ENGINE` | `rapidocr` | `rapidocr` \| `easyocr` \| `tesseract`; RapidOCR won the bake-off on Kenya MoH p. 48 (DEVIATIONS.md #215). Only RapidOCR is in the image |
+| `INGEST_MARGIN_ZONE` / `INGEST_BOILERPLATE_REPEAT_RATIO` / `INGEST_BOILERPLATE_MIN_PAGES` | `0.08` / `0.5` / `3` | header/footer fallback: margin text repeated on ≥ ratio of pages, only for documents with ≥ min pages |
+| `INGEST_TABLE_MAX_TOKENS` | `700` | tables above this split by row group with the header repeated |
+| `INGEST_CROP_DIR` | `data/ingest_artifacts/crops` | figure/table crops for the Corpus review page; bind-mounted into `api` and `worker` (host dir must be writable by uid 10001 — `chmod -R a+rwX data/ingest_artifacts`, dev only) |
 
 ---
 

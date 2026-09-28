@@ -21,6 +21,7 @@ from __future__ import annotations
 
 from app.agents.state import GraphState
 from app.grounding.wording import scan_segment
+from app.schemas.citation import correction_notices
 from app.schemas.enums import EscalationTrigger, ObservedOutcome, ScopeLabel, SegmentType
 from app.schemas.query import DISCLAIMER_TEXT
 from app.scope.classifier import classify_scope
@@ -90,6 +91,8 @@ def _finalize(state: GraphState) -> GraphState:
         "segments": [dict(s) for s in segments],
         "citations": list(citations),
         "disclaimer": DISCLAIMER_TEXT,
+        # ARCH-044 §5.11: attested source corrections are always shown.
+        "correction_notices": correction_notices(list(citations)),
     }
     return state
 

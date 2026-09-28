@@ -25,5 +25,16 @@ export default function AnswerView({ resp }: { resp: QueryResponse }) {
     );
   }
 
-  return <AnswerSegments segments={resp.segments} citations={resp.citations} />;
+  return (
+    <>
+      {(resp.correction_notices ?? []).length > 0 && (
+        <ul className="mb-2 rounded-md border border-danger/60 p-2 text-[13px] text-ink">
+          {(resp.correction_notices ?? []).map((n) => (
+            <li key={n}>{n}</li>
+          ))}
+        </ul>
+      )}
+      <AnswerSegments segments={resp.segments} citations={resp.citations} />
+    </>
+  );
 }

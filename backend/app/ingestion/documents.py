@@ -139,3 +139,31 @@ def create_or_supersede_document_version(
     session.add(version)
     session.flush()
     return version, True
+
+
+def create_reparse_version(
+    session: Session, prior: DocumentVersion, *, parser_version: str
+) -> DocumentVersion:
+    """A new version of the **same file** built with a different parser
+    (ARCH-044 re-ingestion, LAYOUT-INGESTION-PROPOSAL.md §10). Same
+    `content_sha256`, `version_label`, `effective_date` and `format_profile`;
+    the prior version becomes `superseded` (never deleted, so every citation
+    already issued against it still resolves — ARCH §5.1 step 6). This is the
+    one path that deliberately bypasses `content_sha256` idempotency: the
+    bytes are unchanged, the parse is not."""
+    prior.status = "superseded"
+    version = DocumentVersion(
+        document_id=prior.document_id,
+        version_label=prior.version_label,
+        effective_date=prior.effective_date,
+        ingested_at=datetime.now(UTC),
+        supersedes_id=prior.id,
+        status="active",
+        content_sha256=prior.content_sha256,
+        page_count=prior.page_count,
+        format_profile=prior.format_profile,
+        parser_version=parser_version,
+    )
+    session.add(version)
+    session.flush()
+    return version

@@ -27,6 +27,8 @@ from app.db.models.corpus import Chunk, Document, DocumentVersion
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
+    from app.retrieval.vectorstore import VectorStore
+
 
 class DocumentNotFoundError(LookupError):
     pass
@@ -71,6 +73,7 @@ def withdraw_version(
     *,
     actor_id: uuid.UUID | None = None,
     actor_role: str | None = None,
+    store: VectorStore | None = None,
 ) -> DocumentVersion:
     """Mark a version withdrawn (idempotent). Never deletes anything — chunks/
     vectors/citations for a withdrawn version remain resolvable (PRD-005's
@@ -80,6 +83,10 @@ def withdraw_version(
         raise DocumentVersionNotFoundError(f"no document_version {version_id}")
     version.status = "withdrawn"
     session.flush()
+    if store is not None:
+        # Retrieval filters on the Qdrant payload; without this a withdrawn
+        # version stayed retrievable (ARCH-044 review, DEVIATIONS.md #215).
+        store.set_payload_by_version(str(version_id), {"status": "withdrawn"})
     write_event(
         session,
         action="config_change",

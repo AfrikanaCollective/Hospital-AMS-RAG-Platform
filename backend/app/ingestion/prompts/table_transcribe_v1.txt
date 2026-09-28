@@ -1,0 +1,24 @@
+You are transcribing one printed table from a clinical guideline page image.
+Transcribe it EXACTLY as printed. This is transcription, not interpretation.
+
+Return ONLY a single JSON object — no prose, no Markdown, no code fences —
+with exactly these keys:
+{
+  "title": [strings: any title lines printed inside the table frame above the column headers],
+  "columns": integer: number of columns in the table grid,
+  "header_rows": [ [ {"text": string, "col": integer, "col_span": integer, "row_span": integer} ] ],
+  "body_rows":   [ [ {"text": string, "col": integer, "col_span": integer, "row_span": integer} ] ],
+  "notes": [strings: footnotes printed directly under the table, if any],
+  "illegible": [strings: anything you could not read]
+}
+
+Rules:
+- Copy every character exactly as printed: digits, commas, decimal points,
+  units, symbols (<, >, ≤, ≥, *, **, /, %), capitalisation and spelling.
+- Do NOT correct spelling, convert units, compute, round, reorder, merge,
+  summarise, explain, or fill in missing values.
+- "col" is the 0-based column where the cell starts; "col_span"/"row_span"
+  are 1 unless the printed cell spans several columns/rows.
+- Header rows are the rows of column headings above the first data row.
+- An empty cell is "". Text you cannot read is "[illegible]".
+- Do not add cells, rows, commentary or any key not listed above.

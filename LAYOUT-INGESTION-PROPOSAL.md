@@ -1,12 +1,10 @@
 # Phase 9 Checkpoint Proposal — Layout-Aware PDF Ingestion with OCR, Table Structure, and Flowchart Decision Logic
 
-**Status:** Proposed — awaiting Checkpoint 9 approval. Nothing in this
-document is implemented. The only change made alongside it is the
-architecture-level decision that **OCR is permitted in the MVP**
-(ARCHITECTURE.md §5.1 / §6 rule 3b / §8.3, `ARCH-044`, DEVIATIONS.md #213).
-That decision makes this work *allowed*; it does not make it *built*. Until
-this proposal is approved and implemented, ingestion still runs the current
-`pypdf` text-only path.
+**Status:** Sub-phases **9a + 9b approved and implemented 2026-09-28**
+(DEVIATIONS.md #215-#216; corpus re-ingested with the layout parser).
+**9c is re-specified in §18** as vision-LLM *table transcription* through
+the gateway's image endpoint, and is **proposed, not implemented**. It needs
+approval of one rule change (D12, amending D3) before any code is written.
 
 **Proposed requirement IDs:** `PRD-113` (layout-aware guideline ingestion),
 `ARCH-044` (parser stack, text-provenance rule, flowchart graph). These are
@@ -29,6 +27,7 @@ the next free slots after `PRD-112` / `ARCH-043`. Confirm against
 | D8 | **OCR'd numbers are gated.** A chunk whose OCR text contains numeric dose or parameter content is held from retrieval until an admin confirms it against the page crop. | §8 |
 | D9 | **The §8.3 figure support cap is implemented at last.** It is documented but absent from `app/grounding/verifier.py` today. A figure or flowchart chunk whose structure is unverified is capped at `weak` and can never be a claim's sole support. | §6 |
 | D10 | Vision calls go **only through `LLMGateway`**, using a new `VISION_MODEL_ID` from config with a placeholder default. If the self-hosted gateway can't accept images, the vision path is disabled and flowcharts fall back to geometry plus human review. No external API. | §7 |
+| D12 | *(proposed, §18)* **Vision-LLM table transcription.** Tables are re-transcribed from their page crop by a vision model through the gateway's image endpoint. The transcription is **source text transcribed by a model**, a new origin `vlm_transcription`. **Amends D3:** a model *transcription* of printed content may become citable, but only after deterministic cross-checks against the text layer / OCR and **admin confirmation against the crop**. Model *interpretation* (summaries, descriptions, Mermaid, inferred values) stays never citable. A real text layer always wins over any transcription. | §18 |
 | D11 | **Attested text corrections (errata).** An evident error in the source (e.g. Kenya p. 47's transposed temperature criterion) can be corrected at ingestion **only** by an operator manifest entry with a named clinician attester, rationale and evidence. The corrected text is citable, marked `attested`, keeps the original, and **every citation and answer that uses it visibly shows the correction.** Exact-once match or ingestion fails. Part of **9a**. | §5.11 |
 
 ---
@@ -768,7 +767,8 @@ gitignored and aren't needed in CI.
   `INGEST_PARSER=layout`.
 - **9b:** flowchart path A (geometry) + flowchart grounding + reviewer
   confirmation of edges.
-- **9c:** vision path B, only if §14.1 resolves positively.
+- **9c:** vision path B, only if §14.1 resolves positively. **Re-specified
+  2026-09-28 as vision-LLM table transcription (§18).**
 
 ---
 
@@ -781,3 +781,238 @@ flowchart chunk type, span provenance, the manifest's `text_corrections` and
 the citation `corrections` field on implementation),
 ARCHITECTURE-ESSENTIALS.md (sync), DEVIATIONS.md (a judgment-call entry per
 §14 decision and per threshold default), `.env.example`.
+
+---
+
+## 18. Sub-phase 9c (re-specified): vision-LLM table transcription through the gateway
+
+**Status: proposed, not implemented.** Decision D12 must be approved first,
+because it changes what is citable.
+
+### 18.1 Why
+
+OCR reads characters; it doesn't read *tables*. On Kenya MoH p. 48, RapidOCR
+got every body number right but misread headers ("Weight ()" for "Weight
+(kg)", "1.V" for "I.V"). TableFormer, not OCR, decided the cell grid, and it
+split the ≥ 7-day title unevenly. A vision LLM sees the rendered table whole:
+glyphs, rules, spans and header nesting together. It is the better
+*transcriber*, but it is also a generator that can silently invent, drop or
+"fix" a value. The mechanism below uses it for what it is good at and fences
+what it is bad at.
+
+### 18.2 Gateway contract (from the gateway source supplied 2026-09-28)
+
+| Item | Value |
+|---|---|
+| Endpoint | `POST {LLM_GATEWAY_URL}/generate-with-image`. **Confirmed by the operator 2026-09-28** with a live `curl` against `https://localhost:8443`; the hyphenated path works. The path stays config (`VISION_ENDPOINT_PATH`). |
+| Auth | `Authorization: Bearer <LLM_GATEWAY_API_KEY>`; 401 without it. No unauthenticated fallback. |
+| Request | `multipart/form-data`: `image` (a PNG file) + `prompt` (form text). **No `model` field**: the gateway uses its own `MODEL_NAME`. |
+| Limits | Image ≤ the gateway's `MAX_IMAGE_SIZE_MB` (413 above it); a global concurrency semaphore; a per-tenant rate limit (429 + `Retry-After`); 503 if the gateway service isn't initialised. |
+| Response | `{"response": <str \| dict \| list>, "model": str, "timestamp": str, "metrics": {"backend_used", "latency_ms", "prompt_eval_count", "eval_count", "done_reason"}}` |
+| Post-processing quirk | The gateway strips code fences and tries to parse JSON. If the parsed object has a top-level `"response"` key, it **replaces the payload with that nested value**. Otherwise `response` is the pretty-printed JSON *string*, and if parsing fails it is the raw text. So the client must accept `response` as a string (JSON or not), a dict or a list, and **our schema must not use a top-level key named `response`**. |
+
+Transport reuses `LLMGateway`'s existing TLS handling (CA bundle, SNI
+override, never disabling verification). Model calls go only to this
+configured self-hosted gateway (CLAUDE.md §3 rule 7). Guideline pages aren't
+PHI, and no patient data is ever sent on this path.
+
+### 18.3 Model identity (CLAUDE.md §3 rule 5)
+
+The endpoint chooses the model server-side, so the client can't pin one.
+Instead:
+
+- `VISION_MODEL_ID` (placeholder `<set-me>`) states the **expected** model.
+  While it is the placeholder, the vision path is disabled and tables stay on
+  OCR.
+- **Observed 2026-09-28:** the live endpoint answered as `qwen3.6:35b`, the
+  same model this deployment already uses as `MODEL_ID` (verified the same
+  way, DEVIATIONS.md #103), so it accepts images. The response came from
+  backend `ollama-secondary-1`, in about 15 s for one page-sized image, and
+  `response` was a **plain-text string** (Markdown with commentary), not JSON.
+  Two consequences:
+  - This deployment's `VISION_MODEL_ID` is `qwen3.6:35b`, with
+    `VISION_MODEL_ID_VERIFIED=true` on the strength of the gateway's own
+    response.
+  - The gateway routes between several backends, so the per-response `model`
+    check is kept: a failover to a backend serving a different model must be
+    rejected, not transcribed.
+- Every response's `model` is compared with `VISION_MODEL_ID`. A mismatch
+  **rejects the transcription**: the table falls back to OCR and is held. A
+  silently swapped backend model must not change citable text.
+- `VISION_MODEL_ID_VERIFIED=false` logs a warning, as it does for `MODEL_ID`.
+- The responding `model`, the prompt version and `done_reason` are stored with
+  every transcription.
+
+### 18.4 Pipeline position
+
+A new module, `app/ingestion/layout/vlm_tables.py`, is called from `assemble`
+for each `table` element **before** serialization. It never runs on
+flowcharts or figures.
+
+1. **Select** (`INGEST_VLM_TABLES`):
+   - `off` (default);
+   - `ocr_only`, the recommended setting once enabled: tables whose cells came
+     from OCR, e.g. Kenya p. 48;
+   - `all`: also text-layer tables, where the VLM is used **only as a
+     cross-check**, never as the source (§18.6).
+2. **Crop**: re-render the table bbox at `INGEST_VLM_CROP_SCALE` (default 3.0)
+   as PNG, including a caption/title band above it so the model sees the
+   spanning title. Downscale in steps until it is under
+   `INGEST_VLM_MAX_IMAGE_MB`. The crop's `image_sha256` is both the cache key
+   and the reviewer's reference image.
+3. **Call** `LLMGateway.generate_with_image(png, prompt)` with the versioned
+   prompt `backend/app/ingestion/prompts/table_transcribe_v1.txt`.
+   - The timeout is `INGEST_VLM_TIMEOUT_S`.
+   - On 429, honour `Retry-After`.
+   - On 503, 5xx or a timeout, retry up to `INGEST_VLM_MAX_RETRIES` times with
+     backoff.
+   - On 400, 401 or 413, don't retry.
+   - Prompt and response content are never logged.
+4. **Parse and validate** (§18.5). Any failure falls back to the OCR
+   transcription (§18.7) and is recorded in `parse_report.vlm_tables`.
+5. **Cross-check and merge** (§18.6), then serialize with the existing
+   deterministic `render_table`: same markdown, header paths and row
+   renderings as today.
+6. **Cache** the raw response, parsed grid, model, `done_reason` and timestamp
+   in `data/ingest_artifacts/vlm_cache/<crop_sha>_<prompt_version>.json`.
+   Re-ingestion reuses it, so a transcription doesn't drift between runs even
+   though the endpoint exposes no temperature or seed. `--refresh-vlm` forces
+   a new call.
+
+### 18.5 Prompt and output schema
+
+The prompt asks for a **transcription, not an interpretation**, as strict JSON.
+The live test shows why this matters. Given an open prompt, the model
+volunteered headings, emoji, expanded abbreviations, and a "clinical
+interpretation" section that wasn't on the page. The prompt therefore
+demands JSON only, and validation rejects any response that doesn't parse
+into the schema: prose around the JSON counts as a failure, never as
+something to salvage. This is a sketch; the final wording lives in the
+versioned prompt file:
+
+```
+Transcribe the table in this image exactly as printed. Return only JSON:
+{"title": [str], "columns": int,
+ "header_rows": [[{"text": str, "col": int, "col_span": int, "row_span": int}]],
+ "body_rows":   [[{"text": str, "col": int, "col_span": int, "row_span": int}]],
+ "notes": [str], "illegible": [str]}
+Rules: copy every character exactly — digits, commas, decimal points, units,
+symbols (<, ≥, *, **), capitalisation; do not correct spelling, convert
+units, compute, reorder or fill in values; an empty cell is ""; text you
+cannot read is "[illegible]"; do not add cells, rows or commentary.
+```
+
+Validation is deterministic (a `TableTranscription` pydantic model). A
+transcription is rejected if any of these fails:
+
+- **Valid JSON:** it must parse after tolerant extraction (the string, dict or
+  list forms of `response`, with code fences stripped), and it must not have a
+  top-level `response` key (the quirk in §18.2).
+- **Not truncated:** `done_reason` must not be `"length"`.
+- **A consistent grid:** spans in range, no overlapping cells, and the same
+  column count in every row once spans are expanded.
+- **The same shape as TableFormer's grid:** the same number of body rows, and
+  a column count within ±1 (TableFormer mis-splits titles). A bigger mismatch
+  rejects the transcription.
+- **No gaps where OCR read digits:** a body cell marked `[illegible]` whose
+  OCR version has digits means something is wrong.
+
+### 18.6 Cross-check and merge (cell level, deterministic)
+
+Cells are aligned by (row, col) after span expansion and compared after
+normalization: whitespace collapsed, digits and punctuation compared exactly.
+"I"/"1" and "O"/"0" confusions are **reported, not auto-resolved**.
+
+| Table source | Cell outcome | Citable text used | Status |
+|---|---|---|---|
+| text layer (`INGEST_VLM_TABLES=all`) | agree | text layer | unchanged; the VLM only raises confidence |
+| text layer | disagree | **text layer** (never overridden) | flagged in `parse_report` for inspection |
+| OCR | agree | the shared value | `agreed` |
+| OCR | disagree | **VLM value** | `vlm_only`; both values kept in `meta.cell_diff` |
+| OCR | VLM empty/illegible | OCR value | `ocr_only` |
+
+**Numeric safety rule:** a body cell whose digits differ between the VLM and
+OCR is a *numeric disagreement*, and such tables are always held. The
+reviewer sees both values beside the crop, with the disagreeing cells
+highlighted. Neither engine is trusted to win on a number without a human.
+
+The merged grid becomes a `TableData` and is serialized by `render_table`, so
+chunk text, offsets and row renderings behave exactly as today. The chunk
+records:
+
+- `text_origins: ["vlm_transcription", …]`;
+- `meta.vlm = {model, prompt_version, done_reason, crop_sha256, agreement:
+  {cells, agreed, vlm_only, ocr_only, numeric_disagreements}}`;
+- `meta.cell_diff`.
+
+### 18.7 Citability and review (the D12 amendment)
+
+- **Always held.** A chunk containing any `vlm_transcription` text is held
+  (`review_status = pending`, reason `vlm_transcription`), whether or not the
+  engines agreed. It is excluded from retrieval until an admin confirms it on
+  **Corpus review**. The review item shows the crop, the merged table, the OCR
+  alternative and the per-cell diff.
+- **Confirm** makes the transcription citable: a person has then checked it
+  against the printed page, as with confirmed OCR today.
+- **Reject** keeps it out. The admin can re-run that table with the OCR
+  version (`--table-source ocr`) or fix cells with an `ocr_override` manifest
+  correction (§5.11).
+- **Grounding:** the verifier treats `vlm_transcription` like `ocr`. While
+  unconfirmed it can't support a claim (`chunk_under_review`). The wording
+  filter still requires every dose in an answer to appear verbatim in the
+  quote.
+- **Still never citable:** anything the model *says about* the table. Only the
+  cell text and the title transcription are used. `notes` are compared with
+  the layout parser's own footnote elements and never inserted.
+
+### 18.8 Configuration
+
+| Setting | Default |
+|---|---|
+| `INGEST_VLM_TABLES` | `off` |
+| `VISION_ENDPOINT_PATH` | `/generate-with-image` |
+| `VISION_MODEL_ID` | `<set-me>` |
+| `VISION_MODEL_ID_VERIFIED` | `false` |
+| `INGEST_VLM_CROP_SCALE` | `3.0` |
+| `INGEST_VLM_MAX_IMAGE_MB` | below the gateway's limit |
+| `INGEST_VLM_TIMEOUT_S`, `INGEST_VLM_MAX_RETRIES`, `INGEST_VLM_CACHE_DIR` | set at implementation |
+
+The API key reuses `LLM_GATEWAY_API_KEY`.
+
+### 18.9 Testing and acceptance
+
+**Offline:**
+
+- The stub gateway (`app.llm.stub_server`) gains `/generate-with-image`,
+  returning fixture responses in all three `response` shapes (JSON string,
+  dict, plain text), plus 413, 429 and 503 cases.
+- Unit tests cover:
+  - schema validation and rejection when `done_reason` is `length`;
+  - rejection on a model mismatch or an inconsistent grid;
+  - the cell-merge table in §18.6;
+  - "a text layer is never overridden";
+  - "a numeric disagreement always holds the table";
+  - the cache.
+- All tests use synthetic tables; no real guideline text is committed.
+
+**Acceptance (in the container, real gateway, Kenya p. 48):**
+
+- Both tables are transcribed with all 96 body values equal to the reviewed
+  values.
+- "Weight (kg)" and "I.V / I.M" are recovered in the headers.
+- There are zero numeric disagreements, or each one is shown to the reviewer.
+- The responding `model` equals `VISION_MODEL_ID`.
+- Re-ingesting reuses the cache (no second call).
+
+### 18.10 Open items (need operator input before implementation)
+
+1. ~~Confirm the endpoint path and model~~: **resolved 2026-09-28**.
+   `/generate-with-image` works, and the model is `qwen3.6:35b` (§18.2, §18.3).
+2. **Approve D12** (amends D3): model transcriptions become citable after
+   admin confirmation. *Open.*
+3. **Scope:** `ocr_only` (recommended first), or `all` to cross-check
+   text-layer tables too. `all` costs one call per table: 66 tables in the
+   current corpus, about 15 s each. *Open.*
+4. ~~Raster flowcharts~~: **resolved 2026-09-28**. The vision model for
+   raster flowcharts (§5.6 path B) stays **out of scope**; 9c covers tables
+   only.

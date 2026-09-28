@@ -63,15 +63,12 @@ def load_mean_recall(
     if missing:
         raise SystemExit(f"no rows in {per_query_path} for bm25_weight(s) {missing}")
     agg = (
-        df.groupby(["level1_condition", "level2_condition", "k", "bm25_weight"])
-[metric]
+        df.groupby(["level1_condition", "level2_condition", "k", "bm25_weight"])[metric]
         .mean()
         .reset_index()
     )
     agg["facet"] = (
-        agg.level1_condition.map(_LEVEL1_LABELS)
-        + " / "
-        + agg.level2_condition.map(_LEVEL2_LABELS)
+        agg.level1_condition.map(_LEVEL1_LABELS) + " / " + agg.level2_condition.map(_LEVEL2_LABELS)
     )
     agg["bm25_weight_label"] = agg.bm25_weight.map(lambda w: f"{w:.1f}")
     return agg

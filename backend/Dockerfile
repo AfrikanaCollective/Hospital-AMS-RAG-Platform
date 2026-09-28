@@ -51,6 +51,13 @@ COPY pyproject.toml requirements-lock.txt ./
 RUN pip install -r requirements-lock.txt \
  && pip install --no-deps -e .
 
+# Layout-aware ingestion (ARCH-044 / PRD-113): Docling + pdfplumber + local
+# OCR, pinned separately and installed with --no-deps so nothing in the lock
+# above is re-resolved (DEVIATIONS.md #215). Model weights are not baked in;
+# `python -m scripts.fetch_layout_models` pre-populates the HF cache volume.
+COPY requirements-layout.txt ./
+RUN pip install --no-deps -r requirements-layout.txt
+
 COPY . .
 
 # Non-root (matches docker-compose `user:` mapping). The HF cache dir is

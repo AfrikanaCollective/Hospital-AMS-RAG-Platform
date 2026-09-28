@@ -66,6 +66,22 @@ class LLMGatewayError(RuntimeError):
     pass
 
 
+@dataclass
+class VisionResult:
+    """What the gateway's image endpoint returns (LAYOUT-INGESTION-PROPOSAL.md
+    §18.2). `response` may be a string (JSON or not), a dict or a list — the
+    gateway post-processes model output before returning it."""
+
+    response: object
+    model: str
+    done_reason: str | None = None
+    latency_ms: float | None = None
+
+
+_VISION_NO_RETRY = frozenset({400, 401, 403, 413, 422})
+_VISION_MAX_BACKOFF_S = 60.0
+
+
 class LLMGateway:
     def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
@@ -146,6 +162,51 @@ class LLMGateway:
         raise LLMGatewayError(
             f"LLM gateway call failed for every model in the fallback chain: {self._model_chain}"
         ) from last_error
+
+    def generate_with_image(self, png: bytes, prompt: str) -> VisionResult:
+        """One call to the gateway's image endpoint (ARCH-044 D12,
+        LAYOUT-INGESTION-PROPOSAL.md §18.2): `multipart/form-data` with
+        `image` + `prompt`; the gateway chooses the model and reports it.
+
+        Retries: 429 honours `Retry-After` (capped), 5xx / timeouts back off,
+        up to `INGEST_VLM_MAX_RETRIES`. 400/401/413 fail at once. Never logs
+        the prompt or the response content. Used only for guideline page
+        crops — never patient data."""
+        last_error: Exception | None = None
+        retries = self.settings.ingest_vlm_max_retries
+        for attempt in range(retries + 1):
+            try:
+                resp = self._client.post(
+                    self.settings.vision_endpoint_path,
+                    files={"image": ("table.png", png, "image/png")},
+                    data={"prompt": prompt},
+                    headers=self._headers(),
+                    extensions=self._extensions(),
+                    timeout=self.settings.ingest_vlm_timeout_s,
+                )
+                if resp.status_code in _VISION_NO_RETRY:
+                    raise LLMGatewayError(f"vision endpoint returned {resp.status_code}")
+                if resp.status_code == httpx.codes.TOO_MANY_REQUESTS and attempt < retries:
+                    wait = float(resp.headers.get("Retry-After", "5"))
+                    time.sleep(min(max(wait, 1.0), _VISION_MAX_BACKOFF_S))
+                    continue
+                resp.raise_for_status()
+                data = resp.json()
+                metrics = data.get("metrics") or {}
+                return VisionResult(
+                    response=data.get("response"),
+                    model=str(data.get("model") or ""),
+                    done_reason=metrics.get("done_reason"),
+                    latency_ms=metrics.get("latency_ms"),
+                )
+            except LLMGatewayError:
+                raise
+            except (httpx.HTTPError, ValueError) as exc:
+                last_error = exc
+                logger.warning("vision_gateway_call_failed", attempt=attempt, error=str(exc))
+                if attempt < retries:
+                    time.sleep(min(2.0 * (2**attempt), _VISION_MAX_BACKOFF_S))
+        raise LLMGatewayError("vision endpoint call failed after retries") from last_error
 
     def embed(self, texts: list[str], *, is_query: bool = False) -> list[list[float]]:
         raise NotImplementedError(

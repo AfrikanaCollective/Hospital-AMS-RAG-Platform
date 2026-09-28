@@ -3,6 +3,7 @@ import { Link, Navigate, Route, Routes } from "react-router-dom";
 import QueryPage from "./pages/QueryPage";
 import ReviewPage from "./pages/ReviewPage";
 import EscalationsPage from "./pages/EscalationsPage";
+import CorpusReviewPage from "./pages/CorpusReviewPage";
 import LoginPage from "./pages/LoginPage";
 import DisclaimerBanner from "./components/DisclaimerBanner";
 import Button from "./components/ui/Button";
@@ -19,6 +20,7 @@ function RequireAuth({ children }: { children: ReactNode }) {
 function Shell() {
   const { auth, logout } = useAuth();
   const canReview = hasRole(auth, "reviewer") || hasRole(auth, "admin");
+  const isAdmin = hasRole(auth, "admin");
 
   return (
     <div className="mx-auto max-w-[960px] p-4 font-sans text-ink">
@@ -40,6 +42,14 @@ function Shell() {
                 to="/escalations"
               >
                 Escalations
+              </Link>
+            )}
+            {isAdmin && (
+              <Link
+                className="text-accent-strong underline-offset-2 hover:underline"
+                to="/corpus-review"
+              >
+                Corpus review
               </Link>
             )}
           </nav>
@@ -78,6 +88,14 @@ function Shell() {
           element={
             <RequireAuth>
               <ReviewPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/corpus-review"
+          element={
+            <RequireAuth>
+              <CorpusReviewPage />
             </RequireAuth>
           }
         />

@@ -26,6 +26,9 @@ data/guideline_sources/*
 data/eval_snapshots/*
 !data/eval_snapshots/.gitkeep
 data/eav_cache/*
+# Ingestion crops (ARCH-044): derived from the source PDFs, regenerated on ingest.
+data/ingest_artifacts/*
+!data/ingest_artifacts/.gitkeep
 !data/eav_cache/.gitkeep
 
 # --- patient record datasets (synthetic OR de-identified) — NEVER commit any

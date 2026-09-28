@@ -69,6 +69,17 @@ retrieval-tuning = [
     "pandas>=2.2",
     "matplotlib>=3.9",
 ]
+# Layout-aware guideline PDF ingestion (ARCH-044 / PRD-113,
+# app/ingestion/layout/). The exact installed closure is pinned in
+# requirements-layout.txt, which the Dockerfile installs; only
+# app.ingestion.layout.docling_adapter imports these.
+layout-parse = [
+    "docling>=2.130",
+    "pdfplumber>=0.11.10",
+    "rapidocr>=3.9",
+    "onnxruntime>=1.30",
+    "opencv-python-headless>=4.10",
+]
 
 [tool.ruff]
 line-length = 100
@@ -104,6 +115,13 @@ warn_unused_ignores = true
 disallow_untyped_defs = true
 plugins = ["pydantic.mypy"]
 exclude = ["alembic/"]
+
+# The layout-parse extra (ARCH-044) is only installed in the image; the one
+# module that imports it (app.ingestion.layout.docling_adapter) is typed
+# against our own dataclasses, not the parsers' types.
+[[tool.mypy.overrides]]
+module = ["docling.*", "docling_core.*", "pdfplumber", "pypdfium2"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

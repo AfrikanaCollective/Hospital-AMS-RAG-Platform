@@ -62,6 +62,24 @@ def _normalize_ws(s: str) -> str:
     return " ".join(s.split())
 
 
+def corrections_for_quote(chunk_row: dict, quote: str) -> list[dict]:
+    """The chunk's attested corrections (`meta.corrections`, ARCH-044) whose
+    corrected text overlaps `quote`'s span in the chunk text."""
+    corrections = (chunk_row.get("meta") or {}).get("corrections") or []
+    if not corrections:
+        return []
+    text = chunk_row["text"]
+    q = find_verbatim_quote(quote, text)
+    if q is None:
+        return []
+    out = []
+    for corr in corrections:
+        c = find_verbatim_quote(corr.get("corrected", ""), text)
+        if c is not None and c[0] < q[1] and q[0] < c[1]:
+            out.append(dict(corr))
+    return out
+
+
 def build_citation(citation_id: str, chunk_row: dict, quote: str) -> Citation:
     """Build a `Citation` for `quote` found verbatim (whitespace-tolerant,
     `find_verbatim_quote`) in `chunk_row["text"]`.
@@ -97,6 +115,7 @@ def build_citation(citation_id: str, chunk_row: dict, quote: str) -> Citation:
         quote=quote,
         quote_char_start=char_start + idx,
         quote_char_end=char_start + end,
+        corrections=corrections_for_quote(chunk_row, quote),
     )
 
 

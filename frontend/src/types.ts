@@ -20,6 +20,19 @@ export interface Citation {
   char_start: number;
   char_end: number;
   quote: string;
+  // Operator-attested source corrections the quote overlaps (ARCH-044,
+  // LAYOUT-INGESTION-PROPOSAL.md §5.11). Always shown with the citation.
+  corrections?: CitationCorrection[];
+}
+
+export interface CitationCorrection {
+  id: string;
+  original: string;
+  corrected: string;
+  kind: string;
+  rationale: string;
+  attested_by: string;
+  attested_on: string;
 }
 
 export interface AnswerSegment {
@@ -44,6 +57,25 @@ export interface QueryResponse {
   citations: Citation[];
   escalation?: EscalationInfo | null;
   disclaimer: string; // always present (ARCH-037)
+  // One notice per attested source correction quoted (ARCH-044 §5.11).
+  correction_notices?: string[];
+}
+
+// A guideline chunk held for admin review (ARCH-044): OCR'd numbers or a
+// low-parse-quality document. Confirmed chunks become retrievable.
+export interface HeldChunk {
+  id: string;
+  document_version_id: string;
+  document_title: string | null;
+  version_label: string | null;
+  section_path?: string | null;
+  page_start: number;
+  page_end: number;
+  chunk_type: string;
+  text: string;
+  figure_ref?: { page?: number; bbox?: number[]; image_sha256?: string | null } | null;
+  meta: Record<string, unknown>;
+  review_reasons: string[];
 }
 
 // Async /query job handle (DEVIATIONS.md #94).

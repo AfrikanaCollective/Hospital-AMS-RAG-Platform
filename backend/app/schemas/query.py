@@ -12,9 +12,9 @@ shape, just reached via a Celery job handle instead of inline.
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
-from app.schemas.citation import Citation
+from app.schemas.citation import Citation, correction_notices
 from app.schemas.enums import (
     EscalationTrigger,
     ObservedOutcome,
@@ -72,6 +72,16 @@ class QueryResponse(BaseModel):
 
     # Non-removable (ARCH-037). Always set.
     disclaimer: str = DISCLAIMER_TEXT
+
+    # One notice per attested source correction any citation quotes (ARCH-044,
+    # §5.11). Derived from `citations` by the validator below, so it can't be
+    # omitted or edited by whoever builds the response.
+    correction_notices: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _derive_correction_notices(self) -> QueryResponse:
+        self.correction_notices = correction_notices(self.citations)
+        return self
 
 
 class QueryJobAccepted(BaseModel):

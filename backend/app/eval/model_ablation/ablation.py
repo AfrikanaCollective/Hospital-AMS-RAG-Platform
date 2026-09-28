@@ -64,6 +64,7 @@ from app.eval.retrieval_tuning.sweep import (
     fetch_calibration_questions,
 )
 from app.ingestion.embed import embed_texts
+from app.ingestion.review import NOT_RETRIEVABLE
 from app.records.concepts import ConceptVocabulary
 from app.retrieval.hybrid import _expand_abbreviations
 from app.retrieval.sparse import query_sparse_vector
@@ -92,7 +93,12 @@ class Corpus:
 def fetch_corpus(store: QdrantVectorStore) -> Corpus:
     """Every guideline chunk, once per run — see module docstring for why
     this is feasible without an ANN index (314 points, 2026-09-17)."""
-    points = store.scroll_all()
+    # Only what production retrieval could return: active versions, and no
+    # chunk held for review or rejected (ARCH-044). Before re-ingestion ever
+    # superseded a version this was the whole collection.
+    points = store.scroll_all(
+        flt={"status": "active", "exclude_review_status": list(NOT_RETRIEVABLE)}
+    )
     return Corpus(
         chunk_ids=[p["chunk_id"] for p in points],
         texts=[p.get("text", "") for p in points],

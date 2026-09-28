@@ -17,7 +17,7 @@ exact shape.
 
 from __future__ import annotations
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 
 from app.llm.stub import stub_chat, stub_embed, stub_rerank
 
@@ -47,6 +47,21 @@ async def embeddings(body: dict) -> dict:
 async def rerank(body: dict) -> dict:
     scores = stub_rerank(body.get("query", ""), body.get("documents", []))
     return {"results": [{"index": i, "relevance_score": s} for i, s in enumerate(scores)]}
+
+
+@app.post("/generate-with-image")
+async def generate_with_image(request: Request) -> dict:
+    """Mirrors the real gateway's image endpoint shape (DEVIATIONS.md #218).
+    The stub can't read images, so it answers with prose, which the table
+    transcriber rejects: dev/CI tables stay on OCR rather than getting an
+    invented transcription."""
+    await request.form()
+    return {
+        "response": "stub gateway: image content not analysed",
+        "model": "stub-vision",
+        "timestamp": "1970-01-01T00:00:00",
+        "metrics": {"backend_used": "stub", "latency_ms": 0, "done_reason": "stop"},
+    }
 
 
 def main() -> None:

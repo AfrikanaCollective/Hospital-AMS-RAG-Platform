@@ -107,10 +107,13 @@ adapter / `field_mapping.yaml`; no source-specific field enters the schema.
 3. Tables = one chunk (`table`), serialized Markdown + caption + heading.
 3b. Figures/algorithms = one `figure` chunk: caption + heading + embedded
    text layer + `figure_ref {page, bbox, image_sha256}`. **OCR is permitted in
-   the MVP** (ARCH-044, DEVIATIONS #213); the layout-aware parser, OCR, and
-   flowchart-graph design are in `LAYOUT-INGESTION-PROPOSAL.md` (pending
-   Checkpoint 9; the running `pypdf` path still does no OCR). Only text-layer,
-   OCR, or verified-structure text is citable, never model-generated text. A
+   the MVP** (ARCH-044, DEVIATIONS #213) and implemented behind
+   `INGEST_PARSER=layout` (#215; Docling + pdfplumber + RapidOCR, `pypdf`
+   fallback). Only text-layer, OCR, attested-correction, or verified-structure
+   text is citable, never model-generated text. OCR'd digits and low
+   parse-quality documents are held (`review_status = pending`) until an admin
+   confirms them. Flowcharts are one atomic `flowchart` chunk with their
+   verified edges; unverified structure is capped at `weak`. A
    caption-only figure (`has_embedded_text=false`) is down-weighted and, per
    §3, capped at `weak` support — never the sole support for a claim.
 4. Criteria lists = `criteria` chunks with structured `meta.criteria[]`

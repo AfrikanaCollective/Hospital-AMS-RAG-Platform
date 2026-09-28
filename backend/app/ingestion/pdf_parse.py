@@ -28,7 +28,7 @@ need to be committed):
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 # A line, on its own, that looks like a heading: optional numbering, a short
@@ -43,6 +43,23 @@ _CHARS_PER_SYNTHETIC_PAGE = 3000  # pagination budget for non-paginated text sou
 
 
 @dataclass
+class Block:
+    """One layout element placed in the normalized text (layout parser only,
+    ARCH-044). `kind`: heading | text | list_item | caption | footnote |
+    table | flowchart | figure. Offsets are absolute in `normalized_text`.
+    `meta` carries what chunking needs to emit an atomic chunk: table parts
+    and row texts, the flowchart graph, figure crop, origin/OCR statistics,
+    applied corrections."""
+
+    kind: str
+    char_start: int
+    char_end: int
+    page_no: int  # physical page in the ingested file
+    origin: str = "text_layer"
+    meta: dict = field(default_factory=dict)
+
+
+@dataclass
 class ParsedDocument:
     normalized_text: str
     sections: list[dict]  # [{number, heading, path, char_start, char_end, page_start, page_end}]
@@ -51,6 +68,10 @@ class ParsedDocument:
     # per-page (page_num, char_start_in_normalized_text), 1-indexed page_num
     page_starts: list[tuple[int, int]]
     source_path: str | None = None  # set for .pdf sources; used for figure extraction (§6 rule 3b)
+    # ── layout parser only (ARCH-044); `None`/empty on the pypdf/markdown path ──
+    blocks: list[Block] | None = None
+    parser_version: str | None = None
+    parse_report: dict = field(default_factory=dict)
 
     def page_for_offset(self, char_offset: int) -> int:
         page = self.page_starts[0][0] if self.page_starts else 1

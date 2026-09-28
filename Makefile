@@ -8,7 +8,7 @@ RESOLVE_ABLATION_RUN = run_id="$(RUN_ID)"; \
   if [ -z "$$run_id" ]; then run_id=$$(ls -1d results/ablation/*/ 2>/dev/null | sort | tail -n 1 | xargs -r basename); fi; \
   if [ -z "$$run_id" ]; then echo "no run under backend/results/ablation/ — run 'make unified-ablation-report' first" >&2; exit 1; fi;
 
-.PHONY: help up down logs build migrate seed gen-data ingest-deid \
+.PHONY: help up down logs build migrate seed gen-data ingest-deid fetch-layout-models reingest-layout \
         prepare-guidelines fetch-guidelines test lint typecheck eval fmt lock \
         retrieval-tuning-report model-ablation-report orchestration-ablation-report \
         unified-ablation-report recall-by-bm25-weight-plot recall-vs-bm25-weight-by-k-plot
@@ -31,6 +31,12 @@ build: ## rebuild images
 
 migrate: ## alembic upgrade head
 	$(COMPOSE) --profile $(PROFILE) exec api alembic upgrade head
+
+fetch-layout-models: ## cache Docling layout/table + OCR model weights for the layout parser (ARCH-044); needs network once
+	$(COMPOSE) --profile $(PROFILE) exec api python -m scripts.fetch_layout_models
+
+reingest-layout: ## re-parse every manifest document with the layout parser as a new version + remap eval gold ids (ARCH-044); ARGS="--dry-run|--only FILE|--force"
+	$(COMPOSE) --profile $(PROFILE) exec -e INGEST_PARSER=layout api python -m scripts.reingest_layout $(ARGS)
 
 seed: ## create schemas/roles + seed rubric domains + demo users
 	$(COMPOSE) --profile $(PROFILE) exec api python -m scripts.seed_db

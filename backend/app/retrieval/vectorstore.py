@@ -44,6 +44,8 @@ class VectorStore(Protocol):
         flt: dict | None,
     ) -> list[dict]: ...
     def get_by_ids(self, ids: list[str]) -> list[dict]: ...
+    def set_payload(self, ids: list[str], payload: dict) -> None: ...
+    def set_payload_by_version(self, document_version_id: str, payload: dict) -> None: ...
 
 
 def _build_filter(flt: dict) -> qm.Filter:
@@ -57,7 +59,16 @@ def _build_filter(flt: dict) -> qm.Filter:
         must.append(
             qm.FieldCondition(key="document_id", match=qm.MatchAny(any=flt["allowed_doc_ids"]))
         )
-    return qm.Filter(must=must)
+    must_not: list[qm.Condition] = []
+    # Chunks held for review (OCR'd numbers, low parse quality) or rejected by
+    # a reviewer are never retrievable (ARCH-044, app.ingestion.review).
+    if flt.get("exclude_review_status"):
+        must_not.append(
+            qm.FieldCondition(
+                key="review_status", match=qm.MatchAny(any=list(flt["exclude_review_status"]))
+            )
+        )
+    return qm.Filter(must=must, must_not=must_not or None)
 
 
 class QdrantVectorStore:
@@ -172,7 +183,31 @@ class QdrantVectorStore:
         )
         return [{"id": str(pt.id), "score": pt.score, **(pt.payload or {})} for pt in result.points]
 
-    def scroll_all(self, *, page_size: int = 256) -> list[dict]:
+    def set_payload(self, ids: list[str], payload: dict) -> None:
+        """Merge `payload` into the given points (review decisions)."""
+        if ids:
+            point_ids: list[qm.ExtendedPointId] = list(ids)
+            self._client.set_payload(
+                collection_name=self.collection, payload=payload, points=point_ids, wait=True
+            )
+
+    def set_payload_by_version(self, document_version_id: str, payload: dict) -> None:
+        """Merge `payload` into every point of one document version (status
+        changes on supersession / withdrawal, `app.ingestion.review`)."""
+        self._client.set_payload(
+            collection_name=self.collection,
+            payload=payload,
+            points=qm.Filter(
+                must=[
+                    qm.FieldCondition(
+                        key="document_version_id", match=qm.MatchValue(value=document_version_id)
+                    )
+                ]
+            ),
+            wait=True,
+        )
+
+    def scroll_all(self, *, page_size: int = 256, flt: dict | None = None) -> list[dict]:
         """Every point's payload, no vector, no query — a full corpus dump.
 
         Used only by the model-ablation harness (ARCH-041,
@@ -189,6 +224,7 @@ class QdrantVectorStore:
                 offset=offset,
                 with_payload=True,
                 with_vectors=False,
+                scroll_filter=_build_filter(flt) if flt else None,
             )
             points.extend({"id": str(pt.id), **(pt.payload or {})} for pt in batch)
             if offset is None:

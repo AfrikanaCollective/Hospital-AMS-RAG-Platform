@@ -6,16 +6,21 @@ LAYOUT-INGESTION-PROPOSAL.md §5.5).
   · I.V / I.M · 12 hrly"). A first-row header cell spanning ≥ 60% of the columns
   is a table title ("Intravenous / Intramuscular antibiotics aged <7 days")
   and becomes a line above the table instead of a prefix on every column.
-- **Citable serialization** is GitHub markdown built from verbatim cell text.
-  The pipes, separators and " · " joins are `structure`; nothing here is
-  model-written, so the whole serialization is citable (subject to the OCR
-  review gate when the cells came from OCR).
-- **Row rendering** (retrieval only, `meta.embedding_text`): one line per
-  body row, "<row label> — <column path>: <value>; …", so a dose lookup for
-  one weight matches that row rather than only the table as a whole.
+- **Citable serialization is row-wise** (DEVIATIONS.md #220): the title, then
+  one block per body row, the row label on the first line and every other
+  non-empty cell as an indented "<column header path>: <value>" line:
+
+      Weight (kg): 4.00
+        Penicillin (50,000 i.u/kg) · I.V / I.M 12 hrly: 200,000
+        Gentamycin (3mg/kg < 2kg, 5mg/kg > 2kg) · I.V / I.M 24 hrly: 20
+
+  Built only from verbatim cell text plus fixed joins (`structure`); nothing
+  is model-written. A quoted line names its own drug, route, frequency and
+  weight, which a markdown grid row ("| 4.00 | 200,000 | 200 | 20 |") can't.
+  Empty cells are omitted. The markdown grid is kept as
+  `grid_markdown` for display and the review page.
 - **Size**: above `max_tokens` the table is split by row group with the title
-  and header repeated in every part (the reference design's
-  `split_table_rows`, adopted).
+  repeated in every part; each row block already carries its headers.
 """
 
 from __future__ import annotations
@@ -36,12 +41,16 @@ MIN_ROWS_TO_SPLIT = 2
 class TableRender:
     title_lines: list[str]
     header_paths: list[str]
-    parts: list[str]  # markdown, one per row group (usually one)
-    row_texts: list[str]  # retrieval-only row renderings
+    parts: list[str]  # citable row-wise text, one per row group (usually one)
+    grid_markdown: str  # the same table as a markdown grid (review/display only)
+
+    @property
+    def text(self) -> str:
+        return "\n\n".join(self.parts)
 
     @property
     def markdown(self) -> str:
-        return self.parts[0] if len(self.parts) == 1 else "\n\n".join(self.parts)
+        return self.grid_markdown
 
 
 def _clean(text: str) -> str:
@@ -112,25 +121,30 @@ def render_table(table: TableData, *, max_tokens: int) -> TableRender:
     sep_line = "|" + "|".join("---" for _ in header_paths) + "|"
     row_lines = ["| " + " | ".join(row) + " |" for row in body]
     prefix = [*title_lines, ""] if title_lines else []
+    grid_markdown = "\n".join([*prefix, header_line, sep_line, *row_lines])
 
-    row_texts = []
-    for row in body:
-        label = row[0]
-        values = "; ".join(f"{header_paths[c]}: {row[c]}" for c in range(1, len(row)) if row[c])
-        row_texts.append(f"{header_paths[0]} {label} — {values}" if values else label)
+    blocks = [_row_block(header_paths, row) for row in body]
+    full = "\n\n".join([*title_lines, *blocks]) if title_lines else "\n\n".join(blocks)
+    if _approx_tokens(full) <= max_tokens or len(blocks) < MIN_ROWS_TO_SPLIT:
+        return TableRender(title_lines, header_paths, [full], grid_markdown)
 
-    full = "\n".join([*prefix, header_line, sep_line, *row_lines])
-    if _approx_tokens(full) <= max_tokens or len(row_lines) < MIN_ROWS_TO_SPLIT:
-        return TableRender(title_lines, header_paths, [full], row_texts)
-
-    fixed = [*prefix, header_line, sep_line]
     parts: list[str] = []
     current: list[str] = []
-    for line in row_lines:
-        if current and _approx_tokens("\n".join([*fixed, *current, line])) > max_tokens:
-            parts.append("\n".join([*fixed, *current]))
+    for block in blocks:
+        if current and _approx_tokens("\n\n".join([*title_lines, *current, block])) > max_tokens:
+            parts.append("\n\n".join([*title_lines, *current]))
             current = []
-        current.append(line)
+        current.append(block)
     if current:
-        parts.append("\n".join([*fixed, *current]))
-    return TableRender(title_lines, header_paths, parts, row_texts)
+        parts.append("\n\n".join([*title_lines, *current]))
+    return TableRender(title_lines, header_paths, parts, grid_markdown)
+
+
+def _row_block(header_paths: list[str], row: list[str]) -> str:
+    """One body row as a labelled block: the first column is the row label,
+    every other non-empty cell is "<its column's header path>: <value>".
+    Each value carries its own drug/column context, so a quote of one line is
+    self-describing (DEVIATIONS.md #220)."""
+    lines = [f"{header_paths[0]}: {row[0]}"]
+    lines += [f"  {header_paths[c]}: {row[c]}" for c in range(1, len(row)) if row[c]]
+    return "\n".join(lines)

@@ -26,6 +26,7 @@ from __future__ import annotations
 import hashlib
 import io
 import logging
+import re
 import statistics
 from functools import lru_cache
 from importlib.metadata import version as pkg_version
@@ -195,6 +196,56 @@ def _plumber_page_data(
     return chars, drawings
 
 
+def prefer_text_layer(docling_text: str, plumber_text: str) -> tuple[str, bool]:
+    """The text-layer string for a region: pdfplumber's reading of the PDF's
+    own characters when it has any, otherwise Docling's (OCR regions have no
+    characters). Returns `(text, repaired)`, where `repaired` means Docling's
+    string differed.
+
+    Why pdfplumber: Docling's own PDF text decoding dropped every "h" in the
+    Inter font NICE NG195 uses ("wit out", "W at is t e") while pdfplumber
+    and pypdf read the same characters correctly (DEVIATIONS.md #221).
+    Docling stays the authority for *layout* (labels, reading order, table
+    structure); pdfplumber supplies the characters."""
+    plumber = " ".join(plumber_text.split())
+    if not plumber:
+        return docling_text, False
+    # Docling strips a list item's printed bullet (assembly adds "• " back);
+    # pdfplumber keeps it. Keep the two consistent.
+    if not _LEADING_BULLET_RE.match(docling_text.strip()):
+        plumber = _LEADING_BULLET_RE.sub("", plumber, count=1)
+    return plumber, " ".join(docling_text.split()) != plumber
+
+
+MIN_LINE_Y_TOLERANCE = 3.0  # pdfplumber's own default
+SINGLE_LINE_Y_TOLERANCE = 1_000.0  # one physical line: never split it
+_LEADING_BULLET_RE = re.compile(r"^[•▪◦●○■□‣⁃∙·\-–*]\s*")
+
+
+def _plumber_text(page_chars: list[dict], bbox: BBox, *, single_line: bool = False) -> str:
+    """pdfplumber's reading of the characters whose centre lies in `bbox`.
+
+    Sub/superscripts sit off the baseline, and pdfplumber's default line
+    clustering read "SpO₂ below 90%" as "SpO below 90% 2". A Docling text
+    line is one physical line, so its characters are simply ordered left to
+    right (`single_line`). For multi-line regions the line tolerance scales
+    with the font: half the median character size."""
+    from pdfplumber.utils import extract_text  # noqa: PLC0415
+
+    inside = [
+        c
+        for c in page_chars
+        if bbox.contains_point((c["x0"] + c["x1"]) / 2, (c["top"] + c["bottom"]) / 2, tol=0.5)
+    ]
+    if not inside:
+        return ""
+    if single_line:
+        y_tol = SINGLE_LINE_Y_TOLERANCE
+    else:
+        y_tol = max(MIN_LINE_Y_TOLERANCE, 0.5 * statistics.median(float(c["size"]) for c in inside))
+    return extract_text(inside, y_tolerance=y_tol)
+
+
 def _font_signal(chars: list[dict], bbox: BBox) -> tuple[float | None, bool]:
     inside = [c for c in chars if bbox.contains_point(c["x"], c["y"], tol=0.5)]
     if not inside:
@@ -204,7 +255,9 @@ def _font_signal(chars: list[dict], bbox: BBox) -> tuple[float | None, bool]:
     return round(size, 2), bold
 
 
-def _page_lines(parsed_page: Any, page_height: float, chars: list[dict]) -> list[TextLine]:
+def _page_lines(
+    parsed_page: Any, page_height: float, chars: list[dict], ppage: Any, repairs: list[int]
+) -> list[TextLine]:
     lines: list[TextLine] = []
     if parsed_page is None:
         return lines
@@ -214,6 +267,11 @@ def _page_lines(parsed_page: Any, page_height: float, chars: list[dict]) -> list
             continue
         rect = cell.rect.to_bounding_box().to_top_left_origin(page_height=page_height)
         bbox = BBox(float(rect.l), float(rect.t), float(rect.r), float(rect.b))
+        if not cell.from_ocr:
+            text, repaired = prefer_text_layer(
+                text, _plumber_text(ppage.chars, bbox, single_line=True)
+            )
+            repairs[0] += repaired
         size, bold = (None, False) if cell.from_ocr else _font_signal(chars, bbox)
         lines.append(
             TextLine(
@@ -245,19 +303,28 @@ def _origin_of(lines: list[TextLine]) -> tuple[str, float | None]:
     return origin, (round(min(ocr_conf), 4) if ocr_conf else None)
 
 
-def _table_data(item: Any) -> TableData:
+def _table_data(item: Any, ppage: Any, page_height: float, repairs: list[int]) -> TableData:
     data = item.data
-    cells = [
-        TableCell(
-            row=c.start_row_offset_idx,
-            col=c.start_col_offset_idx,
-            row_span=max(1, c.end_row_offset_idx - c.start_row_offset_idx),
-            col_span=max(1, c.end_col_offset_idx - c.start_col_offset_idx),
-            text=(c.text or "").strip(),
-            is_header=bool(c.column_header),
+    cells = []
+    for c in data.table_cells:
+        text = (c.text or "").strip()
+        if getattr(c, "bbox", None) is not None:
+            b = c.bbox.to_top_left_origin(page_height=page_height)
+            text, repaired = prefer_text_layer(
+                text,
+                _plumber_text(ppage.chars, BBox(float(b.l), float(b.t), float(b.r), float(b.b))),
+            )
+            repairs[0] += repaired
+        cells.append(
+            TableCell(
+                row=c.start_row_offset_idx,
+                col=c.start_col_offset_idx,
+                row_span=max(1, c.end_row_offset_idx - c.start_row_offset_idx),
+                col_span=max(1, c.end_col_offset_idx - c.start_col_offset_idx),
+                text=text,
+                is_header=bool(c.column_header),
+            )
         )
-        for c in data.table_cells
-    ]
     return TableData(num_rows=data.num_rows, num_cols=data.num_cols, cells=cells)
 
 
@@ -269,10 +336,14 @@ def render_region(
     scale: float,
     pad: float,
     max_bytes: int,
+    mask: list[BBox] | None = None,
 ) -> bytes:
     """PNG of one page region (top-left-origin points) for the vision
     transcription (proposal §18.4): rendered at `scale`, padded by `pad`
-    points, downscaled in steps until it is under `max_bytes`."""
+    points, downscaled in steps until it is under `max_bytes`. `mask` regions
+    (other elements overlapping the crop) are painted white, so a prose crop
+    shows only its own element — tightly spaced bullets otherwise bled into
+    each other's transcriptions (DEVIATIONS.md #222)."""
     import pypdfium2 as pdfium  # noqa: PLC0415 - comes with the layout-parse extra
 
     pdf = pdfium.PdfDocument(path)
@@ -288,6 +359,12 @@ def render_region(
         s = scale
         while True:
             img = page.render(scale=s).to_pil()
+            if mask:
+                from PIL import ImageDraw  # noqa: PLC0415
+
+                draw = ImageDraw.Draw(img)
+                for m in mask:
+                    draw.rectangle([m.x0 * s, m.top * s, m.x1 * s, m.bottom * s], fill="white")
             crop = img.crop(tuple(int(v * s) for v in box))
             png = _png_bytes(crop)
             if len(png) <= max_bytes or s <= 1.0:
@@ -312,8 +389,10 @@ def parse_layout(
     crops: dict[str, bytes] = {}
     pages: dict[int, LayoutPage] = {}
     plumber_chars: dict[int, list[dict]] = {}
+    repairs = [0]  # text-layer strings where Docling's decoding differed from pdfplumber's
     with pdfplumber.open(path) as pdf:
-        for i, ppage in enumerate(pdf.pages, start=1):
+        ppages = {i: p for i, p in enumerate(pdf.pages, start=1)}
+        for i, ppage in ppages.items():
             chars, drawings = _plumber_page_data(ppage)
             plumber_chars[i] = chars
             height = float(ppage.height)
@@ -322,11 +401,30 @@ def parse_layout(
                 width=float(ppage.width),
                 height=height,
                 elements=[],
-                lines=_page_lines(parsed_by_page.get(i), height, chars),
+                lines=_page_lines(parsed_by_page.get(i), height, chars, ppage, repairs),
                 drawings=drawings,
             )
+        _collect_elements(doc, pages, ppages, plumber_chars, crops, repairs, ContentLayer)
 
-    for item, _level in doc.iterate_items(included_content_layers=set(ContentLayer)):
+    return LayoutDocument(
+        source_path=path,
+        parser_version=parser_version(),
+        pages=[pages[k] for k in sorted(pages)],
+        crops=crops,
+        text_repairs=repairs[0],
+    )
+
+
+def _collect_elements(  # noqa: PLR0917 - internal helper split out of parse_layout
+    doc: Any,
+    pages: dict[int, LayoutPage],
+    ppages: dict[int, Any],
+    plumber_chars: dict[int, list[dict]],
+    crops: dict[str, bytes],
+    repairs: list[int],
+    content_layer: Any,
+) -> None:
+    for item, _level in doc.iterate_items(included_content_layers=set(content_layer)):
         label = getattr(getattr(item, "label", None), "value", None)
         kind = _LABEL_TO_KIND.get(label or "")
         prov = item.prov[0] if getattr(item, "prov", None) else None
@@ -341,6 +439,11 @@ def parse_layout(
         bbox = _to_bbox(prov.bbox, page.height)
         inside = _lines_in(page.lines, bbox)
         origin, ocr_min_conf = _origin_of(inside)
+        if text and origin == ORIGIN_TEXT_LAYER and kind not in (KIND_TABLE, KIND_PICTURE):
+            text, repaired = prefer_text_layer(
+                text, _plumber_text(ppages[prov.page_no].chars, bbox)
+            )
+            repairs[0] += repaired
         font_size, bold = _font_signal(plumber_chars[prov.page_no], bbox)
         el = Element(
             kind=kind,
@@ -365,14 +468,7 @@ def parse_layout(
                 crops[sha] = png
                 el.image_sha256 = sha
         if kind == KIND_TABLE:
-            el.table = _table_data(item)
+            el.table = _table_data(item, ppages[prov.page_no], page.height, repairs)
         if kind == KIND_PICTURE:
             el.inner_lines = inside
         page.elements.append(el)
-
-    return LayoutDocument(
-        source_path=path,
-        parser_version=parser_version(),
-        pages=[pages[k] for k in sorted(pages)],
-        crops=crops,
-    )

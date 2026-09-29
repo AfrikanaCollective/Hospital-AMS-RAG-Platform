@@ -159,3 +159,21 @@ def test_review_rejects_bad_decisions_and_chunks_not_under_review() -> None:
             actor_id=None,
             actor_role=None,
         )
+
+
+def test_review_queue_lists_only_active_versions() -> None:
+    """A re-ingest supersedes the prior version, but its held chunks keep
+    `review_status = pending`; the queue must filter them out
+    (DEVIATIONS.md #225)."""
+    from sqlalchemy.dialects import postgresql
+
+    from app.ingestion.review import pending_query
+
+    sql = str(
+        pending_query().compile(
+            dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}
+        )
+    )
+    assert "JOIN corpus.document_version" in sql
+    assert "corpus.document_version.status = 'active'" in sql
+    assert "review_status" in sql and "'pending'" in sql

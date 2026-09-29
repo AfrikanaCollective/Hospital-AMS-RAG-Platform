@@ -1180,6 +1180,7 @@ whose verified edges are citable (`[n1] → Yes → [n2]`). Only source text is
 citable; model-generated text never is. Chunks containing OCR'd numbers are
 held until an admin confirms them on the new **Corpus review** page
 (`/corpus-review`), and so is every chunk of a low-parse-quality document.
+The queue lists only chunks of each document's active version (#225).
 Evident source errors can be fixed only through an attested manifest
 `text_corrections` entry, which is shown on every citation. Supersession and
 withdrawal now also update Qdrant, so superseded chunks leave retrieval,
@@ -1195,6 +1196,37 @@ SapBERT-bearing arm. Recall@12 is not comparable with earlier runs because
 the gold sets grew. An earlier run, `20260928T070240Z-9020ca38`, used an
 over-linking lineage rule and is invalid.
 Full account in `DEVIATIONS.md` #215-#216.
+
+**Vision-LLM table transcription (Phase 9c, 2026-09-28).** With
+`INGEST_VLM_TABLES=ocr_only`, each OCR table's crop goes to the gateway's
+`/generate-with-image` with a strict transcription prompt.
+- **Checks:** answers must pass JSON schema validation, the expected-model
+  check and a truncation check, then are cross-checked against OCR per body
+  cell and per header path.
+- **Review:** every transcribed table is held for admin review, and the Corpus
+  review page shows the crop, the disagreements (numeric first) and the OCR
+  reading.
+- **Pinning to OCR:** a manifest `table_sources` entry can pin a table to OCR.
+  Kenya p. 48's ≥ 7-day table is pinned, because the model shifted its
+  frequency headers.
+
+Full account in `DEVIATIONS.md` #217-#219.
+
+Table chunks are **row-wise text**: each row reads `Weight (kg): 4.00`
+followed by one `<drug column header>: <value>` line per drug, so a quoted
+dose names its drug, route and frequency. The markdown grid is kept in
+`meta.table_grid` for display (`DEVIATIONS.md` #220).
+
+Text-layer characters are read with pdfplumber. Docling supplies only the
+layout, because its decoding dropped every "h" in NICE NG195 (#221). OCR
+prose is transcribed by the vision model by default, held for review and
+cross-checked against OCR (#222).
+Prose crops are now masked to their own element and accepted only at ≥ 0.8
+similarity and 0.8–1.25× the OCR text's length (#223). The ablation was re-run on the corrected
+corpus as `20260929T053850Z-63640d95` (1,419 questions). On the 1,405
+questions shared with the previous run, Hit@12 held at 0.95–0.98 in
+SapBERT-bearing arms, and Recall@12 at w ≤ 0.4 rose despite larger gold
+sets (#224).
 
 ### Repository layout
 
@@ -1431,6 +1463,10 @@ All config is via environment variables / `.env` (secrets via
 | `INGEST_MARGIN_ZONE` / `INGEST_BOILERPLATE_REPEAT_RATIO` / `INGEST_BOILERPLATE_MIN_PAGES` | `0.08` / `0.5` / `3` | header/footer fallback: margin text repeated on ≥ ratio of pages, only for documents with ≥ min pages |
 | `INGEST_TABLE_MAX_TOKENS` | `700` | tables above this split by row group with the header repeated |
 | `INGEST_CROP_DIR` | `data/ingest_artifacts/crops` | figure/table crops for the Corpus review page; bind-mounted into `api` and `worker` (host dir must be writable by uid 10001 — `chmod -R a+rwX data/ingest_artifacts`, dev only) |
+| `INGEST_VLM_TABLES` | `off` (this deployment: `ocr_only`) | vision-LLM transcription of OCR tables through the gateway's `/generate-with-image` (ARCH-044 D12); every transcribed table is held for admin review, cross-checked against OCR |
+| `VISION_MODEL_ID` / `VISION_MODEL_ID_VERIFIED` | `<set-me>` / `false` | the model the gateway is **expected** to answer with (`qwen3.6:35b` here, DEVIATIONS.md #218); the placeholder disables the path, and any response from another model is rejected |
+| `INGEST_VLM_PROSE` | `ocr_only` | OCR prose (text, list items, captions, footnotes) transcribed by the vision model by default once `VISION_MODEL_ID` is set; always held for review; manifest `ocr_prose_source: "ocr"` opts a document out (DEVIATIONS.md #222) |
+| `INGEST_VLM_CROP_SCALE` / `INGEST_VLM_MAX_IMAGE_MB` / `INGEST_VLM_TIMEOUT_S` / `INGEST_VLM_MAX_RETRIES` / `INGEST_VLM_CACHE_DIR` | `3.0` / `8` / `300` / `2` / `data/ingest_artifacts/vlm_cache` | crop rendering, request limits, and the transcription cache (keyed by crop hash + prompt version) |
 
 ---
 

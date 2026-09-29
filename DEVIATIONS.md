@@ -2357,3 +2357,146 @@ not retroactively. When in doubt, log it.
 - **Judgment call:** `VISION_MODEL_ID=qwen3.6:35b` with `VISION_MODEL_ID_VERIFIED=true`, on the gateway's own response, the same standard #103 applied to `MODEL_ID`. The per-response model check stays, because the gateway fails over between backends.
 - **Still open:** D12 approval and scope (`ocr_only` vs `all`). Nothing is implemented.
 - **Reversible?:** yes (proposal text only).
+
+### 219. Sub-phase 9c implemented: vision-LLM table transcription (D12 approved, `ocr_only`), with per-table source overrides
+- **Date / phase:** 2026-09-28, Phase 9. Operator: "approve D12, use ocr_only, and implement it"; after reviewing the first live results, "add the override and re-ingest both docs".
+- **Requirement ID(s):** PRD-113, ARCH-044 (D12 amends D3; ARCHITECTURE.md updated).
+- **What was built:**
+  - `LLMGateway.generate_with_image` (multipart `image` + `prompt`, Bearer, the existing TLS settings; 429 honours `Retry-After`, 5xx/timeouts back off, 400/401/403/413/422 fail at once; content never logged).
+  - `app/ingestion/layout/vlm_tables.py`: strict schema, tolerant parse of the gateway's string/dict/list forms, model and `done_reason` checks, body-cell and header-path cross-checks against OCR, and a cache by crop hash + prompt version.
+  - `docling_adapter.render_region` (pypdfium2 crop at 3× with downscaling to the size cap).
+  - Assembly hook with per-table `table_sources` manifest overrides.
+  - Held-chunk reason `vlm_transcription`; the review page shows the crop the model saw, agreement counts, the per-cell/header diff (numeric first) and the OCR reading.
+  - Stub-gateway `/generate-with-image` (answers with prose, so dev/CI tables stay OCR).
+  - Config: `INGEST_VLM_TABLES`, `VISION_ENDPOINT_PATH`, `VISION_MODEL_ID`/`_VERIFIED`, crop scale/pad, max image MB, timeout, retries, cache dir, refresh.
+  - This deployment's `.env`: `INGEST_VLM_TABLES=ocr_only`, `VISION_MODEL_ID=qwen3.6:35b` (#218).
+  - 26 new tests in `tests/test_vlm_tables.py` (806 total).
+- **Judgment calls, found live and flagged:**
+  1. **Prompt v1 was replaced by v2 after its first live run.**
+     - v1's per-cell objects with row/col spans produced about 10,000 characters for the Kenya 8×12 table and hit the gateway's output cap (`done_reason=length`), and the endpoint exposes no length parameter.
+     - v1 also gave the ≥7-day table a row span that contradicted its own next row, so the grid validator rejected it.
+     - v2 uses flat rows of exactly `columns` strings: column spans repeat their text, row spans put "" below, compact single-line JSON. There are no span fields, so nothing can overlap.
+     - Both were rejected rather than accepted, as designed. The cache key includes the prompt version, so v1 answers are never reused.
+  2. **Header cross-check added (beyond §18.6, which compared body cells only).**
+     - Live, v2 transcribed the ≥7-day table with all 32 body cells correct but the route and frequency header rows shifted one column left: Penicillin* read "8 hrly" where the page prints "6 hrly", Ampicillin "24 hrly" where it prints "8 hrly".
+     - The body-only merge would have let that through unflagged, though the table would still have been held. Each column's full header path is now compared with OCR's; a difference is listed, and differing digits count as a numeric disagreement.
+  3. **Trailing closing brackets are tolerated.** A complete JSON object followed only by `}`/`]` (seen live: `…]]}}`) is accepted; any other trailing text, prose included, is still rejected.
+  4. **Title lines are joined into one title row**, so a two-line printed title isn't prefixed onto every column. Before this fix it created 8 false numeric flags via "≥ 7".
+  5. **"1.V"/"1.M" vs "I.V"/"I.M" (OCR reading I as 1 before `.V`/`.M`) is listed but not counted as numeric.**
+  6. **Per-table source override** (`table_sources` in the manifest: source page, table index, `ocr|vlm`, reason; malformed entries fail closed). Without it, a rejected transcription could only keep the table out of the corpus altogether.
+     - Kenya p. 48 table 2 (≥7 days) is pinned to `ocr` with the reason above. It stays held for review because of its OCR digits.
+     - Kenya p. 48 table 1 (<7 days) keeps the vision transcription: all 64 body cells agree and the header differences are non-numeric OCR corrections ("Weight ()" → "Weight (kg)", "Metronidaz ole … 1.V" → "Metronidazole … I.V").
+- **Also observed:** one full test run crashed the interpreter (a native fatal error, extension-module dump) and passed cleanly on re-run. This is the same intermittent native-crash class as #203/#215, not root-caused.
+- **Not done:** the `api`/`worker` images haven't been rebuilt with this code. The live runs used code copied into the running `api` container, with the vision settings passed per command. The next image build installs everything the same way (`pyproject.toml` changed only in its mypy config). `INGEST_VLM_TABLES=all` (cross-checking text-layer tables) is specified but not enabled.
+- **Reversible?:** yes. Set `INGEST_VLM_TABLES=off`, or pin tables to `ocr` in the manifest, and re-ingest.
+
+### 220. Citable table text is row-wise (row label + "header path: value" lines); the markdown grid moves to metadata; table pins recorded on the chunk
+- **Date / phase:** 2026-09-28, Phase 9. Operator: "row-wise formatting of table text … makes it much more human readable", with an example block per weight row (`Weight (kg): 4.00` then one indented `<drug column header>: <value>` line per drug).
+- **Requirement ID(s):** PRD-113, ARCH-044; ARCH §6 rule 3 / 3d (updated).
+- **What was done:**
+  - `render_table` now produces the citable text as the title, then one block per body row: the first column is the row label, and every other non-empty cell is an indented "<column header path>: <value>" line.
+  - The markdown grid is kept as `grid_markdown`, stored on the chunk as `meta.table_grid` for display and review.
+  - The retrieval-only row renderings were dropped (`row_texts` / `embedding_extra`): the citable text now carries the same information, so appending them would duplicate it.
+  - Row-group splitting repeats the title; each block already carries its headers.
+  - Also fixed, as flagged after #219: a manifest `table_sources` pin is now recorded on the chunk (`meta.table_source`), not only in the version's parse report.
+- **Judgment calls:**
+  1. **The row-wise form is the citable text, not a display layer.** Beyond readability, it makes quotes self-describing. A quote of one line ("Gentamycin (3mg/kg < 2kg, 5mg/kg > 2kg) · I.V / I.M 24 hrly: 20") names the drug, route and frequency. A markdown grid row can't be quoted with its column context, so a grounded dose claim would rest on position alone. Every character is still verbatim cell text or a fixed join (`: `, `·`, indentation, blank lines): no model text.
+  2. **The operator's example repeated the row label** ("Weight (kg): 4.00    Weight (kg): 4.00"), which reads as a paste artifact. The label is shown once.
+  3. **Empty cells are omitted**, as the old retrieval rows did, rather than written as `header: ` with nothing after it.
+  4. **Token cost:** repeating the header paths per row roughly triples a table's size (Kenya p. 48 <7-day table: 631 tokens). More tables will split into row groups under `INGEST_TABLE_MAX_TOKENS=700`; each part stays self-contained.
+- **Verified:** full suite passes (807). A parse-only preview of the Kenya excerpt (cached transcription, no DB write) gives both p. 48 tables in the row-wise form, and the ≥ 7-day table carries `table_source.source = ocr`.
+- **Not done:** re-ingestion. Existing chunks still hold markdown tables until the corpus is re-ingested; that changes chunk text and ids for every document with tables, so eval gold is remapped again through `corpus.chunk_lineage`.
+- **Reversible?:** yes. Swap `TableRender.parts` back to the grid and re-ingest.
+
+### 221. Docling's text decoding dropped every "h" in NICE NG195; text-layer characters are now read with pdfplumber; lineage gains an exact-text rule and remaps straight from the pypdf baseline
+- **Date / phase:** 2026-09-28, Phase 9. Found while checking lineage fan-out after the row-wise re-ingest (#220).
+- **Requirement ID(s):** PRD-113, ARCH-044 (ARCHITECTURE.md §6 rule 3e added).
+- **Defect:** Docling's PDF text decoding dropped the letter "h" throughout NICE NG195, which is set in Inter ("wit out risk factors", "W at is t e impact"). pypdf and pdfplumber read the same characters correctly (39 "h"s on one page). Every NICE chunk in the corpus had this from the first layout re-ingest (#216) until this fix, so:
+  - it affected BM25/dense retrieval on NICE;
+  - the ablation run `20260928T071358Z-d18a9400` is **invalidated** for NICE-dependent questions;
+  - lineage from those versions was degraded.
+- **Fix:** Docling stays the authority for layout (element boundaries, labels, reading order, table cells), but every text-layer string (elements, lines, table cells) is re-read from the PDF's own characters with pdfplumber (`prefer_text_layer`, `_plumber_text`). OCR regions, which have no characters, keep Docling's OCR text. The per-version `parse_report.text_layer_repairs` counts the changed strings: NICE 2,714, MoH 294, WHO 169 + 88, Kenya 7. No active chunk now contains "wit out", "t e" or "W at".
+- **Bugs in the fix itself, found live:**
+  1. pdfplumber's `page.filter` raised `TypeError: 'cell' + float` inside its derived-page machinery. The layout parser failed and **fell back to pypdf, capped and held, as designed**. Replaced by selecting the page's characters directly and calling `pdfplumber.utils.extract_text`.
+  2. pdfplumber keeps a list item's printed "•", which assembly also adds. The leading bullet is stripped when Docling's text had none.
+  3. Line clustering split sub/superscripts: "SpO₂ below 90%" became "SpO below 90% 2". A Docling text line is one physical line, so it is ordered left to right with no clustering; multi-line regions use a line tolerance of half the median character size.
+  - Side effects, all improvements: real en-dashes ("–") replace Docling's normalised hyphens, and "SpO2" replaces "SpO 2".
+- **Lineage:**
+  - An old chunk whose whitespace-normalised text equals a new chunk's now links **only** to that chunk. The table-only re-ingest had linked some NICE bullets to 7–9 new chunks through shared vocabulary.
+  - `--remap-from` now maps from whichever old version owns the backed-up gold ids to the active version, so gold was remapped **directly from the pypdf baseline** (`gold_remap_20260928T070202Z.json`), never through the damaged NICE versions. Result: 1,421 questions with gold, mean 3.32 chunks (pypdf windows split into several layout chunks), 1 emptied.
+- **Verified:** 819 tests (regression tests for the "h" repair, the bullet guard and the exact-match lineage). A parse-only check on the Kenya excerpt listed every changed string: only dashes, bullets (stripped) and the subscript. The full re-ingest of all 5 documents completed with the layout parser (no fallback).
+- **Not done:** re-running the ablation on the clean corpus (awaiting the operator; see #222).
+- **Reversible?:** yes. Revert `prefer_text_layer` to return Docling's text and re-ingest (not recommended).
+
+### 222. OCR prose is transcribed by the vision model by default (D12 extended from tables to prose)
+- **Date / phase:** 2026-09-28, Phase 9. Operator: "there are prose from PDF excerpts with OCR as source. Use vision model as default for such prose from PDF where source is not text."
+- **Requirement ID(s):** PRD-113, ARCH-044 (D12 extended; operator-directed).
+- **What was built:**
+  - `app/ingestion/layout/vlm_prose.py` + prompt `prose_transcribe_v1`: one crop per OCR text / list item / caption / footnote element, output `{"text": "..."}` only.
+  - Same cache, model-identity and truncation checks as tables (`TableTranscriber` generalised).
+  - Rejected when similarity to the OCR reading is < 0.6; numbers compared as multisets, with I/1 before `.V`/`.M` not counted.
+  - Origin `vlm_transcription`, so the chunk is always held; `meta.prose_vlm` lists each paragraph's crop, agreement and OCR reading, and the review page shows them.
+  - Config `INGEST_VLM_PROSE` (default `ocr_only`, active only when `VISION_MODEL_ID` is set); per-document opt-out `ocr_prose_source: "ocr"` in the manifest.
+  - 10 new tests (`tests/test_vlm_prose.py`).
+- **Judgment calls:**
+  1. **"Prose" means body text, list items, captions and footnotes.** Headings stay on OCR: short, structural, rarely dose-bearing, and a heading change would also move section boundaries.
+  2. **One crop and one call per element**, not per page region, so every transcription aligns with exactly one element. Multi-element regions would need the model to split its output back into elements, a new failure mode.
+  3. **A document-level opt-out** rather than a per-element one: prose elements have no stable index the way tables do.
+  4. **The similarity floor (0.6)** is the guard against a wrong crop or an invented passage. Below it the OCR text is kept and the rejection is reported.
+- **Reversible?:** yes. `INGEST_VLM_PROSE=off` (or the manifest opt-out) and re-ingest.
+
+### 223. Prose crops are masked and tightened, and prose acceptance is stricter, after transcriptions absorbed neighbouring bullets (follow-up to #222)
+- **Date / phase:** 2026-09-29, Phase 9.
+- **Requirement ID(s):** PRD-113, ARCH-044 (D12).
+- **Problem:** with the 6-point crop pad from #222, a crop of one tightly spaced bullet (~10 pt apart on Kenya pp. 47–48) also showed parts of the next one. The model transcribed both, and the 0.6 similarity floor accepted the result.
+- **What changed:**
+  - Prose crops use a 1-point pad (`PROSE_CROP_PAD_PT`, `app/ingestion/layout/pipeline.py`). Tables keep `INGEST_VLM_CROP_PAD_PT`.
+  - Any other element on the page whose box overlaps the padded crop is painted white before the crop is sent (`render_crop(..., mask=...)`, `docling_adapter.py`), so the model sees only its own element.
+  - Acceptance (`vlm_prose.py`): similarity floor raised from 0.6 to 0.8, plus a length band. The transcription must be 0.8–1.25× the length of the OCR text, so an absorbed sentence is rejected even when similarity stays high.
+  - Tests: `test_transcription_that_absorbed_a_neighbouring_bullet_is_rejected` and `test_ocr_misreads_are_within_tolerance` (legitimate fixes such as "sOmg" → "50mg" still pass).
+- **Judgment calls:**
+  1. **Mask, not just shrink.** A 1-point pad alone still includes any neighbour whose box overlaps the element's own box. Painting overlapping neighbours white handles that case too.
+  2. **0.8 floor and 0.8–1.25 length band.** A faithful transcription differs from OCR only by misread characters. The band is loose enough for bullets, spacing and OCR character errors, and tight enough to reject a whole added clause.
+  3. **Small normalisations are left to review, not rejected.** The re-run below accepted a spelling correction and changed footnote markers. Neither changes a number, and every prose transcription is held for admin review (#222). Rejecting them would need a character-level diff against the source glyphs, which OCR can't supply reliably.
+- **Evidence (2026-09-29):**
+  - Parse-only preview of the Kenya excerpt: 13/13 passages accepted, no neighbour text absorbed, 0 numeric disagreements, similarity ≥ 0.978.
+  - Changes the reviewer should see: "gentamycin" → "gentamicin" in one passage, `**Metronidazole` → `*Metronidazole`, and the leading `*` dropped from one Ceftriaxone line.
+  - Re-ingest (`--force --only` Kenya, MoH): Kenya 7 → 7 chunks, 7/7 mapped, 4 held, quality 0.995; MoH 211 → 211, 211/211 mapped, 6 held, quality 0.99. 0 gold questions remapped (backup `gold_remap_20260929T053411Z.json`).
+- **Reversible?:** yes. Revert the pad, mask and thresholds, then re-ingest.
+
+### 224. Unified ablation re-run on the corrected corpus (`20260929T053850Z-63640d95`)
+- **Date / phase:** 2026-09-29, Phase 9. Operator: "go ahead with all three" (rebuild images, log #223, re-run the ablation).
+- **Requirement ID(s):** PRD-112, ARCH-043; corpus from PRD-113 / ARCH-044.
+- **What was done:**
+  - Rebuilt the `api` and `worker` images and recreated both containers (`--no-deps`), so the #223 code no longer depends on `docker cp`.
+  - Ran `run_unified_ablation` with `MODEL_ABLATION_BACKEND=local`: 1,419 questions, 340,560 rows, vocabulary hash `c7652305…` (unchanged since #211). Copied out of the container with `docker cp`, because `results/ablation/` is still not bind-mounted.
+- **What the corpus now contains relative to `20260928T071358Z-d18a9400`:** the NICE text-layer fix and the remap straight from the pypdf baseline (#221), the vision-model transcription of tables and prose (#219, #222), and the crop fix (#223). The two runs differ in both corpus and gold, so the comparison below is descriptive, not a controlled test of any one change.
+- **Results (Recall@12, paired bootstrap):**
+  - Level 1 (present_only − all_assessed): −0.076 [−0.081, −0.072].
+  - Level 2 (enriched − raw): +0.024 [+0.018, +0.030] for present_only, −0.014 [−0.020, −0.007] for all_assessed.
+  - Level 3 endpoints (w=1.0 − w=0.0): −0.207 to −0.572.
+  - Best weight vs pure BM25 (post-hoc, best weight 0.0): +0.394 [+0.382, +0.406].
+  - All p < 0.0001.
+- **Against `d18a9400` on the 1,405 questions both runs share:**
+  - Mean gold set grew from 2.89 to 3.34 chunks.
+  - Recall@12 still rose at w ≤ 0.4 in every arm (e.g. present_only/raw w=0 0.517 → 0.617, all_assessed/raw w=0 0.497 → 0.646). At w ≥ 0.6 it fell.
+  - Hit@12 is essentially flat to slightly down: 0.95–0.98 at w ≤ 0.8, against 0.967–0.981 before.
+  - Pure BM25 (w=1.0) changed the most: all_assessed/enriched Hit@12 went 0.543 → 0.858, and present_only/enriched 0.043 → 0.170.
+- **Judgment calls:**
+  1. **Hit@12 and Recall@12 are both reported, on the shared 1,405 questions**, for the same reason as #216: gold sets changed size, so Recall@12 alone would mix corpus effects with gold-size effects.
+  2. **Why the pool grew by 14 questions (1,405 → 1,419) was not investigated.** The likely cause is that the baseline remap (#221) gave gold back to questions left with none in #216. They are excluded from the paired comparison above.
+- **Not done / flagged:**
+  1. The 10 chunks held after the #223 re-ingest are not retrievable until an admin confirms them on `/corpus-review`. This run scores the corpus without them.
+  2. No production retrieval setting was changed (scope of PRD-112).
+- **Reversible?:** yes. This run only wrote result files.
+
+### 225. The corpus review queue lists only held chunks of active document versions
+- **Date / phase:** 2026-09-29, Phase 9. Operator: "yes, fix the review queue".
+- **Requirement ID(s):** ARCH-044, PRD-113.
+- **Problem:** `GET /corpus/review-queue` returned every chunk with `review_status = pending`, whatever its version's status. A re-ingest supersedes the prior version, but its held chunks stay `pending`. After the Phase 9 re-ingests the queue held 52 chunks from 12 versions, and only 10 of them belonged to active versions. Every version of a document shows the same `version_label`, so the page gave no way to tell the stale ones apart.
+- **What changed:** `app.ingestion.review.pending_query` joins `document_version` and keeps `status = 'active'`. `list_pending` uses it. Test: `test_review_queue_lists_only_active_versions` (compiled-SQL check, since the tests have no Postgres). Live check after the change: the queue returned 1 chunk. The operator had already confirmed the other 9 active-version chunks.
+- **Judgment calls:**
+  1. **Filter the queue; don't change the superseded chunks.** They keep `pending` in Postgres and Qdrant. Retrieval already excludes them by version status, and rewriting their review status would put an unreviewed decision into history.
+  2. **`review_chunk` still accepts a decision on a superseded chunk.** The page no longer offers one, and blocking it is a separate change.
+  3. **Only `active` is listed.** Withdrawn versions are excluded as well, since their chunks can't be retrieved either.
+- **Reversible?:** yes. Drop the join and filter.

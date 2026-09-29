@@ -118,19 +118,29 @@ def test_multirow_headers_flatten_to_column_paths_and_title_line() -> None:
         "Agent P (10 u/kg) · 12 hrly",
         "Agent Q (2 u/kg) · 24 hrly",
     ]
-    assert "| 1.0 | 10 | 2 |" in render.markdown
-    assert (
-        render.row_texts[0]
-        == "Weight (kg) 1.0 — Agent P (10 u/kg) · 12 hrly: 10; Agent Q (2 u/kg) · 24 hrly: 2"
+    assert "| 1.0 | 10 | 2 |" in render.grid_markdown  # grid kept for display
+
+
+def test_citable_table_text_is_row_wise_with_header_path_labels() -> None:
+    """DEVIATIONS.md #220: each value line names its own column."""
+    render = render_table(dose_table(), max_tokens=700)
+    assert render.text == (
+        "Synthetic doses for group one\n\n"
+        "Weight (kg): 1.0\n"
+        "  Agent P (10 u/kg) · 12 hrly: 10\n"
+        "  Agent Q (2 u/kg) · 24 hrly: 2\n\n"
+        "Weight (kg): 2.0\n"
+        "  Agent P (10 u/kg) · 12 hrly: 20\n"
+        "  Agent Q (2 u/kg) · 24 hrly: 4"
     )
 
 
-def test_large_table_splits_by_row_group_repeating_title_and_header() -> None:
+def test_large_table_splits_by_row_group_repeating_the_title() -> None:
     render = render_table(dose_table(), max_tokens=25)
     assert len(render.parts) == 2
     for part in render.parts:
         assert part.startswith("Synthetic doses for group one")
-        assert "| Weight (kg) |" in part
+        assert "Weight (kg):" in part
 
 
 # ── attested corrections (§5.11) ──
@@ -240,3 +250,32 @@ def test_short_old_chunk_links_only_to_its_most_specific_match() -> None:
         ("n3", "Signs of neonatal infection include poor feeding and lethargy"),
     ]
     assert [(lk.old_id, lk.new_id) for lk in map_chunks(old, new)] == [("o1", "n2")]
+
+
+def test_unchanged_chunk_links_only_to_its_identical_copy() -> None:
+    old = [("o1", "• Do not routinely give antibiotic treatment to babies without risk factors")]
+    new = [
+        ("n1", "•  Do not routinely give antibiotic treatment to babies without risk factors"),
+        ("n2", "Do not routinely give antibiotic treatment"),  # a piece-like near match
+    ]
+    assert [(lk.old_id, lk.new_id, lk.score) for lk in map_chunks(old, new)] == [("o1", "n1", 1.0)]
+
+
+def test_text_layer_characters_win_over_docling_decoding() -> None:
+    """DEVIATIONS.md #221: Docling dropped every "h" in NICE's Inter font."""
+    from app.ingestion.layout.docling_adapter import prefer_text_layer
+
+    assert prefer_text_layer("W at is t e impact", "What is the impact") == (
+        "What is the impact",
+        True,
+    )
+    assert prefer_text_layer("Gentamycin 5 mg/kg", "") == (
+        "Gentamycin 5 mg/kg",
+        False,
+    )  # OCR region
+    assert prefer_text_layer("same  text", "same text") == ("same text", False)
+    # a printed bullet Docling already stripped isn't reintroduced
+    assert prefer_text_layer("Membrane rupture", "• Membrane rupture") == (
+        "Membrane rupture",
+        False,
+    )

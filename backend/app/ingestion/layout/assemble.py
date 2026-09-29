@@ -76,6 +76,14 @@ class AssemblyOptions:
     # Vision-LLM table transcription (D12, proposal §18): called for each OCR
     # table; returns (merged table, meta) or None to keep the OCR table.
     table_transcriber: Callable[[Element], tuple[TableData, dict] | None] | None = None
+    # Manifest `table_sources` (proposal §18.7): per-table source choice,
+    # {(source page, table index on that page): entry}. `source: "ocr"` keeps
+    # a table off the vision path, e.g. after a reviewer rejected its
+    # transcription.
+    table_sources: dict[tuple[int, int], dict] = field(default_factory=dict)
+    # Vision transcription of OCR prose (DEVIATIONS.md #222): returns
+    # (text, meta) or None to keep the OCR text.
+    prose_transcriber: Callable[[Element], tuple[str, dict] | None] | None = None
 
 
 @dataclass
@@ -148,6 +156,7 @@ def _find_unlabelled_flowcharts(page: LayoutPage) -> None:
 
 def _units_for_page(page: LayoutPage, opts: AssemblyOptions, report: dict) -> list[_Unit]:
     units: list[_Unit] = []
+    table_index = 0
     for el in page.elements:
         if el.kind == KIND_HEADING:
             units.append(
@@ -160,6 +169,8 @@ def _units_for_page(page: LayoutPage, opts: AssemblyOptions, report: dict) -> li
                     meta=_ocr_meta(el.origin, el.ocr_min_confidence, el.text),
                 )
             )
+        elif el.kind in _PROSE_KINDS and el.origin == ORIGIN_OCR and opts.prose_transcriber:
+            units.append(_prose_unit(el, page, opts, report))
         elif el.kind == KIND_LIST_ITEM:
             units.append(
                 _Unit(
@@ -183,7 +194,8 @@ def _units_for_page(page: LayoutPage, opts: AssemblyOptions, report: dict) -> li
                     )
                 )
         elif el.kind == KIND_TABLE and el.table is not None:
-            units.append(_table_unit(el, page, opts, report))
+            units.append(_table_unit(el, page, opts, report, table_index))
+            table_index += 1
             report["tables"] += 1
         elif el.kind == KIND_PICTURE:
             unit = _picture_unit(el, page, opts, report)
@@ -192,11 +204,46 @@ def _units_for_page(page: LayoutPage, opts: AssemblyOptions, report: dict) -> li
     return units
 
 
-def _table_unit(el: Element, page: LayoutPage, opts: AssemblyOptions, report: dict) -> _Unit:
+_PROSE_KINDS = frozenset({KIND_TEXT, KIND_LIST_ITEM, KIND_CAPTION, KIND_FOOTNOTE})
+
+
+def _prose_unit(el: Element, page: LayoutPage, opts: AssemblyOptions, report: dict) -> _Unit:
+    """An OCR paragraph / list item / caption / footnote, re-transcribed by
+    the vision model when it passes the checks (otherwise the OCR text)."""
+    assert opts.prose_transcriber is not None
+    text, origin = el.text, el.origin
+    extra: dict = {}
+    transcribed = opts.prose_transcriber(el)
+    if transcribed is not None:
+        text, extra = transcribed
+        origin = ORIGIN_VLM
+        report["prose_vlm"] = report.get("prose_vlm", 0) + 1
+    meta = {**_ocr_meta(ORIGIN_OCR, el.ocr_min_confidence, text), **extra}
+    if el.kind == KIND_LIST_ITEM:
+        return _Unit(
+            KIND_LIST_ITEM, page.page_no, f"• {text}", origin, structure=[(0, 2)], meta=meta
+        )
+    return _Unit(el.kind, page.page_no, text, origin, meta=meta)
+
+
+def _table_unit(
+    el: Element, page: LayoutPage, opts: AssemblyOptions, report: dict, index: int
+) -> _Unit:
     table, origin = el.table, el.origin
     extra: dict = {}
     assert table is not None
-    if opts.table_transcriber is not None and el.origin == ORIGIN_OCR:
+    override = opts.table_sources.get((_source_page(page.page_no, opts.source_pages), index))
+    if override is not None:
+        extra["table_source"] = {k: override.get(k) for k in ("source", "reason", "decided_by")}
+        report.setdefault("table_sources_applied", []).append(
+            {
+                "page": _source_page(page.page_no, opts.source_pages),
+                "table_index": index,
+                "source": override.get("source"),
+            }
+        )
+    use_vlm = override is None or override.get("source") == "vlm"
+    if use_vlm and opts.table_transcriber is not None and el.origin == ORIGIN_OCR:
         transcribed = opts.table_transcriber(el)
         if transcribed is not None:
             ocr_render = render_table(table, max_tokens=10**9)
@@ -209,7 +256,7 @@ def _table_unit(el: Element, page: LayoutPage, opts: AssemblyOptions, report: di
     text = _BLOCK_SEP.join(render.parts)
     meta = {
         "table_parts": render.parts,
-        "row_texts": render.row_texts,
+        "table_grid": render.grid_markdown,
         "header_paths": render.header_paths,
         "caption": el.caption,
         "figure_ref": {"bbox": el.bbox.as_list(), "image_sha256": el.image_sha256},
@@ -367,6 +414,7 @@ def assemble(doc: LayoutDocument, opts: AssemblyOptions) -> ParsedDocument:
         "figures": 0,
         "figures_skipped_small": 0,
         "flowcharts": {},
+        "text_layer_repairs": doc.text_repairs,
     }
     bp = remove_boilerplate(
         doc,

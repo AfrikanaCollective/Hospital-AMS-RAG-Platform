@@ -30,7 +30,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import select
+from sqlalchemy import Select, select
 
 from app.audit.log import write_event
 from app.db.models.corpus import Chunk, DocumentVersion
@@ -75,17 +75,24 @@ def review_reasons(meta: dict) -> list[str]:
     return reasons
 
 
-def list_pending(session: Session, *, limit: int = 200) -> list[Chunk]:
-    return list(
-        session.execute(
-            select(Chunk)
-            .where(Chunk.meta["review_status"].astext == PENDING)
-            .order_by(Chunk.document_version_id, Chunk.ordinal)
-            .limit(limit)
-        )
-        .scalars()
-        .all()
+def pending_query(*, limit: int = 200) -> Select[tuple[Chunk]]:
+    """Held chunks of **active** document versions only. A re-ingest
+    supersedes the prior version, whose chunks leave retrieval but keep their
+    `pending` status, so without the version filter every re-ingest left a
+    duplicate set of held chunks in the queue, with nothing on the page to
+    tell them apart (DEVIATIONS.md #225)."""
+    return (
+        select(Chunk)
+        .join(DocumentVersion, DocumentVersion.id == Chunk.document_version_id)
+        .where(Chunk.meta["review_status"].astext == PENDING)
+        .where(DocumentVersion.status == "active")
+        .order_by(Chunk.document_version_id, Chunk.ordinal)
+        .limit(limit)
     )
+
+
+def list_pending(session: Session, *, limit: int = 200) -> list[Chunk]:
+    return list(session.execute(pending_query(limit=limit)).scalars().all())
 
 
 def review_chunk(

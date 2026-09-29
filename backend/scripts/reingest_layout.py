@@ -155,29 +155,39 @@ def remap_all_gold(links: list[LineageLink], reingested: set[str], artifacts_dir
 
 
 def rebuild_lineage_and_remap(backup_path: Path, artifacts_dir: Path) -> Counter:
-    """Recompute `corpus.chunk_lineage` with the current `METHOD` for every
-    active layout version and the version it superseded, then remap gold sets
-    **from the saved originals** in `backup_path` (not from gold already
-    remapped by an earlier method). Earlier-method lineage rows are kept as
-    history; only `METHOD` rows are used."""
+    """Map straight from the versions that own the saved gold chunk ids to the
+    active version of each document (not only to the version it directly
+    superseded), then remap gold **from the saved originals** in
+    `backup_path`. This lets gold go from an original baseline to the current
+    parse in one step, skipping intermediate versions whose text was worse
+    (DEVIATIONS.md #221). Links are recorded with the current `METHOD`."""
     previous: dict[str, list[str]] = json.loads(backup_path.read_text())["previous_gold"]
+    wanted = {cid for ids in previous.values() for cid in ids}
     links: list[LineageLink] = []
     reingested: set[str] = set()
     with session_scope() as session:
-        versions = (
-            session.execute(
-                select(DocumentVersion).where(
-                    DocumentVersion.status == "active", DocumentVersion.supersedes_id.is_not(None)
-                )
+        owners = {
+            c.document_version_id
+            for c in session.execute(
+                select(Chunk).where(Chunk.id.in_([uuid.UUID(x) for x in wanted]))
             )
             .scalars()
             .all()
-        )
-        for v in versions:
-            if not (v.parser_version or "").startswith("docling"):
+        }
+        for old_vid in owners:
+            old_v = session.get(DocumentVersion, old_vid)
+            if old_v is None or old_v.status == "active":
                 continue
-            old = _chunks(session, v.supersedes_id)
-            new = _chunks(session, v.id)
+            active = session.execute(
+                select(DocumentVersion).where(
+                    DocumentVersion.document_id == old_v.document_id,
+                    DocumentVersion.status == "active",
+                )
+            ).scalar_one_or_none()
+            if active is None:
+                continue
+            old = _chunks(session, old_v.id)
+            new = _chunks(session, active.id)
             doc_links = map_chunks(old, new)
             for link in doc_links:
                 session.add(
@@ -191,7 +201,8 @@ def rebuild_lineage_and_remap(backup_path: Path, artifacts_dir: Path) -> Counter
             links.extend(doc_links)
             reingested |= {oid for oid, _ in old}
             print(
-                f"[reingest] lineage {METHOD}: version {v.id}: "
+                f"[reingest] lineage {METHOD}: {old_v.parser_version or 'pypdf'} version "
+                f"{old_v.id} -> active {active.id}: "
                 f"{len({lk.old_id for lk in doc_links})}/{len(old)} old chunk(s) mapped, "
                 f"{len(doc_links)} link(s)"
             )

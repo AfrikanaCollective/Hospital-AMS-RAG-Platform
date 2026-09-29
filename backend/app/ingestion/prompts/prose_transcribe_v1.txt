@@ -1,0 +1,13 @@
+Transcribe the printed text in this image EXACTLY as printed.
+This is transcription, not interpretation.
+
+Output ONLY compact single-line JSON (no prose, no Markdown, no code fences):
+{"text":"..."}
+
+- Copy every character exactly: words, digits, commas, decimal points, units,
+  symbols (<, >, ≤, ≥, *, **, /, %, –), capitalisation and spelling.
+- Join the lines of the text with single spaces. Keep a word that is split
+  across a line break as printed.
+- Leave out a leading bullet symbol (•, ✓, -) if the text starts with one.
+- Text you cannot read is "[illegible]".
+- Do NOT correct, convert, compute, summarise, explain, or add anything.

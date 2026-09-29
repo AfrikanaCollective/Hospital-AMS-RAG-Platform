@@ -31,28 +31,10 @@ def _transcription(**overrides) -> dict:
         "title": ["Synthetic doses for group one"],
         "columns": 3,
         "header_rows": [
-            [
-                {"text": "Weight (kg)", "col": 0, "col_span": 1, "row_span": 2},
-                {"text": "Agent P (10 u/kg)", "col": 1, "col_span": 1, "row_span": 1},
-                {"text": "Agent Q (2 u/kg)", "col": 2, "col_span": 1, "row_span": 1},
-            ],
-            [
-                {"text": "12 hrly", "col": 1, "col_span": 1, "row_span": 1},
-                {"text": "24 hrly", "col": 2, "col_span": 1, "row_span": 1},
-            ],
+            ["Weight (kg)", "Agent P (10 u/kg)", "Agent Q (2 u/kg)"],
+            ["", "12 hrly", "24 hrly"],
         ],
-        "body_rows": [
-            [
-                {"text": v, "col": i, "col_span": 1, "row_span": 1}
-                for i, v in enumerate(["1.0", "10", "2"])
-            ],
-            [
-                {"text": v, "col": i, "col_span": 1, "row_span": 1}
-                for i, v in enumerate(["2.0", "20", "4"])
-            ],
-        ],
-        "notes": [],
-        "illegible": [],
+        "body_rows": [["1.0", "10", "2"], ["2.0", "20", "4"]],
     }
     t.update(overrides)
     return t
@@ -90,6 +72,7 @@ def _transcriber(answer: _Answer, tmp_path) -> tuple[TableTranscriber, _FakeGate
         _transcription(),  # gateway already parsed the JSON
         json.dumps(_transcription()),  # pretty-printed JSON string
         "```json\n" + json.dumps(_transcription()) + "\n```",  # fenced
+        json.dumps(_transcription()) + "}",  # stray closing brace (seen live)
     ],
 )
 def test_all_three_gateway_response_shapes_parse(response) -> None:
@@ -100,6 +83,7 @@ def test_all_three_gateway_response_shapes_parse(response) -> None:
     "response",
     [
         "This image shows a dosing table with…",  # prose is never salvaged
+        json.dumps(_transcription()) + " Note: two cells were unclear.",  # trailing prose
         {"response": _transcription()},  # gateway-unwrap key must not appear
         _transcription(commentary="looks like a dosing table"),  # extra key
         [_transcription()],  # a list, not an object
@@ -119,31 +103,62 @@ def test_agreeing_table_merges_cleanly_and_vlm_headers_are_used() -> None:
         if c.text == "Weight (kg)":
             c.text = "Weight ()"
     result = merge(to_table_data(parse_transcription(_transcription())), ocr)
-    assert result.agreement == {
-        "cells": 6,
-        "agreed": 6,
-        "vlm_only": 0,
-        "ocr_only": 0,
-        "numeric_disagreements": 0,
-    }
+    stats = result.agreement
+    assert (stats["cells"], stats["agreed"], stats["numeric_disagreements"]) == (6, 6, 0)
+    # The header misread is listed for the reviewer, but it isn't numeric.
+    assert stats["header_disagreements"] == 1
+    assert [d for d in result.cell_diff if d["row"] == "header"][0]["numeric"] is False
     assert any(c.text == "Weight (kg)" for c in result.table.cells)
 
 
 def test_numeric_disagreement_is_flagged_and_vlm_value_used() -> None:
     t = _transcription()
-    t["body_rows"][1][1]["text"] = "25"
+    t["body_rows"][1][1] = "25"
     result = merge(to_table_data(parse_transcription(t)), dose_table())
     assert result.agreement["numeric_disagreements"] == 1
     assert result.cell_diff == [{"row": 1, "col": 1, "ocr": "20", "vlm": "25", "numeric": True}]
 
 
+def test_shifted_header_frequency_is_a_numeric_disagreement() -> None:
+    """Seen live on Kenya p. 48: the frequency row shifted one column, so a
+    drug printed "12 hrly" read "24 hrly"."""
+    t = _transcription()
+    t["header_rows"][1] = ["12 hrly", "24 hrly", ""]
+    result = merge(to_table_data(parse_transcription(t)), dose_table())
+    header = [d for d in result.cell_diff if d["row"] == "header"]
+    assert header and all(d["numeric"] for d in header if d["col"] in (0, 1))
+    assert result.agreement["numeric_disagreements"] >= 2
+
+
+def test_multiline_title_stays_one_title_and_route_i1_is_not_numeric() -> None:
+    t = _transcription(title=["Synthetic doses", "for group one"])
+    t["header_rows"][1] = ["", "I.V 12 hrly", "24 hrly"]
+    ocr = dose_table()
+    for c in ocr.cells:
+        if c.text == "12 hrly":
+            c.text = "1.V 12 hrly"
+    result = merge(to_table_data(parse_transcription(t)), ocr)
+    header = {d["col"]: d for d in result.cell_diff if d["row"] == "header"}
+    assert 2 not in header  # the title isn't prefixed onto the columns
+    assert header[1]["numeric"] is False  # "1.V" vs "I.V" is listed, not numeric
+    assert result.agreement["numeric_disagreements"] == 0
+
+
 def test_illegible_vlm_cell_falls_back_to_ocr() -> None:
     t = _transcription()
-    t["body_rows"][0][2]["text"] = "[illegible]"
+    t["body_rows"][0][2] = "[illegible]"
     result = merge(to_table_data(parse_transcription(t)), dose_table())
     assert result.agreement["ocr_only"] == 1
     body = [c.text for c in result.table.cells if c.row == 3]
     assert body == ["1.0", "10", "2"]
+
+
+def test_row_with_wrong_cell_count_is_rejected(tmp_path) -> None:
+    t = _transcription()
+    t["body_rows"][0] = ["1.0", "10"]
+    tr, _ = _transcriber(_Answer(t), tmp_path)
+    assert tr.transcribe(b"png", dose_table()) is None
+    assert "expected 3" in tr.report["rejected"][0]["reason"]
 
 
 def test_row_count_mismatch_is_rejected() -> None:
@@ -283,3 +298,38 @@ def test_429_is_retried_and_413_is_not(monkeypatch) -> None:
     with pytest.raises(LLMGatewayError, match="413"):
         _gateway(too_big).generate_with_image(b"png", "p")
     assert len(calls) == 1
+
+
+def test_manifest_table_source_ocr_keeps_a_table_off_the_vision_path(tmp_path) -> None:
+    """Proposal §18.7: after a reviewer rejects a transcription (Kenya p. 48's
+    shifted headers), `table_sources` pins that table to OCR on re-ingest."""
+    from app.ingestion.layout.pipeline import load_table_sources
+
+    calls = []
+    opts = AssemblyOptions(
+        table_transcriber=lambda el: calls.append(el) or None,
+        table_sources=load_table_sources(
+            [{"page": 2, "table_index": 0, "source": "ocr", "reason": "VLM headers shifted"}]
+        ),
+    )
+    parsed = assemble(synthetic_document(), opts)
+    [table] = [
+        c
+        for c in chunk_document(parsed, format_profile="clinical_protocol")
+        if c["chunk_type"] == "table"
+    ]
+    assert calls == []
+    assert table["meta"]["text_origins"] == ["ocr"]
+    assert table["meta"]["review_status"] == "pending"  # OCR digits: still held
+    assert parsed.parse_report["table_sources_applied"][0]["source"] == "ocr"
+    assert table["meta"]["table_source"]["source"] == "ocr"  # the pin is on the chunk too
+
+
+def test_malformed_table_source_fails_closed() -> None:
+    from app.ingestion.corrections import CorrectionError
+    from app.ingestion.layout.pipeline import load_table_sources
+
+    with pytest.raises(CorrectionError):
+        load_table_sources([{"page": 48, "table_index": 1, "source": "ocr"}])  # no reason
+    with pytest.raises(CorrectionError):
+        load_table_sources([{"page": 48, "table_index": 1, "source": "guess", "reason": "x"}])

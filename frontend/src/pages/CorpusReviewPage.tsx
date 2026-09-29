@@ -6,7 +6,7 @@ import Button from "../components/ui/Button";
 const REASON_LABELS: Record<string, string> = {
   ocr_numeric: "OCR text with numbers",
   low_parse_quality: "Low parse quality",
-  vlm_transcription: "Table transcribed by the vision model",
+  vlm_transcription: "Transcribed by the vision model",
 };
 
 interface CellDiff {
@@ -100,6 +100,9 @@ export default function CorpusReviewPage() {
               </pre>
             </div>
             {c.meta.vlm ? <VlmDetails meta={c.meta} /> : null}
+            {Array.isArray(c.meta.prose_vlm) ? (
+              <ProseVlmDetails items={c.meta.prose_vlm as ProseVlm[]} />
+            ) : null}
             <div className="mt-2 flex gap-2">
               <Button
                 variant="primary"
@@ -186,6 +189,49 @@ function VlmDetails({ meta }: { meta: Record<string, unknown> }) {
           <pre className="whitespace-pre-wrap rounded bg-surface-alt p-2">{meta.ocr_alternative}</pre>
         </details>
       )}
+    </div>
+  );
+}
+
+interface ProseVlm {
+  model: string;
+  crop_sha256: string;
+  ocr_alternative: string | null;
+  agreement: {
+    similarity: number;
+    numeric_disagreements: number;
+    vlm_only_numbers: string[];
+    ocr_only_numbers: string[];
+  };
+}
+
+// Transcribed OCR prose (DEVIATIONS.md #222): each paragraph beside the crop
+// the model saw, with its OCR reading and any numbers that differ.
+function ProseVlmDetails({ items }: { items: ProseVlm[] }) {
+  return (
+    <div className="mt-2 grid gap-2 text-[12px] text-ink">
+      <p>
+        {items.length} paragraph(s) transcribed by <strong>{items[0]?.model}</strong>.
+      </p>
+      {items.map((p) => (
+        <div key={p.crop_sha256} className="grid gap-2 rounded border border-border p-2 md:grid-cols-2">
+          <Crop sha256={p.crop_sha256} />
+          <div>
+            <p className={p.agreement.numeric_disagreements ? "font-semibold text-danger" : ""}>
+              Similarity to OCR {Math.round(p.agreement.similarity * 100)}%
+              {p.agreement.numeric_disagreements
+                ? ` · numbers differ: vision [${p.agreement.vlm_only_numbers.join(", ")}] vs OCR [${p.agreement.ocr_only_numbers.join(", ")}]`
+                : " · all numbers agree"}
+            </p>
+            {p.ocr_alternative && (
+              <details className="mt-1">
+                <summary>OCR reading</summary>
+                <p className="whitespace-pre-wrap">{p.ocr_alternative}</p>
+              </details>
+            )}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

@@ -158,6 +158,9 @@ class LayoutDocument:
     # Rendered crops, keyed by sha256 of the PNG bytes. Not serialized into
     # fixtures (binary); the adapter writes them to the crop store.
     crops: dict[str, bytes] = field(default_factory=dict)
+    # Text-layer strings where Docling's decoding differed from pdfplumber's
+    # and pdfplumber's was used (DEVIATIONS.md #221).
+    text_repairs: int = 0
 
     def to_json_dict(self) -> dict[str, Any]:
         raw = asdict(self)

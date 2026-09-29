@@ -117,7 +117,8 @@ def test_ocr_table_with_numbers_is_held_for_review() -> None:
     [table] = _by_type(_chunks(), "table")
     assert table["meta"]["review_status"] == "pending"
     assert table["meta"]["ocr"]["has_digits"] is True
-    assert "Weight (kg) 1.0 — Agent P" in table["meta"]["embedding_text"]  # row rendering
+    assert "Weight (kg): 1.0\n  Agent P (10 u/kg) · 12 hrly: 10" in table["text"]  # row-wise
+    assert "| 1.0 | 10 | 2 |" in table["meta"]["table_grid"]
     [prose] = [c for c in _chunks() if "synthetic agent" in c["text"]]
     assert "review_status" not in prose["meta"]  # text-layer prose isn't held
 

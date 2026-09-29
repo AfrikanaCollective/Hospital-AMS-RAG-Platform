@@ -112,7 +112,10 @@ adapter / `field_mapping.yaml`; no source-specific field enters the schema.
    fallback). Only text-layer, OCR, attested-correction, or verified-structure
    text is citable, never model-generated text. OCR'd digits and low
    parse-quality documents are held (`review_status = pending`) until an admin
-   confirms them. Flowcharts are one atomic `flowchart` chunk with their
+   confirms them. D12: OCR tables may be re-transcribed by the gateway's vision
+   model (`vlm_transcription`), which is always held and cross-checked against
+   OCR per cell and header; the manifest's `table_sources` can pin a table to
+   OCR. Flowcharts are one atomic `flowchart` chunk with their
    verified edges; unverified structure is capped at `weak`. A
    caption-only figure (`has_embedded_text=false`) is down-weighted and, per
    §3, capped at `weak` support — never the sole support for a claim.

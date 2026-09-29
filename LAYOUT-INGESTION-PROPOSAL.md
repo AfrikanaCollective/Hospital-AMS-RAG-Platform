@@ -2,9 +2,11 @@
 
 **Status:** Sub-phases **9a + 9b approved and implemented 2026-09-28**
 (DEVIATIONS.md #215-#216; corpus re-ingested with the layout parser).
-**9c is re-specified in §18** as vision-LLM *table transcription* through
-the gateway's image endpoint, and is **proposed, not implemented**. It needs
-approval of one rule change (D12, amending D3) before any code is written.
+**9c was re-specified in §18** as vision-LLM *table transcription* through
+the gateway's image endpoint. D12 was approved and 9c implemented
+(`ocr_only`) on 2026-09-28, DEVIATIONS.md #219. Prompt v2 and header
+cross-checks were added after the first live run. Raster flowcharts via the
+vision model are out of scope.
 
 **Proposed requirement IDs:** `PRD-113` (layout-aware guideline ingestion),
 `ARCH-044` (parser stack, text-provenance rule, flowchart graph). These are
@@ -786,8 +788,10 @@ ARCHITECTURE-ESSENTIALS.md (sync), DEVIATIONS.md (a judgment-call entry per
 
 ## 18. Sub-phase 9c (re-specified): vision-LLM table transcription through the gateway
 
-**Status: proposed, not implemented.** Decision D12 must be approved first,
-because it changes what is citable.
+**Status: approved and implemented 2026-09-28** (`INGEST_VLM_TABLES=ocr_only`;
+DEVIATIONS.md #219). Differences from the spec below: flat-row prompt v2,
+header-path cross-check, tolerated trailing brackets, per-table
+`table_sources` overrides.
 
 ### 18.1 Why
 

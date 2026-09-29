@@ -9,7 +9,9 @@ deterministically, by **content-word** containment within the same document:
 - `containment(O, N) = |words(O) ∩ words(N)| / |words(O)|`, where words are
   lower-cased alphanumeric runs of length ≥ 3 minus common English function
   words — so markdown pipes, node ids, bullets and "the/with/and" don't count;
-- the **best** new chunk is linked if its containment is ≥ `MIN_PRIMARY`;
+- an old chunk whose whitespace-normalised text equals a new chunk's links
+  only to that chunk (an unchanged chunk has exactly one successor);
+- otherwise the **best** new chunk is linked if its containment is ≥ `MIN_PRIMARY`;
 - ties go to the most similar new chunk overall (Jaccard), i.e. the most
   specific match;
 - any other new chunk is linked only if it is a **piece** of the old chunk:
@@ -127,8 +129,16 @@ class LineageLink:
 def map_chunks(old: list[tuple[str, str]], new: list[tuple[str, str]]) -> list[LineageLink]:
     """`old`/`new`: `(chunk_id, text)` in ordinal order, one document."""
     new_words = [(nid, words(t)) for nid, t in new]
+    exact: dict[str, str] = {}
+    for nid, t in new:
+        exact.setdefault(" ".join(t.split()), nid)
     links: list[LineageLink] = []
     for oid, otext in old:
+        same = exact.get(" ".join(otext.split()))
+        if same is not None:
+            # Unchanged chunk: its identical copy is its only successor.
+            links.append(LineageLink(oid, same, 1.0))
+            continue
         ow = words(otext)
         if not ow:
             continue

@@ -398,10 +398,24 @@ def _block_provenance(blocks: list[Block]) -> dict:
     if any(b.origin == "vlm_transcription" for b in blocks):
         meta["review_status"] = "pending"
         meta.setdefault("review_reasons", []).append("vlm_transcription")
+        prose = [b for b in blocks if b.kind != "table" and b.origin == "vlm_transcription"]
         for b in blocks:
-            for key in ("vlm", "cell_diff", "ocr_alternative"):
-                if key in b.meta:
-                    meta[key] = b.meta[key]
+            if b.kind == "table":
+                for key in ("vlm", "cell_diff", "ocr_alternative"):
+                    if key in b.meta:
+                        meta[key] = b.meta[key]
+        if prose:
+            # One entry per transcribed paragraph in this chunk: the OCR
+            # reading beside it and the numbers that differ (DEVIATIONS.md #222).
+            meta["prose_vlm"] = [
+                {
+                    "model": b.meta["vlm"]["model"],
+                    "crop_sha256": b.meta["vlm"]["crop_sha256"],
+                    "agreement": b.meta["vlm"]["agreement"],
+                    "ocr_alternative": b.meta.get("ocr_alternative"),
+                }
+                for b in prose
+            ]
     corrections = [c for b in blocks for c in b.meta.get("corrections", [])]
     if corrections:
         meta["corrections"] = [
@@ -477,9 +491,10 @@ class _LayoutSectionBuilder(_SectionBuilder):
                 start = doc.normalized_text.index(part, cursor)
                 end = start + len(part)
                 meta = dict(base)
-                meta["embedding_extra"] = (
-                    "\n".join(block.meta.get("row_texts", [])) if i == 0 else None
-                )
+                if i == 0 and block.meta.get("table_grid"):
+                    meta["table_grid"] = block.meta["table_grid"]
+                if block.meta.get("table_source"):
+                    meta["table_source"] = block.meta["table_source"]
                 if split_group_id:
                     meta.update(split_group_id=split_group_id, table_part=i)
                 if is_criteria:

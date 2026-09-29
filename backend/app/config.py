@@ -183,13 +183,25 @@ class Settings(BaseSettings):
     ingest_vlm_max_retries: int = 2
     ingest_vlm_cache_dir: str = "data/ingest_artifacts/vlm_cache"
     ingest_vlm_refresh: bool = False  # true = ignore the cache and call again
+    # OCR prose (text, list items, captions, footnotes with no text layer) is
+    # transcribed by the vision model BY DEFAULT once a vision model is
+    # configured (operator decision 2026-09-28, DEVIATIONS.md #222).
+    # off | ocr_only. A document can opt out with manifest `ocr_prose_source: "ocr"`.
+    ingest_vlm_prose: str = "ocr_only"
+
+    @property
+    def vision_model_configured(self) -> bool:
+        return self.vision_model_id.strip() not in ("", PLACEHOLDER_MODEL_ID)
 
     @property
     def vision_enabled(self) -> bool:
-        return self.ingest_vlm_tables == "ocr_only" and self.vision_model_id.strip() not in (
-            "",
-            PLACEHOLDER_MODEL_ID,
-        )
+        """Vision transcription of OCR tables."""
+        return self.ingest_vlm_tables == "ocr_only" and self.vision_model_configured
+
+    @property
+    def vision_prose_enabled(self) -> bool:
+        """Vision transcription of OCR prose."""
+        return self.ingest_vlm_prose == "ocr_only" and self.vision_model_configured
 
     # ── patient records (ARCH-039 / DEVIATIONS #30, #33, #34) ──
     patient_records_dir: str = "data/patient_records"

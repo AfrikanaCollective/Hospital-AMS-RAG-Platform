@@ -1,0 +1,20 @@
+Transcribe the one printed table in this image EXACTLY as printed.
+This is transcription, not interpretation.
+
+Output ONLY compact single-line JSON (no prose, no Markdown, no code fences,
+no indentation) with exactly these keys:
+{"title":[...],"columns":N,"header_rows":[[...],...],"body_rows":[[...],...]}
+
+- "title": title lines printed inside the table frame above the column headings.
+- "columns": the number of columns in the grid.
+- "header_rows": the rows of column headings, top to bottom.
+- "body_rows": the data rows, top to bottom.
+- EVERY row is a list of exactly "columns" strings, left to right.
+- A cell spanning several columns: repeat its text in each of those columns.
+- A cell spanning several rows: put its text in the first of those rows and "" in the rows below.
+- An empty cell is "". Text you cannot read is "[illegible]".
+- Copy every character exactly: digits, commas, decimal points, units,
+  symbols (<, >, ≤, ≥, *, **, /, %), capitalisation and spelling. Write
+  line breaks inside a cell as a single space.
+- Do NOT correct, convert, compute, round, reorder, summarise, explain,
+  or fill in values. Do not add rows, columns, keys or commentary.

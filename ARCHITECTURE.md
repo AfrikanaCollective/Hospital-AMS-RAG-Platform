@@ -611,18 +611,48 @@ Rules, in priority order:
    the embedding text only. A flowchart whose edges aren't all verified is at
    most `weak` support (§8.3 rule 5).
 3d. **Layout-path tables** are built from cell structure: multi-row headers
-   flatten to one header path per column, a full-width first-row header is
-   the title line, and tables over `INGEST_TABLE_MAX_TOKENS` split by row group
-   with the header repeated. Row renderings are added to the embedding text
-   only. On this path the heading is **not** prepended to the table text
+   flatten to one header path per column, and a full-width first-row header
+   is the title line. The citable text is **row-wise** (DEVIATIONS.md #220):
+   the title, then one block per body row, `<row label header>: <label>` with
+   one indented `<column header path>: <value>` line per non-empty cell, so
+   every quoted value carries its own column context. The markdown grid is
+   kept in `meta.table_grid` for display. Tables over `INGEST_TABLE_MAX_TOKENS`
+   split by row group with the title repeated. On this path the heading is **not** prepended to the table text
    (it is in `section_path` and the embedding text), so the chunk stays an
    exact slice of the normalized text.
-3e. **Citable text is source text only** (ARCH-044). Chunk text contains only
+3e. **Layout from Docling, characters from pdfplumber** (DEVIATIONS.md #221).
+   Docling decides element boundaries, labels, reading order and table cells,
+   but every text-layer string (elements, lines, table cells) is re-read from
+   the PDF's own characters with pdfplumber. Docling's decoding dropped every
+   "h" in NICE NG195's Inter font and normalised dashes. OCR regions, where
+   there are no characters, keep Docling's OCR text.
+3f. **Citable text is source text only** (ARCH-044). Chunk text contains only
    text-layer text, OCR text, operator-attested corrections, and deterministic
    serializations of verified structure. Model-generated text never enters it.
    Chunks record `meta.text_origins`, `meta.ocr`, and `meta.corrections`. A
    chunk with OCR'd digits is held (`review_status = pending`) until an admin
    confirms it against its crop.
+   **D12 (approved 2026-09-28):** a vision model's *transcription* of an OCR
+   table (`INGEST_VLM_TABLES=ocr_only`, through the gateway's
+   `/generate-with-image`) is a fifth citable origin, `vlm_transcription`,
+   under strict conditions:
+   - it must pass strict JSON schema validation, the expected-model check and
+     a truncation check;
+   - it is cross-checked cell by cell and header by header against OCR;
+   - it is **always held** until an admin confirms it against the crop the
+     model saw;
+   - a real text layer is never overridden, and numeric disagreements go to
+     the reviewer.
+
+   Model *interpretation* stays never citable. The manifest's
+   `table_sources` can pin a table to OCR (DEVIATIONS.md #219).
+   **Extended to prose** (operator, DEVIATIONS.md #222): OCR text, list
+   items, captions and footnotes are transcribed per element by default
+   (`INGEST_VLM_PROSE=ocr_only`). Each crop has a 1-point pad, with
+   overlapping neighbouring elements painted white. A transcription less than
+   0.8 similar to the OCR reading, or outside 0.8–1.25× its length, is
+   rejected (#223). Number differences are flagged, and the chunk is always
+   held. Headings stay on OCR.
 4. **Criteria lists** (inclusion/exclusion, staging criteria) are tagged
    `chunk_type = criteria` and get structured `meta.criteria[]` extraction
    (field, operator, value, unit) where the text is regular enough — this feeds

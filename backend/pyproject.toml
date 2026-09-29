@@ -120,7 +120,7 @@ exclude = ["alembic/"]
 # module that imports it (app.ingestion.layout.docling_adapter) is typed
 # against our own dataclasses, not the parsers' types.
 [[tool.mypy.overrides]]
-module = ["docling.*", "docling_core.*", "pdfplumber", "pypdfium2"]
+module = ["docling.*", "docling_core.*", "pdfplumber", "pdfplumber.*", "pypdfium2"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

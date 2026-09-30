@@ -24,6 +24,7 @@ calls. Requires the `retrieval-tuning` optional extra
 from __future__ import annotations
 
 import argparse
+import json
 import os
 from pathlib import Path
 
@@ -57,11 +58,43 @@ def load_mean_recall(
     """Mean `metric` (a per-query column: `recall_at_k` or
     `reciprocal_rank_at_k`) per (level1, level2, k, bm25_weight) cell,
     restricted to `weights`."""
-    df = pd.read_json(per_query_path, lines=True, dtype={"bm25_weight": float})
+    return aggregate(read_per_query(per_query_path), weights, metric, source=per_query_path)
+
+
+def read_per_query(per_query_path: Path) -> pd.DataFrame:
+    """Only the columns the figures use: a full run's jsonl is ~1 GB, and
+    `plot_ablation_figures.render_all` aggregates it several times from one
+    read (DEVIATIONS.md #229)."""
+    columns = (
+        "level1_condition",
+        "level2_condition",
+        "k",
+        "bm25_weight",
+        "recall_at_k",
+        "reciprocal_rank_at_k",
+    )
+    # Streamed line by line, keeping only these columns: `pd.read_json`
+    # would first materialize every row's query text and id lists.
+    data: dict[str, list] = {c: [] for c in columns}
+    with per_query_path.open(encoding="utf-8") as fh:
+        for line in fh:
+            if not line.strip():
+                continue
+            row = json.loads(line)
+            for c in columns:
+                data[c].append(row[c])
+    df = pd.DataFrame(data)
+    df["bm25_weight"] = df["bm25_weight"].astype(float)
+    return df
+
+
+def aggregate(
+    df: pd.DataFrame, weights: tuple[float, ...], metric: str, *, source: Path | str = "rows"
+) -> pd.DataFrame:
     df = df[df.bm25_weight.round(6).isin([round(w, 6) for w in weights])]
     missing = sorted(set(round(w, 6) for w in weights) - set(df.bm25_weight.round(6)))
     if missing:
-        raise SystemExit(f"no rows in {per_query_path} for bm25_weight(s) {missing}")
+        raise SystemExit(f"no rows in {source} for bm25_weight(s) {missing}")
     agg = (
         df.groupby(["level1_condition", "level2_condition", "k", "bm25_weight"])[metric]
         .mean()

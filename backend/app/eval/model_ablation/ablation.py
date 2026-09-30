@@ -90,15 +90,18 @@ class Corpus:
     texts: list[str]
 
 
+# Only what production retrieval could return: active versions, and no chunk
+# held for review or rejected (ARCH-044). Every Qdrant query an ablation makes
+# must use it, not only `fetch_corpus`: superseded versions stay in the
+# collection, and an unfiltered BM25 query ranked them into the top k, where
+# they can never be gold (DEVIATIONS.md #226).
+CORPUS_FILTER: dict = {"status": "active", "exclude_review_status": list(NOT_RETRIEVABLE)}
+
+
 def fetch_corpus(store: QdrantVectorStore) -> Corpus:
     """Every guideline chunk, once per run — see module docstring for why
     this is feasible without an ANN index (314 points, 2026-09-17)."""
-    # Only what production retrieval could return: active versions, and no
-    # chunk held for review or rejected (ARCH-044). Before re-ingestion ever
-    # superseded a version this was the whole collection.
-    points = store.scroll_all(
-        flt={"status": "active", "exclude_review_status": list(NOT_RETRIEVABLE)}
-    )
+    points = store.scroll_all(flt=CORPUS_FILTER)
     return Corpus(
         chunk_ids=[p["chunk_id"] for p in points],
         texts=[p.get("text", "") for p in points],
@@ -131,8 +134,11 @@ def _bm25_rank(store: QdrantVectorStore, question_text: str, chunk_ids: list[str
     score — they have zero lexical signal, so last is the correct rank, but
     the tie order among them must not depend on incidental iteration order."""
     sparse = query_sparse_vector(question_text)
-    hits = store.single_vector_search(using="sparse", query=sparse, limit=len(chunk_ids))
-    ranked = [h["chunk_id"] for h in hits]
+    hits = store.single_vector_search(
+        using="sparse", query=sparse, limit=len(chunk_ids), flt=CORPUS_FILTER
+    )
+    corpus_ids = set(chunk_ids)
+    ranked = [h["chunk_id"] for h in hits if h["chunk_id"] in corpus_ids]
     missing = sorted(set(chunk_ids) - set(ranked))
     return ranked + missing
 
@@ -191,7 +197,9 @@ def _rank_text(
     dense = embed_texts([text], is_query=True)[0]
     sparse = query_sparse_vector(text)
     n = len(corpus.chunk_ids)
-    prod_hits = store.hybrid_search(dense=dense, sparse=sparse, prefetch_limit=n, limit=n)
+    prod_hits = store.hybrid_search(
+        dense=dense, sparse=sparse, prefetch_limit=n, limit=n, flt=CORPUS_FILTER
+    )
     rrf_production = [h["chunk_id"] for h in prod_hits]
 
     return {

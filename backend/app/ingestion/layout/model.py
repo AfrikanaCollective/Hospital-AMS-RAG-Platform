@@ -127,6 +127,11 @@ class Element:
     caption: str | None = None
     image_sha256: str | None = None  # picture/table crop, when rendered
     inner_lines: list[TextLine] = field(default_factory=list)  # text inside a picture region
+    # Row-labelled boxes (label_boxes.py, DEVIATIONS.md #238): depth below the
+    # enclosing section (1 = row label, 2 = column/sub-label, …), and whether a
+    # heading repeats a label for content continued from the previous page.
+    box_depth: int | None = None
+    box_continued: bool = False
 
 
 @dataclass

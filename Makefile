@@ -72,9 +72,9 @@ eval: ## run the evaluation harness against the fixed synthetic test set
 	$(BE) python -m app.eval.run --snapshot latest
 
 retrieval-tuning-report: ## Phase 6 BM25/vector weight sweep -> 1 combined 3-panel PNG report (PRD-109/ARCH-040); needs real Qdrant+Postgres+seeded eval questions
-	# seaborn/pandas/matplotlib are the `retrieval-tuning` optional extra, deliberately NOT baked
-	# into the api/worker image (report-generation tooling only, not needed by any running service) —
-	# installed here on demand instead of bloating the shared image/lock file for every build.
+	# seaborn/pandas/matplotlib (the `retrieval-tuning` extra) are baked into the api/worker image
+	# since DEVIATIONS.md #229 (backend/requirements-plots.txt), so the unified ablation can render
+	# its figures in the container; this host-side target still installs the extra on demand.
 	$(BE) pip install -q -e ".[retrieval-tuning]" && python -m scripts.run_retrieval_weight_sweep
 
 model-ablation-report: ## SapBERT/MedCPT/BM25 embedding ablation -> 2-panel PNG report (PRD-110/ARCH-041); needs real Qdrant+Postgres+seeded eval questions; set MODEL_ABLATION_BACKEND=local for real (non-stub) models
@@ -86,7 +86,7 @@ model-ablation-report: ## SapBERT/MedCPT/BM25 embedding ablation -> 2-panel PNG 
 orchestration-ablation-report: ## Phase 7 single-stage/criteria-reuse/vocabulary ablation -> 3-panel PNG report (PRD-111); needs real Qdrant+Postgres+seeded eval questions; Arm C needs an attested data/clinical_concepts.yaml
 	$(BE) pip install -q -e ".[retrieval-tuning]" && python -m scripts.run_orchestration_ablation
 
-unified-ablation-report: ## Unified Level 1/2/3 hierarchical ablation (16 arms x alpha x K) -> results/ablation/<run_id>/ (per-query rows, configuration.json, statistical_summary.json; no PNG report since DEVIATIONS #212) (PRD-112/ARCH-043); needs real Qdrant+Postgres+seeded eval questions; Level 2 enrichment needs an attested data/clinical_concepts.yaml; set MODEL_ABLATION_BACKEND=local for real (non-stub) models
+unified-ablation-report: ## Unified Level 1/2/3 hierarchical ablation (16 arms x alpha x K) -> results/ablation/<run_id>/ (per-query rows, configuration.json, statistical_summary.json; the three recall/MRR-by-weight PNGs since DEVIATIONS #229; no combined report since #212) (PRD-112/ARCH-043); needs real Qdrant+Postgres+seeded eval questions; Level 2 enrichment needs an attested data/clinical_concepts.yaml; set MODEL_ABLATION_BACKEND=local for real (non-stub) models
 	$(BE) pip install -q -e ".[retrieval-tuning,local-models]" && python -m scripts.run_unified_ablation
 
 recall-by-bm25-weight-plot: ## Recall@K x BM25-weight 2x2 facet PNG (18x18cm @ 300dpi) from an existing unified-ablation run's per_query_results.jsonl; RUN_ID=<run_id> (default: latest under backend/results/ablation/); no pip install — needs pandas+seaborn in the active env (the `retrieval-tuning` extra)

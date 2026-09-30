@@ -76,6 +76,22 @@ def bm25_weight_values() -> tuple[float, ...]:
     return get_settings().ablation_bm25_weight_values_tuple
 
 
+FUSION_METHODS = ("minmax", "rrf")
+
+
+def fusion() -> str:
+    """`minmax` or `rrf` (DEVIATIONS.md #227); anything else is a config
+    error, not a silent fallback."""
+    method = get_settings().ablation_fusion
+    if method not in FUSION_METHODS:
+        raise ValueError(f"ABLATION_FUSION must be one of {FUSION_METHODS}, got {method!r}")
+    return method
+
+
+def rrf_k() -> int:
+    return get_settings().ablation_rrf_k
+
+
 def mrr_k() -> int:
     """The single headline `k` used for Level 1/2's point-with-CI summary
     panels (both the primary recall@k and the secondary MRR@k) -- Level

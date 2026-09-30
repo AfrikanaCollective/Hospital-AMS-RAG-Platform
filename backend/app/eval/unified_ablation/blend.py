@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from app.eval.model_ablation.ablation import CORPUS_FILTER
 from app.eval.retrieval_tuning.offline_fusion import ScoredChunk, min_max_normalize, weighted_rank
 from app.retrieval.sparse import query_sparse_vector
 from app.retrieval.vectorstore import QdrantVectorStore
@@ -41,8 +42,11 @@ def bm25_raw_scores(
     the gap with 0.0 the same way `fetch_candidate_scores` already does for
     its own two channels, not something this function needs to do itself."""
     sparse = query_sparse_vector(question_text)
-    hits = store.single_vector_search(using="sparse", query=sparse, limit=len(chunk_ids))
-    return {h["chunk_id"]: h["score"] for h in hits}
+    hits = store.single_vector_search(
+        using="sparse", query=sparse, limit=len(chunk_ids), flt=CORPUS_FILTER
+    )
+    corpus_ids = set(chunk_ids)
+    return {h["chunk_id"]: h["score"] for h in hits if h["chunk_id"] in corpus_ids}
 
 
 def cosine_raw_scores(
@@ -86,3 +90,42 @@ def blend_bm25_dense(
         for cid in chunk_ids
     ]
     return weighted_rank(candidates, alpha=bm25_weight)
+
+
+def _ranks(scores: dict[str, float]) -> dict[str, int]:
+    """1-based rank per chunk, highest score first; ties broken by
+    `chunk_id` so the order never depends on dict iteration order."""
+    ordered = sorted(scores, key=lambda cid: (-scores[cid], cid))
+    return {cid: i for i, cid in enumerate(ordered, start=1)}
+
+
+def blend_bm25_dense_rrf(
+    bm25_scores: dict[str, float],
+    dense_scores: dict[str, float],
+    *,
+    bm25_weight: float,
+    rrf_k: int,
+) -> list[str]:
+    """Weighted reciprocal-rank fusion (DEVIATIONS.md #227): each chunk scores
+    `w / (rrf_k + rank_bm25) + (1 - w) / (rrf_k + rank_dense)`.
+
+    Rank-based, so neither channel's score *distribution* matters. Under
+    min-max fusion (`blend_bm25_dense`), SapBERT's cosines cluster near the
+    top of the corpus and normalize to ~1.0, so BM25's wider spread decided
+    the order at any weight ≥ 0.2 (#226). A chunk BM25 didn't score (no
+    shared term) gets no BM25 term, the same as its 0.0 under min-max, so
+    `bm25_weight` 0.0 and 1.0 rank exactly as `blend_bm25_dense` does; only
+    the interior weights differ."""
+    bm25_rank = _ranks(bm25_scores)
+    dense_rank = _ranks(dense_scores)
+
+    def fused(cid: str) -> float:
+        score = 0.0
+        if cid in bm25_rank:
+            score += bm25_weight / (rrf_k + bm25_rank[cid])
+        if cid in dense_rank:
+            score += (1 - bm25_weight) / (rrf_k + dense_rank[cid])
+        return score
+
+    chunk_ids = set(bm25_rank) | set(dense_rank)
+    return sorted(chunk_ids, key=lambda cid: (-fused(cid), cid))

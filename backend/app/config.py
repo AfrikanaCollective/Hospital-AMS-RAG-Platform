@@ -312,6 +312,11 @@ class Settings(BaseSettings):
     # 2026-09-23 (#201).
     ablation_bm25_weight_values: str = "0.0,0.2,0.4,0.6,0.8,1.0"
     ablation_mrr_k: int = 12  # matches retrieval_tuning.sweep's settled value (DEVIATIONS #183)
+    # How the BM25/SapBERT weight sweep combines the two channels: `minmax`
+    # (score-level, min-max-normalized, #201) or `rrf` (weighted reciprocal
+    # rank, DEVIATIONS.md #227). `ablation_rrf_k` is the RRF damping constant.
+    ablation_fusion: str = "minmax"  # minmax | rrf
+    ablation_rrf_k: int = 60
     # Target count for `app.eval.auto_seed.run_ablation_holdout_generation`
     # (DEVIATIONS.md #199, operator request 2026-09-23) -- a de-identified
     # record used here is durably excluded from every other consumer of the

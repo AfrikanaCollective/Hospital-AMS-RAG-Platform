@@ -2500,3 +2500,321 @@ not retroactively. When in doubt, log it.
   2. **`review_chunk` still accepts a decision on a superseded chunk.** The page no longer offers one, and blocking it is a separate change.
   3. **Only `active` is listed.** Withdrawn versions are excluded as well, since their chunks can't be retrieved either.
 - **Reversible?:** yes. Drop the join and filter.
+
+### 226. Ablation BM25 queries leaked superseded and held chunks; fixed, and the ablation re-run (`20260929T061710Z-01555433`)
+- **Date / phase:** 2026-09-29, Phase 9. Operator: "rerun ablation study to test if there is any improvement".
+- **Requirement ID(s):** PRD-112, ARCH-043 (also PRD-110 / ARCH-041, the model ablation, same defect).
+- **Defect:**
+  - `fetch_corpus` restricted the candidate corpus to active, non-held chunks, but the BM25 queries did not. These are `unified_ablation.blend.bm25_raw_scores` and `model_ablation.ablation._bm25_rank`, plus the model ablation's production-reference `hybrid_search`.
+  - They searched the whole Qdrant collection (2,229 points, only 418 retrievable) with `limit = len(corpus)`. Superseded near-copies of the active text filled that window.
+  - `blend_bm25_dense` takes the union of both channels, so those chunks were ranked. They can never be gold.
+  - In `20260929T053850Z-63640d95` (#224), 86.9% of top-12 slots at w=1.0 were superseded or held chunks, and 8.3% at w=0.6 and 0.8.
+  - The leak began when #216 first left superseded versions in the collection, and it grew with every re-ingest.
+  - **Invalid:** every BM25-dependent figure in #216 (`20260928T071358Z-d18a9400`) and #224. Level 3, the pure-BM25 figures and best-weight-vs-BM25 are all wrong, and Level 1/2 pool across weights. The w=0.0 (pure SapBERT) points were unaffected, because the dense channel scores only the in-memory corpus.
+- **Fix:**
+  - `model_ablation.ablation.CORPUS_FILTER` (active, not held or rejected) is shared by `fetch_corpus`, both BM25 helpers and the reference-arm `hybrid_search`.
+  - The BM25 helpers also drop any hit outside the corpus ids.
+  - Tests: `test_bm25_raw_scores_ignores_superseded_and_held_chunks` and `test_bm25_rank_excludes_superseded_and_held_chunks`. Both fail without the fix. Full suite: 824 passed.
+- **Re-run** (`20260929T061710Z-01555433`, 1,419 questions, 340,560 rows, vocabulary `c7652305…`, the 9 operator-confirmed chunks now retrievable; Recall@12, all p < 0.0001):
+  - Level 1: −0.010 [−0.012, −0.008], was −0.076.
+  - Level 2: +0.022 (present_only), −0.013 (all_assessed), was +0.024 / −0.014.
+  - Level 3 endpoints: −0.156 to −0.185, was −0.207 to −0.572.
+  - Best weight (0.0) vs BM25, post-hoc: +0.176, was +0.394.
+  - **w=0.0 unchanged** to 3 decimals (0.610 / 0.648 / 0.639 / 0.647), so confirming the 9 held chunks had no measurable effect. No question has gold in those documents.
+  - **Pure BM25 recovered:** present_only/raw 0.049 → 0.454, present_only/enriched 0.076 → 0.470.
+  - **Intermediate weights fell:** e.g. all_assessed/raw w=0.4 0.609 → 0.460. Their earlier near-dense scores were the leak's doing: active chunks mostly had no BM25 score, so the dense channel decided.
+- **Finding, not changed:** the curve is nearly flat from w=0.2 to 1.0 (present_only/raw 0.470 → 0.454). The only exception is all_assessed/raw w=0.2 (0.591). `weighted_rank` sums min-max-normalized scores. SapBERT cosines over the full corpus cluster near the top, so the leading candidates all normalize close to 1.0, while BM25 scores are widely spread. Even a 0.2 BM25 weight therefore sets the order. This is a property of score-level min-max fusion as specified in #201, so no fusion change was made. A rank-based or z-score fusion would be a new design decision.
+- **Judgment calls:**
+  1. **Fixed before re-running.** Re-running with the leak would have measured stale-version pollution, not retrieval.
+  2. **Fixed the model ablation too.** Same defect, same filter. It was not re-run.
+  3. **The #216 and #224 entries are left as written** (append-only). This entry supersedes their BM25-dependent figures.
+- **Reversible?:** yes. Revert the filter. The results are files only.
+
+### 227. Weighted reciprocal-rank fusion added as an alternative to min-max for the ablation weight sweep; run `20260929T064213Z-6ea6c3b2`
+- **Date / phase:** 2026-09-29, Phase 9. Operator: "try rank-based fusion instead of min-max" (follows #226's flat-curve finding).
+- **Requirement ID(s):** PRD-112, ARCH-043.
+- **What was built:**
+  - `unified_ablation.blend.blend_bm25_dense_rrf`: each chunk scores `w/(rrf_k + rank_BM25) + (1 − w)/(rrf_k + rank_SapBERT)`. Ranks are 1-based within each channel, and all ties are broken by chunk id.
+  - Selected by `ABLATION_FUSION=minmax|rrf` (`ablation_config.fusion()`, which raises on any other value) and `ABLATION_RRF_K` (default 60), or `--fusion` / `--rrf-k` on `scripts.run_unified_ablation`. `configuration.json` records `fusion` and `rrf_k`.
+  - `sweep_questions` takes `fusion_method` and `rrf_damping`.
+  - 6 tests in `test_unified_ablation_blend.py` and `test_unified_ablation_runner.py`. Full suite: 831 passed.
+- **Judgment calls:**
+  1. **Min-max stays the default**, so earlier runs stay reproducible and the choice is explicit per run. This does not bring back #201's removed RRF *arms*. It is a fusion mode for the same single BM25/SapBERT weight sweep.
+  2. **A chunk BM25 didn't score gets no BM25 term**, the same as its 0.0 under min-max. So w=0.0 and w=1.0 rank exactly as min-max does (tested), and only the interior weights differ between the two methods.
+  3. **`rrf_k = 60`**, the conventional RRF constant (Cormack et al.). It was not tuned.
+- **Result** (1,419 questions; Recall@12 by weight 0.0 / 0.2 / 0.4 / 0.6 / 0.8 / 1.0; min-max values from #226 in brackets):
+
+  | Arm | RRF | min-max (#226) |
+  |---|---|---|
+  | present_only/raw | 0.610 / 0.586 / 0.484 / 0.458 / 0.454 / 0.454 | [0.610 / 0.470 / 0.454 / 0.454 / 0.454 / 0.454] |
+  | present_only/enriched | 0.648 / 0.567 / 0.493 / 0.484 / 0.476 / 0.470 | [0.648 / 0.486 / 0.479 / 0.475 / 0.472 / 0.470] |
+  | all_assessed/raw | 0.639 / 0.636 / 0.665 / 0.589 / 0.456 / 0.456 | [0.639 / 0.591 / 0.460 / 0.456 / 0.457 / 0.456] |
+  | all_assessed/enriched | 0.647 / 0.616 / 0.522 / 0.476 / 0.466 / 0.462 | [0.647 / 0.479 / 0.465 / 0.467 / 0.465 / 0.462] |
+
+  - The endpoints are identical, as designed. RRF degrades gradually rather than collapsing at w=0.2.
+  - Summary deltas (all p < 0.0001): Level 1 −0.037, Level 2 +0.015 (present_only) / −0.042 (all_assessed). Level 3 endpoints and best-vs-BM25 (+0.176) are unchanged by construction.
+- **Does any blend beat pure SapBERT?** Paired bootstrap vs w=0.0, all four arms at w=0.2 and w=0.4, computed from the per-query rows (1,000 resamples, seed 0):
+  - Only **all_assessed/raw w=0.4** improves Recall@12: **+0.025 [+0.018, +0.033]**. Its Hit@12 falls by 0.006 [−0.010, −0.002].
+  - Every other blend lowers Recall@12, by −0.004 (CI crosses 0) to −0.156.
+  - Hit@12 moves by at most ±0.006 anywhere. Blending keeps one gold chunk in the top 12 but loses the additional gold chunks.
+  - The single win was picked after seeing the data, from 8 comparisons, so it isn't evidence for a production change.
+- **Conclusion:** rank fusion removes the min-max artefact from #226, but it doesn't change the headline finding. On this corpus and question set, adding BM25 to SapBERT doesn't reliably improve recall. No production setting was changed (PRD-112 scope).
+- **Reversible?:** yes. `ABLATION_FUSION=minmax` is the default, and the RRF path is additive.
+
+### 228. Model ablation (PRD-110) re-run after the #226 corpus-filter fix
+- **Date / phase:** 2026-09-29, Phase 9. Operator: "re-run the model ablation with the fix too".
+- **Requirement ID(s):** PRD-110, ARCH-041.
+- **How it was run:**
+  - `run_full_ablation` + `generate_reports`, exactly as `scripts.run_model_ablation`, run inside the `api` container with `MODEL_ABLATION_BACKEND=local`. A scratch wrapper also wrote `model_ablation_results.json` (per-arm MRR@12 with CIs and Recall@K; aggregate numbers only).
+  - Output: `backend/results/model_ablation_20260929T064712Z/`, untracked. The committed `app/eval/model_ablation/reports/model_ablation_report.png` (2026-09-21) was not overwritten.
+  - `make model-ablation-report` pip-installs on the host, which this deployment avoids, and the host can't reach Postgres or Qdrant.
+  - To draw the PNG, matplotlib 3.11.2, seaborn 0.13.2 and pandas 3.0.5 were pip-installed into the running container, matching the host `.venv`. **That downgraded the locked pandas 3.0.6 to 3.0.5 in that container.** pandas is used only for plotting, not ranking. The image rebuild for #229 restored 3.0.6.
+  - A wait loop meant to start this after the #227 run exited early (the image has no `ps`), so the two runs overlapped. Both only read from Postgres and Qdrant and are deterministic, so only speed was affected.
+- **Result** (1,419 questions; MRR@12 [95% bootstrap CI]):
+  - SapBERT+BM25 0.913 [0.899, 0.926]
+  - MedCPT+BM25 0.357 [0.348, 0.366]
+  - SapBERT+MedCPT+BM25 0.773 [0.757, 0.789]
+  - Production RRF 0.707 [0.691, 0.722]
+  - Recall@K converges to about 0.79–0.82 by K=20 in every arm. SapBERT+BM25 stays flat near 0.45 up to K=8 and then climbs (0.647 at K=12, 0.788 at K=20).
+- **Not comparable with #184** (2026-09-21: 42 questions, 311-chunk corpus, before re-ingestion, with the leak not yet present). Only the PNG of that run exists, so there is no before/after for the fix itself.
+- **Flagged:**
+  1. **SapBERT+BM25 beats the production RRF baseline with non-overlapping CIs.** By the PHASE2-EMBEDDING-ABLATION-PROPOSAL §8 bar that is a "robustly improves" result. It would justify a separate Phase-2-reopening proposal. Nothing was changed.
+  2. **Multi-stage augmentation fired on 0.0% of questions**, so the multi-stage rows equal the single-stage ones. #184 saw 7.1%. Not investigated.
+- **Reversible?:** yes. Results files only.
+
+### 229. The three unified-ablation figures are rendered automatically at the end of every run; plotting libraries baked into the image
+- **Date / phase:** 2026-09-29, Phase 9. Operator: "The images mrr_at_k_vs_bm25_weight_by_arm.png, recall_at_k_by_bm25_weight.png and recall_at_k_vs_bm25_weight_by_k.png should be generated automatically with each ablation run".
+- **Requirement ID(s):** PRD-112, ARCH-043.
+- **What changed:**
+  - New `scripts/plot_ablation_figures.py:render_all(run_dir, weights, mrr_k)`. It reuses the three existing plot scripts' `plot` functions unchanged.
+  - `scripts.run_unified_ablation` calls it after writing `statistical_summary.json`. `--no-figures` skips it.
+  - `plot_recall_by_bm25_weight.load_mean_recall` is split into `read_per_query` and `aggregate`. `read_per_query` streams the jsonl and keeps only the six columns the figures use, so the ~1 GB file is read once for all three figures and query texts and id lists are never loaded.
+  - The standalone scripts and `make *-plot` targets behave as before.
+  - Tests: `tests/test_ablation_figures.py` (3). Full suite: 834 passed.
+  - Verified in the rebuilt image by rendering all three figures for `20260929T061710Z-01555433` and `20260929T064213Z-6ea6c3b2` (about 4 s each). Values checked against `statistical_summary.json`.
+- **Judgment calls:**
+  1. **Plotting libraries are now in the api/worker image.** This reverses the Makefile's "deliberately NOT baked into the api/worker image" note. The ablation can only run in the container, the only place that reaches Postgres and Qdrant, so automatic figures need the libraries there.
+     - They are pinned in a new `backend/requirements-plots.txt`: the 7 packages beyond the lock and layout sets, with versions matching the host `.venv`.
+     - They are installed `--no-deps` like `requirements-layout.txt`, so no locked pin is re-resolved.
+     - The rebuilt image has pandas 3.0.6, numpy 2.4.6, seaborn 0.13.2 and matplotlib 3.11.2. The pre-existing `typer` 0.26.8 (layout) vs 0.27.2 (lock) difference is unchanged.
+  2. **Figures render after the data files are written.** A plotting failure makes the run exit non-zero but loses no results.
+  3. **Missing K values skip a figure instead of failing.** The by-K figure keeps its long-standing K = 8, 10, 12, 14 lines, limited to the K values the run has. The MRR figure uses `ABLATION_MRR_K`. If the run lacks those K values, that figure is skipped with a message.
+  4. **Fusion method is not shown on the figures.** The x-axis label still reads "BM25 score weight" under `--fusion rrf`. The method is recorded in `configuration.json`.
+- **Not verified:** a full end-to-end run through `run_unified_ablation` itself. The new call is covered by the unit tests and the real-data render above.
+- **Reversible?:** yes. Remove the call, or pass `--no-figures`. The image layer is additive.
+
+### 230. Words cut at the right edge of a layout element are completed; heading levels follow font-size tiers
+- **Date / phase:** 2026-09-29, Phase 9. Operator: "implement both fixes, re-ingest, and regenerate the questions" (after the investigation of the ablation curves; see #229 and the analysis that followed).
+- **Requirement ID(s):** PRD-113, ARCH-044.
+- **Defect 1: word endings dropped.**
+  - `_plumber_text` kept only characters whose centre lies in Docling's element box.
+  - Docling's box can end before the last glyphs. In NICE NG195 it is measured from Docling's own decoding, which loses the Inter "h" (#221), so "birth" at a line end got a box ending at "t". In the MoH guideline the box is simply narrower than the line ("cultur", "treatme").
+  - Every character is present in the PDF text layer (pdfplumber reads "birth", "culture" and "treatment").
+  - NICE had about 11 such words (birt ×4, wit ×3, bot, enoug, researc, whic), including in the indicator-list chunk that was gold for 93% of calibration questions.
+- **Fix 1:** `docling_adapter._complete_words`. Each selected run is extended along its line with non-space characters that touch it (gap ≤ `WORD_GAP_PT` = 1.0 pt, same line within 1.0 pt), stopping at a space. It is applied in `_plumber_text`, which all three text paths use: text lines, elements and table cells. Tests: `test_word_cut_at_the_box_edge_is_completed`, `test_completion_stops_at_a_space_and_at_a_gap`, `test_other_lines_are_never_pulled_in` and `test_plumber_text_reads_the_completed_word` (pdfplumber; runs in the image).
+- **Defect 2: heading hierarchy inverted.** `headings.fuse_heading_levels` set levels from numbering depth, and gave unnumbered headings "last numbered depth + 1", which never reset. Font size was used only to demote.
+  - **NICE:** the unnumbered 25.5 pt chapters ranked below the 21 pt "1.x" sections, so every section stayed under the first chapter, "Information and support for parents and carers". Research recommendations "1" to "15" (16.5 pt) became level 1, so "Rationale and impact", "Context" and "Update information" (99 chunks) nested under "15 Long-term outcomes of bacterial meningitis".
+  - **MoH:** "4. For Fungi:" (an 8.5 pt label) held 76 chunks.
+- **Fix 2:** when the headings have at least 2 font-size tiers that each recur (at least 2 headings; sizes within 0.25 pt are one tier), a heading's level is its size rank, with the largest tier as level 1. A larger one-off size, such as a cover title, is also level 1.
+  - Numbering and structure stay the fallback for single-size documents, and for headings without a font size (OCR).
+  - NICE maps to 25.5 → 1, 21 → 2, 16.5 → 3, 12 pt semibold labels → 4. MoH maps to 11.04 → 1, 9.96 → 2, 9.0 → 3, 8.5 → 4.
+  - Tests: `test_font_tiers_set_levels_when_numbering_would_invert_them` (NICE's pattern) and `test_one_heading_size_keeps_numbering_and_structure_levels`. Full suite: 839 passed.
+- **Judgment calls:**
+  1. **Font rank overrides numbering whenever tiers exist.** Numbering depth was the proximate cause of both inversions. A document that numbers "1.2" and "1.2.3" at one size is still ordered by the fallback.
+  2. **The 1.0 pt gap threshold.** Word spacing in these PDFs is several points, and spaces are real characters. Kerned glyphs touch or overlap.
+  3. **Not fixed: repeated running headers.** MoH repeats "EMPIRIC ANTIBIOTIC USE" / "SURGICAL ANTIBIOTIC PROPHYLAXIS" at 9.96 pt at the top of each page. They are labelled headings and now sit at level 2 inside each disease section. They were misplaced before this change too, and this is a separate boilerplate issue.
+- **Re-ingest:**
+  - **MoH:** layout parser, 211 → 211 chunks, 6 held, quality 0.99, no truncated words, 34 top-level sections (largest 15: "INTRODUCTION").
+  - **NICE:** the first two attempts failed inside the layout parser with interpreter-corruption errors: `TypeError: catching classes that do not inherit from BaseException`, then `SystemError: unknown opcode` inside a plain list comprehension, then `TypeError: 'cell' object is not callable`. The pypdf fallback ran each time, creating versions with every chunk held, so **NICE was not retrievable from about 09:15Z** until a successful layout re-ingest. A parse-only run of the same file in the same image succeeded (931 blocks). See #232 for the host-CPU finding.
+  - The first attempt's automatic gold remap (`gold_remap_20260929T091551Z.json`, 1,385 questions) mapped gold onto the fallback chunks. Later attempts use `--no-remap-gold`, and gold will be remapped from that file's saved originals with `--remap-from`.
+- **Reversible?:** yes. Revert the two functions and re-ingest.
+
+### 231. Ablation-holdout questions regenerated against the corrected corpus (old pool backed up and deleted)
+- **Date / phase:** 2026-09-29/30, Phase 9. Operator: "implement both fixes, re-ingest, and regenerate the questions"; "go ahead with the regeneration".
+- **Requirement ID(s):** PRD-112, ARCH-043.
+- **Why:**
+  - The 1,419-question calibration pool had only 40 distinct gold chunks. One chunk (the NICE Box 2 indicator list) was gold for 1,319 questions; one pair was the whole gold set for 807.
+  - Gold came from remapping old chunk ids through lineage (#216, #221), not from the pipeline citing the corrected text.
+  - Recall@K was therefore quantised at 0/0.5/1 and mostly measured how two chunks rank (flat BM25 curves across K; a SapBERT step at K = 10–14 where rec 1.10.1 sits at median rank 12).
+- **What was done:**
+  1. NICE and MoH re-ingested with #230's fixes. The review-queue questions' gold was remapped from the saved originals (`--remap-from data/ingest_artifacts/gold_remap_20260929T091551Z.json`): 1,385 questions, mean gold size 3.29 → 3.42, 0 empty.
+  2. All 1,992 `generator_meta.purpose = 'ablation_holdout'` questions were copied to `eval.bak_20260930_holdout_eval_question` and deleted, in one transaction as `hrag_admin`. The app role cannot create tables in `eval`. The transaction refused to run if any `eval.result` referenced them; none did.
+     - The backup stays inside the database, as in #209, because question text derives from records handled as PHI.
+     - The 250 review-queue questions, their 238 results and their clinician ratings were not touched.
+  3. `scripts.generate_ablation_holdout_questions --target-count 2500` was relaunched detached in `api` (2026-09-30 06:56Z; log `/tmp/holdout_regen.log` in the container). Deleting the old rows frees their source records, so the new pool is drawn from the same record population.
+  4. A supervisor (`/tmp/supervise_holdout.py` in the container; operational, not committed) wraps it: stop on exit 0; restart after any other exit (up to 40 times); SIGKILL and restart if the holdout count hasn't grown in 30 min. A plain retry loop would not catch a hung interpreter that ignores SIGINT, as seen on 2026-09-30 (#232).
+- **Expected:** about 14 h and saturation near 2,000, as in #203–#205 (the diversity filter's ceiling). The count reached is to be recorded when the run ends.
+- **Flagged, not changed:**
+  1. **Gold is still whatever the production pipeline cites** (`auto_seed._generate_one_ablation_question`), from one templated topic for every question. Regeneration on the corrected corpus may shift *which* chunks dominate, but it doesn't by itself diversify gold.
+  2. **Gold built from production citations measures agreement with the production retriever.** This favours arms that resemble it. It is relevant to reading #228's SapBERT+BM25 vs production-RRF result.
+- **Reversible?:** yes. Restore from `eval.bak_20260930_holdout_eval_question` after deleting the regenerated rows.
+
+### 232. Host CPU instability (i9-14900KF): containers and Ollama kept off physical cores 4–5
+- **Date / phase:** 2026-09-29/30, Phase 9. Operator: "pin the containers away from CPUs 8 and 10"; "make the cpuset pin permanent with an override file"; the operator pinned Ollama themselves (`AllowedCPUs=0-7 12-31`).
+- **Evidence:**
+  - Three NICE layout-parse attempts failed with interpreter-state corruption, not logic errors:
+    - `TypeError: catching classes that do not inherit from BaseException`
+    - `SystemError: unknown opcode` inside a plain list comprehension
+    - `TypeError: 'cell' object is not callable`
+  - A fourth attempt hung for about 21 h with the main thread at 100% CPU, ignoring SIGINT. It was SIGKILLed after checking it had written nothing to Qdrant; Postgres and Qdrant were verified consistent afterwards.
+  - The kernel log shows 36 segfaults and general-protection faults on 2026-09-28/29 (34 in Ollama's `llama-server`, 1 `python`, 1 `pip`), with 10 naming logical CPU 10. No MCE events were logged.
+  - Earlier unexplained failures fit the same pattern: `pip` "unknown opcode" (#45a), generator segfault and "illegal instruction" (#203).
+  - Host: i9-14900KF, microcode 0x133, Dell BIOS 2.25.0 (07/2026).
+  - Inference, not a confirmed diagnosis: this matches the Raptor Lake instability/degradation pattern. It should be confirmed with Intel's diagnostic tool or a per-core stress test.
+- **What was done:**
+  - Logical CPUs 8–11 (`lscpu`: physical cores 4 and 5, the two 6.1 GHz favoured cores) are excluded, not only 8 and 10 as first asked, because each logical CPU's sibling shares the same physical core.
+  - `docker update --cpuset-cpus 0-7,12-31` was applied to the 7 running project containers. A gitignored `docker-compose.override.yml` sets `cpuset: "0-7,12-31"` on all 10 services (every profile), so it survives recreation. `.gitignore` and README were updated.
+  - Ollama pinned by the operator (`AllowedCPUs=0-7 12-31`), verified on the service and its `llama-server` processes.
+- **Result so far:** the first NICE attempt after pinning succeeded (layout, 182 chunks, 0 held, quality 1.0). One success doesn't show the pin fixed anything; the regeneration run (#231) is the longer test.
+- **Reversible?:** yes. Delete the override file, `docker update --cpuset-cpus 0-31` the containers, and remove Ollama's `AllowedCPUs`.
+
+### 233. Holdout regeneration (#231) stopped at 191 questions: gold concentrated on 8 NICE chunks
+- **Date / phase:** 2026-09-30, Phase 9. Operator: "check back at 100 questions", then "stop the run".
+- **Requirement ID(s):** PRD-112, ARCH-043.
+- **Finding at 102 questions** (101 with gold):
+  - Only **8 distinct gold chunks**, all from NICE NG195 (the old pool had 40 across 1,419 questions).
+  - The most-cited chunk ("Babies being monitored for possible early-onset neonatal infection") is gold in 71% of questions.
+  - The most common exact gold set covers 25% (57% in the old pool).
+  - Non-recommendation text is frequently gold: **"Overview" in 51%**, "Context" in 14%.
+  - No gold in the Kenya excerpt, the WHO documents or MoH.
+  - Cause, as flagged in #231: every question carries the same topic sentence (`auto_seed._TOPIC`), and gold is whatever the production pipeline cites.
+- **Stopped** at 07:3xZ (both the supervisor and the generator exited on SIGTERM) with **191** holdout questions committed. They are left in place, unused, pending the operator's decision on the generator.
+- **Options put to the operator** (not implemented):
+  1. A per-record topic from the record's own findings. The Kenya excerpt's topics (danger signs, prophylaxis for membrane rupture or maternal fever, necrotising enterocolitis, staphylococcal skin infection, jaundice and cephalosporin choice, ophthalmia neonatorum, dosing) are candidates.
+  2. Exclude non-recommendation sections (Overview, Context, Contents, Your responsibility, Update information) from gold, or from citation altogether (a production change).
+  3. Gold from pooled independent retrievers plus judging, instead of production citations.
+- **Also noted** (Kenya p.48, chunks already confirmed on `/corpus-review`): the ≥7-day dose table has OCR route errors "1.V / 1.M" (for "I.V / I.M"), and split words "Metronid azole" and "Flucloxacill in".
+- **Reversible?:** yes. The 191 rows can be deleted; the old pool is in `eval.bak_20260930_holdout_eval_question`.
+
+### 234. Typographic tables: shaded band rows become headings, table titles and letter parts nest their sub-topics
+- **Date / phase:** 2026-09-30, Phase 9. Operator: "yes, make both heading fixes, including the rest in the document" (the WHO SBI excerpt, merged by the operator into `…_pages_17-19_76-77.pdf`).
+- **Requirement ID(s):** PRD-113, ARCH-044.
+- **Defect:** WHO's Table 1.1 (clinical case definitions) and Table 3.1 (antibiotic dosing) are one-column typographic tables: shaded band rows, each a sub-topic title, followed by bullets. Docling detects no grid table and reads them as headings and lists, which is the right shape, with four problems:
+  1. **Band rows typed as list items.** Docling typed four band rows as list items (A.4, A.5, B.2 on p.76; B.4 on p.77), so their content merged into the previous section. B.4 meningitis dosing ("ampicillin … at least 3 weeks") sat in the B.3 staphylococcal-sepsis chunk.
+  2. **Parts on a level with their items.** "A. Non-hospital settings" / "B. Hospital settings" have the same font as their items, so #230's font tiers made them siblings rather than parents. Items numbered "1."–"5." then repeat across parts A and B.
+  3. **"Table 1.1 …" was a caption,** so it never appeared in a breadcrumb.
+  4. **"Table N.N continued" lines** were typed as headings and would open empty sections.
+- **Fix** (`app/ingestion/layout/headings.py`, before level assignment):
+  1. **Band rows:** a text or list element that is the *only* element inside a filled rectangle at least 60% of the page wide and at most 40 pt tall, and whose text doesn't end with ".", becomes a heading. The one-element rule leaves shaded boxes holding several items (NICE's boxes) alone; the full-stop rule leaves one-line shaded notes alone.
+  2. **Table titles:** a standalone caption matching `^Table N(.N)*` that is directly followed by a heading becomes a heading.
+  3. **"continued" lines:** `Table N(.N)* continued` lines are dropped.
+  4. **Letter parts** (`^[A-Z]\.\s`) parent the headings that follow them. A part's span ends at a heading ranked above it, at the next part, or at a table title ranked at or above it. If any member shares the part's level, the whole span moves down one level; members already set smaller stay where the font tiers put them.
+  5. **Table titles parent their parts.** A part at or above its table title's level is pushed under the title, which covers single-table documents where the title has no separate size. A table title ranked below the current part is a member of it (MoH's "Table 5: …" inside "B. GASTROINTESTINAL PROCEDURES").
+- **Result on the WHO file** (parse only; not yet ingested):
+  - Every sub-topic is its own chunk with a full breadcrumb, e.g. "Table 1.1 Clinical case definitions for serious bacterial infection (SBI) › A. Non-hospital settings › Clinical signs of possible serious bacterial infection (PSBI) …", and "Table 3.1 … › B. Hospital settings › B.4 Suspected meningitis …".
+  - 4 band rows promoted, 3 "continued" lines dropped, 2 table titles, 4 letter parts.
+- **Regression:**
+  - The rules changed nothing in Kenya, the MoH excerpt or NICE: 0 bands, titles, parts or drops.
+  - All 167 section paths of the ingested NICE version reappear in a fresh parse.
+  - Tests (`tests/test_layout_components.py`): band rows vs boxes vs notes, title promotion and "continued" drop, part nesting, a caption not followed by a heading stays a caption, and a MoH-style table heading inside a part. Full suite: 844 passed, 1 skipped (a pdfplumber-only test that runs in the image).
+- **Not changed:**
+  - WHO bullets read "• ■" (Docling's bullet added before the document's own ■ glyph).
+  - The first WHO chunk on p.17 is the tail of the p.16 introduction, which the excerpt no longer contains, so it has no section.
+- **Not done:** re-ingesting WHO. It needs the manifest key and entry corrected by the operator, then the old WHO excerpts and the MoH full document withdrawn and review-queue gold remapped.
+- **Reversible?:** yes. Remove `_typographic_table_headings` and `_nest_under_letter_parts` from `fuse_heading_levels`.
+
+### 235. An excerpt's mid-sentence opening fragment is dropped
+- **Date / phase:** 2026-09-30, Phase 9. Operator: "You could drop the one untitled chunk at the top of p. 17".
+- **Requirement ID(s):** PRD-113, ARCH-044, ARCH-038 (excerpts).
+- **Problem:** the merged WHO excerpt starts at p.17, and p.17 opens with the tail of a p.16 paragraph ("fives) in resource-limited settings (26). … 'critical illness' with"). It is cut at both ends, precedes the first heading, and became an untitled chunk with no section.
+- **Why not `boilerplate_patterns`:** that field only removes text in the page *margins* (running headers and footers, the top and bottom 8%), and this fragment is in the page body.
+- **What was built:** `boilerplate.drop_leading_excerpt_fragment`, called by `assemble()` only when the manifest declares `source_pages`. On the first page, the elements before the first heading are dropped only if:
+  - they are text, list items or captions, with no table, figure or flowchart among them;
+  - the first starts mid-sentence (a lowercase letter or closing punctuation);
+  - none contains a dose (same `_DOSE_RE` guard as boilerplate removal);
+  - the page has a heading at all.
+  The dropped text is recorded in `parse_report["excerpt_leading_fragment_dropped"]`. Tests: `test_mid_sentence_opening_of_an_excerpt_is_dropped`, `test_excerpt_opening_is_kept_when_it_is_not_a_plain_fragment` (a real sentence start, a dose, a table first) and `test_first_page_without_a_heading_is_never_dropped`. Full suite: 849 passed.
+- **Result (parse only):** WHO 19 chunks, 0 untitled, 1 fragment dropped. Kenya and the MoH excerpt: nothing dropped, 0 untitled chunks.
+- **Judgment call:** an automatic rule rather than a new manifest field. The trigger is narrow, structural and reported, and every guard errs towards keeping text. A document whose excerpt genuinely opens with a lowercase continuation line and no heading loses nothing, because of the no-heading guard.
+- **Reversible?:** yes. Remove the call in `assemble()`.
+
+### 236. Running page headers typed as headings are removed (narrows the #215 heading guard)
+- **Date / phase:** 2026-09-30, Phase 9. Operator: "fix the running page headers issue, and explore the table-header detection".
+- **Requirement ID(s):** PRD-113, ARCH-044.
+- **Defect:** the MoH guideline prints "EMPIRIC ANTIBIOTIC USE" at y = 28.7 on every page of its empiric-treatment part (14 of the excerpt's 24 pages). Docling typed 12 of them as headings. The boilerplate guard never drops headings (#215), so they became parent sections, and definitions such as "Early onset sepsis" read as "… › EMPIRIC ANTIBIOTIC USE › Early onset sepsis".
+- **Fix** (`boilerplate._running_header_headings`, used by `remove_boilerplate`): a heading loses the guard only when the same digit-normalised text sits in the top or bottom margin zone at the same vertical position (± `RUNNING_HEADER_POSITION_PT` = 2 pt of the median) on at least `min_pages` (3) pages.
+  - This uses a page count, not the 50% repeat ratio, so shorter excerpts are covered.
+  - Dose text is still never dropped.
+  - The existing test now uses distinct margin headings, which stay protected. New tests: `test_running_header_typed_as_heading_is_dropped`, and `test_repeated_heading_below_the_margin_or_on_too_few_pages_is_kept` (a body-position repeat such as NICE's "Why the committee made the recommendations", only 2 pages, and shifted positions). Full suite: 851 passed.
+- **Result (parse only):**
+  - MoH excerpt: "empiric antibiotic use" appears in the boilerplate report. The neonatal sepsis sub-topics sit directly under "NEONATAL SEPSIS IN INFANTS < 60 DAYS".
+  - NICE: all 167 ingested section paths reproduced.
+  - Kenya and WHO: only their usual running headers and footers dropped.
+- **Side effect, flagged:** the MoH empiric-treatment tables have no heading of their own; the title is inside the table ("Empiric Therapy", "Condition | Description | Empiric Therapy"). The running header had accidentally given them a sensible parent. They now attach to the preceding sub-heading: the BSI treatment table (p.37) to "2. Lab investigations:", and the skin treatment tables (pp.47–52) to "LRINEC risk assessment". This is left for the table-header work, since the section title is in the table's own header row.
+- **Judgment call:** narrowing a guard #215 set deliberately. A heading repeated at one fixed margin position on ≥ 3 pages is a running header by definition; section headings don't recur at a fixed spot.
+- **Reversible?:** yes. Drop the `running` set in `remove_boilerplate`.
+
+### 237. Defect found: MoH neonatal "Empiric Therapy" box is misread, and #236 makes one part of it clinically wrong (do not ingest the MoH excerpt yet)
+- **Date / phase:** 2026-09-30, Phase 9. Found while showing the operator the MoH excerpt's "Empiric Therapy" chunks. Parse only; nothing ingested.
+- **Requirement ID(s):** PRD-113, ARCH-044; grounding (PRD-C3: a citation must support its claim).
+- **Layout:** MoH pp. 34–35 is a boxed table: a "Neonatal Sepsis" band row, then row labels in a narrow left column ("Common Pathogens", "Empiric Therapy", "Comments"). The "Empiric Therapy" row has two columns, **First line** and **Second line**, and continues onto p. 35.
+- **What the parser does:**
+  1. Docling detects no table. It reads the row labels as headings and orders them *before* the page's top paragraph.
+     - "NEONATAL SEPSIS … › Empiric Therapy" therefore holds the NEC/staphylococcal signs, lab and imaging text.
+     - "Common Pathogens" is lost as a parent of "Early onset sepsis" / "Late onset sepsis".
+     - "Comments" merges with its first line into the heading "Comments Duration of therapy:".
+  2. **With #236's running-header removal, p. 35's first-line continuation is filed under "Second line:".** On the page, metronidazole 7.5 mg/kg (the "if NEC suspected: ADD" item) and ceftazidime 50 mg/kg ("alternative 1st line in case of acute kidney injury") are in the First line column. The new parse's "Second line:" chunk contains both, so a quote from it would misstate their line of therapy.
+- **Live version:** the MoH full document currently in retrieval (pre-#236) has these two in their own chunk under the running header "EMPIRIC ANTIBIOTIC USE". That is vague, but not attributed to second line.
+- **Consequence:** #236 must not reach retrieval for MoH until the box is handled. The MoH excerpt is not to be ingested with the current code.
+- **Options (operator to choose):**
+  - (a) Scope #236 so a dropped running header still ends the current section at the page break.
+  - (b) Detect this bordered row-label box as a table; the fix belongs in the table work the operator put on hold.
+  - (c) A manifest-attested structural override for these two pages.
+- **Reversible?:** n/a (finding).
+
+### 238. Row-labelled boxes: the narrow left column is the sub-topic heading, the rest of the row its content (resolves #237)
+- **Date / phase:** 2026-09-30, Phase 9. Operator: "bordered tables in pages 34–35 with row labels in a narrow left column: 'Common Pathogens', 'Empiric Therapy', 'Comments', should treat the narrow left column as the sub-topic heading and the rest of the row cells as the content … so First line and Second line become labelled sub-topics under 'Empiric Therapy'. This pattern … is common for the MoH guideline."
+- **Requirement ID(s):** PRD-113, ARCH-044; PRD-C3 (a citation must support its claim).
+- **What was built:** `app/ingestion/layout/label_boxes.py`, run in `assemble()` after boilerplate removal (`restructure_label_boxes`), with levels set after `fuse_heading_levels` (`apply_box_levels`). New `Element.box_depth` / `box_continued`.
+  - **Box detection** is geometric, from the drawings:
+    - a narrow label column between two vertical rules, 6–18% of the page width, with the box edge further right;
+    - rows from the horizontal rules crossing the label column;
+    - at least half the rows must have a shaded label cell with unshaded content;
+    - a grid whose every content cell is ≤ 3 words is a lookup table and is not a box (LRINEC risk categories).
+  - **Cell text** comes from the page's text lines, not Docling's cells, which were wrong on p.37: seven columns for three.
+  - **Paragraphs** break at vertical gaps, bullets, sub-labels, and bold↔regular changes on a line starting with a capital. "Bold" also counts the font name: "IU/kg IV 6 hourly" is set in Cambria-Bold, but its character-level flag came out False.
+  - **AWaRe badge captions** (< 5 pt) are appended to the paragraph they sit beside, so a dose line isn't split.
+  - **A text run crossing the label column's edge** ("Comments Duration of therapy:") is split at the word boundary nearest the edge.
+  - **Rows:**
+    - a header row (short bold cells) labels the columns below it, across pages;
+    - a one-cell title band is dropped when it repeats the section heading ("Neonatal Sepsis");
+    - a labelled row becomes a heading, with each cell under its column header or its own sub-label ("First line:");
+    - an unlabelled first row on a page with the same geometry is a *continuation*: the row label and column sub-label are repeated as `box_continued` headings, and the text stays on its own page for citations;
+    - an unlabelled row after a labelled one is another sub-row of it.
+  - **Sub-rows**, split by rules covering ≥ 90% of the content width (so underlines don't count), are emitted one block each, with every cell as "<column header>: <text>" (the #220 table-row format). A description stays with its own treatment.
+  - **A lowercase first paragraph** in a continuing page's first labelled row is returned to the previous row, marked as a continuation. This is the PDF's own spill of diabetic foot's "… is an important" / "component in management".
+  - **A cell spanning several column headers** gets none.
+  - **Levels:** box headings sit under the most recent top-level section heading (the syndrome), not the nearest sub-heading ("LRINEC risk assessment").
+- **Result on the MoH excerpt** (parse only; 11 boxes, 28 rows, 6 continued rows, 8 Docling tables replaced; 71 chunks):
+  - Neonatal: "Common Pathogens › Early/Late onset sepsis"; "Empiric Therapy › First line:" (benzylpenicillin + gentamicin; flucloxacillin + gentamicin; "If NEC suspected: ADD"); "Empiric Therapy › Second line:" (cefepime OR piperacillin/tazobactam); "Empiric Therapy › First line:" continued on p.35 (**metronidazole, ceftazidime**, which is the #237 misattribution fixed); "Comments › Duration of therapy: / Neonatal meningitis: / Treatment failure:".
+  - BSI: "Common Pathogens / Empiric Therapy › Community Acquired / Hospital Acquired / Central Line Associated BSI"; "Comments › Duration of treatment:" and, continued on p.38, "› When to repeat cultures:".
+  - Skin: one sub-topic per condition, "› Description" and "› Empiric Therapy". Traumatic wounds, bite wounds and surgical-site infections keep each description with its own treatment.
+- **Regression:** no boxes found in Kenya, NICE or WHO. NICE's 167 section paths reproduced, WHO 19 chunks. Tests: `tests/test_label_boxes.py` (10). Full suite: 861 passed.
+- **Judgment calls:**
+  1. **Text from text lines, not Docling's grid**, for every box: Docling's cells were wrong where it detected the grid at all.
+  2. **"header: value" blocks for sub-rows** (the #220 convention), not per-cell headings, so descriptions stay quotable next to their treatment. Headings aren't part of chunk text.
+  3. **Repeated continuation headings are copies of source labels**, marked `box_continued`. No body text is repeated across pages.
+  4. **Boxes nest under the top-level section.** In this guideline a box covers a whole syndrome.
+  5. **Removing Docling table elements renumbers later tables on a page** for manifest `table_sources` pins. The only pin is in the Kenya excerpt, which has no boxes.
+- **Remaining:**
+  - "W ATCH" (letter-spacing in the text layer) is left as printed.
+  - LRINEC's own tables keep "Column N" labels: table-header detection is on hold at the operator's request.
+- **Reversible?:** yes. Remove the two calls in `assemble()`.
+
+### 239. A box cell that continues onto the next page is joined into one section (one chunk spanning both pages)
+- **Date / phase:** 2026-09-30, Phase 9. Operator: "Tables where row cell are in two pages should be combine the content (e.g. NEONATAL SEPSIS > Empiric Therapy > First Line: and … First Line: (continued) are the same content/cell just spread over two pages)".
+- **Requirement ID(s):** PRD-113, ARCH-044.
+- **Replaces** #238's repeated `box_continued` headings on the continuation page.
+- **What changed:**
+  1. `label_boxes`: a continued row's cell content (and a previous row's lowercase spill-over) is inserted right after the last element of the *same cell* on the previous page, by column index. Moved elements keep their own `page_no` and are flagged `box_continued`. If there is nothing to join to, the old repeated-label behaviour is the fallback. In a "header: value" sub-row, each cell is now its own element, so a continuation joins the right column (a description after its description, a treatment after its treatment) without a second prefix. `parse_report.label_boxes.joined_cells` counts the joins.
+  2. `assemble`: text, list and heading units take their page from the element, not the page list holding it. `page_starts` records one entry per **run** of a page, so text can go p.34 → p.35 → p.34 and `page_for_offset` still resolves every offset to its own page. A chunk spanning the join reports `page_start`–`page_end` across both pages. Vision prose transcription is skipped for an element moved off its page, since its crop would be taken from the wrong page. None exist today: MoH boxes are text layer.
+  3. `page_provenance.apply_source_pages` remaps by page number, not list position. This is identical for one entry per page, and correct for runs.
+- **Result (MoH excerpt, parse + page remap):** 7 cells joined; 66 chunks (was 71).
+  - "Empiric Therapy › First line:" is one chunk, **pp.34–35** (benzylpenicillin … "If NEC suspected: ADD", metronidazole, ceftazidime).
+  - Pyomyositis pp.47–48; diabetic foot pp.48–49; traumatic wounds pp.49–50; surgical-site infections pp.50–51, with the description and the treatment each joined in their own column.
+- **Tests:**
+  - `test_continued_cell_is_joined_to_its_cell_and_keeps_its_own_page`.
+  - `test_joined_cell_is_one_chunk_spanning_both_pages`: page runs [1, 2, 1], per-offset pages, one chunk pp.1–2, and the source-page remap on runs.
+  - Updated sub-row, underline and spill tests. Full suite: 862 passed.
+- **Judgment call:** the text keeps its true page. The alternatives were relabelling the continuation as the earlier page, or keeping separate sections, which the operator rejected. The cost is that `page_starts` is no longer monotonic in page, and both consumers (`page_for_offset`, `apply_source_pages`) now handle that.
+- **Reversible?:** yes. Return the moves to the page (the #238 behaviour).

@@ -80,8 +80,12 @@ def apply_source_pages(doc: ParsedDocument, source_pages: list[int]) -> None:
             "the extracted document's own physical page order"
         )
 
+    # By page number, not list position: the layout parser records one entry
+    # per run of a page, so a page can appear more than once (DEVIATIONS.md
+    # #239). For one entry per page, in order, the two are the same.
     doc.page_starts = [
-        (source_pages[i], char_start) for i, (_, char_start) in enumerate(doc.page_starts)
+        (source_pages[page - 1] if 1 <= page <= len(source_pages) else page, char_start)
+        for page, char_start in doc.page_starts
     ]
     for s in doc.sections:
         s["page_start"] = doc.page_for_offset(s["char_start"])

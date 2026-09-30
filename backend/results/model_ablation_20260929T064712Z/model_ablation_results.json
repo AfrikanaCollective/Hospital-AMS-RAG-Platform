@@ -1,0 +1,266 @@
+{
+  "timestamp": "2026-09-29T07:34:54.646600+00:00",
+  "n_questions": 1419,
+  "multi_stage_available": true,
+  "multi_stage_fired_rate": 0.0,
+  "mrr_rows": [
+    {
+      "arm": "sapbert_bm25",
+      "stage": "single_stage",
+      "mrr": 0.9127499448323972,
+      "ci_low": 0.8991125534769826,
+      "ci_high": 0.9261768495383716
+    },
+    {
+      "arm": "medcpt_bm25",
+      "stage": "single_stage",
+      "mrr": 0.3569988874957134,
+      "ci_low": 0.3477914057010252,
+      "ci_high": 0.3663359426084056
+    },
+    {
+      "arm": "sapbert_medcpt_bm25",
+      "stage": "single_stage",
+      "mrr": 0.7734888144507595,
+      "ci_low": 0.757355970609142,
+      "ci_high": 0.7894973595819261
+    },
+    {
+      "arm": "rrf_production",
+      "stage": "single_stage",
+      "mrr": 0.7068226816641197,
+      "ci_low": 0.691027883663983,
+      "ci_high": 0.7223700955492711
+    },
+    {
+      "arm": "sapbert_bm25",
+      "stage": "multi_stage",
+      "mrr": 0.9127499448323972,
+      "ci_low": 0.8993235473124479,
+      "ci_high": 0.9259778591055018
+    },
+    {
+      "arm": "medcpt_bm25",
+      "stage": "multi_stage",
+      "mrr": 0.3569988874957134,
+      "ci_low": 0.3475082516242664,
+      "ci_high": 0.36654912344526513
+    },
+    {
+      "arm": "sapbert_medcpt_bm25",
+      "stage": "multi_stage",
+      "mrr": 0.7734888144507595,
+      "ci_low": 0.7576705327207441,
+      "ci_high": 0.7895403979389182
+    },
+    {
+      "arm": "rrf_production",
+      "stage": "multi_stage",
+      "mrr": 0.7068226816641197,
+      "ci_low": 0.6907313374609886,
+      "ci_high": 0.7226624495229146
+    }
+  ],
+  "recall_rows": [
+    {
+      "k": 2,
+      "arm": "sapbert_bm25",
+      "recall": 0.4497178349155717
+    },
+    {
+      "k": 2,
+      "arm": "medcpt_bm25",
+      "recall": 0.13524864846217907
+    },
+    {
+      "k": 2,
+      "arm": "sapbert_medcpt_bm25",
+      "recall": 0.457876131868795
+    },
+    {
+      "k": 2,
+      "arm": "rrf_production",
+      "recall": 0.43284527898692804
+    },
+    {
+      "k": 4,
+      "arm": "sapbert_bm25",
+      "recall": 0.44997329650824264
+    },
+    {
+      "k": 4,
+      "arm": "medcpt_bm25",
+      "recall": 0.5184403940746438
+    },
+    {
+      "k": 4,
+      "arm": "sapbert_medcpt_bm25",
+      "recall": 0.7261987998183752
+    },
+    {
+      "k": 4,
+      "arm": "rrf_production",
+      "recall": 0.7750981895211472
+    },
+    {
+      "k": 6,
+      "arm": "sapbert_bm25",
+      "recall": 0.45182620041779376
+    },
+    {
+      "k": 6,
+      "arm": "medcpt_bm25",
+      "recall": 0.7446185583544125
+    },
+    {
+      "k": 6,
+      "arm": "sapbert_medcpt_bm25",
+      "recall": 0.7588481261423061
+    },
+    {
+      "k": 6,
+      "arm": "rrf_production",
+      "recall": 0.780603153588479
+    },
+    {
+      "k": 8,
+      "arm": "sapbert_bm25",
+      "recall": 0.462424121725302
+    },
+    {
+      "k": 8,
+      "arm": "medcpt_bm25",
+      "recall": 0.7681217425869832
+    },
+    {
+      "k": 8,
+      "arm": "sapbert_medcpt_bm25",
+      "recall": 0.7764298260753923
+    },
+    {
+      "k": 8,
+      "arm": "rrf_production",
+      "recall": 0.7833917712244409
+    },
+    {
+      "k": 10,
+      "arm": "sapbert_bm25",
+      "recall": 0.5129299946195597
+    },
+    {
+      "k": 10,
+      "arm": "medcpt_bm25",
+      "recall": 0.7798103081012545
+    },
+    {
+      "k": 10,
+      "arm": "sapbert_medcpt_bm25",
+      "recall": 0.7831453888132158
+    },
+    {
+      "k": 10,
+      "arm": "rrf_production",
+      "recall": 0.7849585102056805
+    },
+    {
+      "k": 12,
+      "arm": "sapbert_bm25",
+      "recall": 0.6468599788573413
+    },
+    {
+      "k": 12,
+      "arm": "medcpt_bm25",
+      "recall": 0.7874293244385006
+    },
+    {
+      "k": 12,
+      "arm": "sapbert_medcpt_bm25",
+      "recall": 0.7857263245003048
+    },
+    {
+      "k": 12,
+      "arm": "rrf_production",
+      "recall": 0.786788195568198
+    },
+    {
+      "k": 14,
+      "arm": "sapbert_bm25",
+      "recall": 0.7335610357953091
+    },
+    {
+      "k": 14,
+      "arm": "medcpt_bm25",
+      "recall": 0.7967779081186346
+    },
+    {
+      "k": 14,
+      "arm": "sapbert_medcpt_bm25",
+      "recall": 0.7892037992022272
+    },
+    {
+      "k": 14,
+      "arm": "rrf_production",
+      "recall": 0.7890640920705589
+    },
+    {
+      "k": 16,
+      "arm": "sapbert_bm25",
+      "recall": 0.7669256926209779
+    },
+    {
+      "k": 16,
+      "arm": "medcpt_bm25",
+      "recall": 0.8046081853607746
+    },
+    {
+      "k": 16,
+      "arm": "sapbert_medcpt_bm25",
+      "recall": 0.7921623857869174
+    },
+    {
+      "k": 16,
+      "arm": "rrf_production",
+      "recall": 0.7906251577705117
+    },
+    {
+      "k": 18,
+      "arm": "sapbert_bm25",
+      "recall": 0.7804112298582246
+    },
+    {
+      "k": 18,
+      "arm": "medcpt_bm25",
+      "recall": 0.810553277257551
+    },
+    {
+      "k": 18,
+      "arm": "sapbert_medcpt_bm25",
+      "recall": 0.7963470382056206
+    },
+    {
+      "k": 18,
+      "arm": "rrf_production",
+      "recall": 0.7932673703990444
+    },
+    {
+      "k": 20,
+      "arm": "sapbert_bm25",
+      "recall": 0.7880347630666716
+    },
+    {
+      "k": 20,
+      "arm": "medcpt_bm25",
+      "recall": 0.8155278177143073
+    },
+    {
+      "k": 20,
+      "arm": "sapbert_medcpt_bm25",
+      "recall": 0.8000261949740436
+    },
+    {
+      "k": 20,
+      "arm": "rrf_production",
+      "recall": 0.7958387439006505
+    }
+  ]
+}

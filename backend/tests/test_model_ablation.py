@@ -112,6 +112,17 @@ def test_bm25_rank_appends_zero_score_chunks_last_and_sorted(store: QdrantVector
     assert ranked[1:] == sorted(ranked[1:])  # zero-score tail is deterministically sorted
 
 
+def test_bm25_rank_excludes_superseded_and_held_chunks(store: QdrantVectorStore) -> None:
+    """An unfiltered sparse query let superseded near-copies crowd the
+    `limit=len(corpus)` window and enter the ranking (DEVIATIONS.md #226)."""
+    text = "Blood cultures are recommended before starting antimicrobials."
+    _seed_chunk(store, 1, chunk_id="old", text=text + " blood cultures", status="superseded")
+    _seed_chunk(store, 2, chunk_id="held", text=text + " blood", review_status="pending")
+    _seed_chunk(store, 3, chunk_id="active", text=text)
+
+    assert _bm25_rank(store, text, ["active"]) == ["active"]
+
+
 def test_fetch_corpus_returns_every_seeded_chunk(store: QdrantVectorStore) -> None:
     _seed_chunk(store, 1, chunk_id="c1", text="first chunk")
     _seed_chunk(store, 2, chunk_id="c2", text="second chunk")

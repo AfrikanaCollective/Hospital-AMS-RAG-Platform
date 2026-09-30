@@ -1,0 +1,16 @@
+# Pinned closure of the `retrieval-tuning` extra (seaborn/pandas/matplotlib)
+# beyond what requirements-lock.txt already pins (pandas is in the lock/layout
+# set). Baked into the api/worker image so every unified-ablation run renders
+# its figures in the container (DEVIATIONS.md #229).
+#
+# Installed by the Dockerfile with `--no-deps` on top of requirements-lock.txt
+# and requirements-layout.txt, so nothing pinned there is re-resolved.
+# Captured from the api container (pip freeze minus both pinned sets);
+# versions match the host backend/.venv the earlier figures were drawn with.
+contourpy==1.3.3
+cycler==0.12.1
+fonttools==4.66.0
+kiwisolver==1.5.1
+matplotlib==3.11.2
+pyparsing==3.3.3
+seaborn==0.13.2

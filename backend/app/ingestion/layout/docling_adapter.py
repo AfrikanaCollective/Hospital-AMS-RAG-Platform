@@ -222,6 +222,63 @@ SINGLE_LINE_Y_TOLERANCE = 1_000.0  # one physical line: never split it
 _LEADING_BULLET_RE = re.compile(r"^[•▪◦●○■□‣⁃∙·\-–*]\s*")
 
 
+# Word completion (DEVIATIONS.md #230): a glyph this close after (or before)
+# a selected one on the same line belongs to the same word. Inter-word spaces
+# are real characters in these PDFs, and a missing one is still a gap of
+# several points, so a word is never joined to the next.
+WORD_GAP_PT = 1.0
+SAME_LINE_PT = 1.0
+
+
+def _complete_words(page_chars: list[dict], inside: list[dict]) -> list[dict]:
+    """Extend `inside` to whole words.
+
+    Docling's box for an element can end before the element's last glyphs:
+    it measures from its own decoding, which lost every "h" of NICE NG195's
+    Inter font (#221), so "birth" at a line end got a box ending at "t"
+    ("birt"). The MoH guideline loses whole endings the same way ("cultur",
+    "treatme"). Selecting characters by centre-in-box then drops them. Here,
+    every non-space character on the same line that directly touches a
+    selected run is added, repeatedly, so a word cut at the box edge is
+    completed and nothing past the next space is taken."""
+    if not inside:
+        return inside
+    chosen = {id(c) for c in inside}
+    top = min(c["top"] for c in inside) - SAME_LINE_PT
+    bottom = max(c["top"] for c in inside) + SAME_LINE_PT
+    nearby = [c for c in page_chars if top <= c["top"] <= bottom]
+    lines: list[list[dict]] = []
+    for c in sorted(nearby, key=lambda c: (c["top"], c["x0"])):
+        if lines and abs(lines[-1][0]["top"] - c["top"]) <= SAME_LINE_PT:
+            lines[-1].append(c)
+        else:
+            lines.append([c])
+    added: list[dict] = []
+    for line in lines:
+        if not any(id(c) in chosen for c in line):
+            continue
+        line.sort(key=lambda c: c["x0"])
+        for i, c in enumerate(line):
+            if id(c) not in chosen:
+                continue
+            j = i + 1  # rightwards
+            while j < len(line) and id(line[j]) not in chosen and _touches(line[j - 1], line[j]):
+                chosen.add(id(line[j]))
+                added.append(line[j])
+                j += 1
+            j = i - 1  # leftwards
+            while j >= 0 and id(line[j]) not in chosen and _touches(line[j], line[j + 1]):
+                chosen.add(id(line[j]))
+                added.append(line[j])
+                j -= 1
+    return inside + added if added else inside
+
+
+def _touches(left: dict, right: dict) -> bool:
+    text = (right["text"] or "") + (left["text"] or "")
+    return not any(ch.isspace() for ch in text) and right["x0"] - left["x1"] <= WORD_GAP_PT
+
+
 def _plumber_text(page_chars: list[dict], bbox: BBox, *, single_line: bool = False) -> str:
     """pdfplumber's reading of the characters whose centre lies in `bbox`.
 
@@ -232,11 +289,14 @@ def _plumber_text(page_chars: list[dict], bbox: BBox, *, single_line: bool = Fal
     with the font: half the median character size."""
     from pdfplumber.utils import extract_text  # noqa: PLC0415
 
-    inside = [
-        c
-        for c in page_chars
-        if bbox.contains_point((c["x0"] + c["x1"]) / 2, (c["top"] + c["bottom"]) / 2, tol=0.5)
-    ]
+    inside = _complete_words(
+        page_chars,
+        [
+            c
+            for c in page_chars
+            if bbox.contains_point((c["x0"] + c["x1"]) / 2, (c["top"] + c["bottom"]) / 2, tol=0.5)
+        ],
+    )
     if not inside:
         return ""
     if single_line:

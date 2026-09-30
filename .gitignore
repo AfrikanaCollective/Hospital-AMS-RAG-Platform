@@ -81,3 +81,6 @@ backend/tests/fixtures/guidelines/*
 backend/results/ablation/*
 !backend/results/ablation/.gitkeep
 !backend/results/ablation/README.md
+
+# Machine-specific Compose overrides (e.g. the CPU pin, DEVIATIONS.md #232)
+docker-compose.override.yml

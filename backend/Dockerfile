@@ -58,6 +58,12 @@ RUN pip install -r requirements-lock.txt \
 COPY requirements-layout.txt ./
 RUN pip install --no-deps -r requirements-layout.txt
 
+# Plotting (seaborn/matplotlib): every unified-ablation run renders its three
+# figures inside this image, the only place that reaches Postgres + Qdrant
+# (DEVIATIONS.md #229). Same --no-deps pattern as the layout set above.
+COPY requirements-plots.txt ./
+RUN pip install --no-deps -r requirements-plots.txt
+
 COPY . .
 
 # Non-root (matches docker-compose `user:` mapping). The HF cache dir is

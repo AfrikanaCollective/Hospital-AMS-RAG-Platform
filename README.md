@@ -1222,11 +1222,20 @@ layout, because its decoding dropped every "h" in NICE NG195 (#221). OCR
 prose is transcribed by the vision model by default, held for review and
 cross-checked against OCR (#222).
 Prose crops are now masked to their own element and accepted only at ≥ 0.8
-similarity and 0.8–1.25× the OCR text's length (#223). The ablation was re-run on the corrected
-corpus as `20260929T053850Z-63640d95` (1,419 questions). On the 1,405
-questions shared with the previous run, Hit@12 held at 0.95–0.98 in
-SapBERT-bearing arms, and Recall@12 at w ≤ 0.4 rose despite larger gold
-sets (#224).
+similarity and 0.8–1.25× the OCR text's length (#223).
+
+**Ablation BM25 leak fixed (2026-09-29, #226).** The ablation's BM25 queries
+searched the whole Qdrant collection, so superseded and held chunks were
+ranked into the top k. All three ablation queries now use the corpus filter
+(`model_ablation.ablation.CORPUS_FILTER`). Every BM25-dependent figure from
+runs `20260928T071358Z-d18a9400` and `20260929T053850Z-63640d95` (#216,
+#224) is invalid. The corrected run is `20260929T061710Z-01555433` (1,419
+questions). Pure SapBERT (w=0.0) is unchanged at 0.61–0.65 Recall@12, and
+pure BM25 recovers to 0.45–0.47. The curve is nearly flat from w=0.2 to
+1.0, because min-max score fusion lets BM25's wider score spread dominate.
+Weighted reciprocal-rank fusion (`ABLATION_FUSION=rrf`, #227; run
+`20260929T064213Z-6ea6c3b2`) removes that effect, so recall now falls
+gradually with BM25 weight. Still, no blend reliably beats pure SapBERT.
 
 ### Repository layout
 
@@ -1386,6 +1395,10 @@ make ingest-deid DATASET=data/patient_records/deidentified/newborn_nbu_2021
 make prepare-guidelines   # validate the guideline corpus + manifest
 ```
 
+Machine-specific Compose settings go in `docker-compose.override.yml`
+(gitignored; Compose loads it automatically). On the development host it pins
+every service off logical CPUs 8-11 (DEVIATIONS.md #232).
+
 App: `https://localhost/` (self-signed dev cert). API docs: `https://localhost/api/docs`.
 Sign in with a seeded demo user's email, no password (`make seed`):
 `clinician@example.dev`, `reviewer1@example.dev`/`reviewer2@example.dev`/`reviewer3@example.dev`
@@ -1429,7 +1442,7 @@ cd ../frontend && npm install && npm run dev
 | `make retrieval-tuning-report` | Phase 6 BM25/vector weight × depth sweep → 1 combined 3-panel PNG report, 18cm×21cm @ 600dpi (PRD-109/ARCH-040); needs a real Qdrant + Postgres with an ingested corpus and seeded eval questions, and the `retrieval-tuning` extra (`pip install -e .[retrieval-tuning]`) |
 | `make model-ablation-report` | SapBERT/MedCPT/BM25 embedding ablation → 1 combined 2-panel PNG report (PRD-110/ARCH-041); needs a real Qdrant + Postgres with an ingested corpus and seeded eval questions, the `retrieval-tuning` + `local-models` extras, and `MODEL_ABLATION_BACKEND=local` for real (non-stub) models |
 | `make orchestration-ablation-report` | Phase 7 single-stage/criteria-reuse/operator-vocabulary orchestration ablation → 1 combined 3-panel PNG report (PRD-111); needs a real Qdrant + Postgres with an ingested corpus and seeded eval questions, and the `retrieval-tuning` extra; the operator-vocabulary arm additionally needs an attested `data/clinical_concepts.yaml` |
-| `make unified-ablation-report` | Phase 8 unified Level 1 × 2 × 3 hierarchical ablation (BM25/SapBERT weighted-rank-fusion sweep, 6 weight points {0.0, 0.2, …, 1.0} × K, primary metric Recall@K) → `results/ablation/<run_id>/` + `statistical_summary.json` (deltas w/ bootstrap p-values, full weight×k grid, post-hoc best-weight-vs-BM25 test — DEVIATIONS #202) (PRD-112/ARCH-043; the combined PNG report was dropped in DEVIATIONS #212, and supplementary figures come from the `plot-*` targets); needs a real Qdrant + Postgres with an ingested corpus and seeded eval questions, the `retrieval-tuning` + `local-models` extras, and an attested `data/clinical_concepts.yaml` for Level 2 enrichment |
+| `make unified-ablation-report` | Phase 8 unified Level 1 × 2 × 3 hierarchical ablation (BM25/SapBERT weighted-rank-fusion sweep, 6 weight points {0.0, 0.2, …, 1.0} × K, primary metric Recall@K) → `results/ablation/<run_id>/` + `statistical_summary.json` (deltas w/ bootstrap p-values, full weight×k grid, post-hoc best-weight-vs-BM25 test — DEVIATIONS #202) (PRD-112/ARCH-043; the combined PNG report was dropped in DEVIATIONS #212). Every run also writes `recall_at_k_by_bm25_weight.png`, `recall_at_k_vs_bm25_weight_by_k.png` and `mrr_at_k_vs_bm25_weight_by_arm.png` into its run directory (DEVIATIONS #229; `--no-figures` skips them; `python -m scripts.plot_ablation_figures results/ablation/<run_id>` re-renders); needs a real Qdrant + Postgres with an ingested corpus and seeded eval questions, the `retrieval-tuning` + `local-models` extras, and an attested `data/clinical_concepts.yaml` for Level 2 enrichment. Fusion: `ABLATION_FUSION=minmax` (default, score-level) or `rrf` (weighted reciprocal rank, damping `ABLATION_RRF_K`, default 60; DEVIATIONS #227), also `--fusion`/`--rrf-k` on `scripts.run_unified_ablation` |
 | `make recall-by-bm25-weight-plot [RUN_ID=<run_id>]` | Recall@K vs K, one line per BM25 score weight, faceted 2×2 over Present-only/All-assessed × Raw/Enriched → `results/ablation/<run_id>/recall_at_k_by_bm25_weight.png`, 18cm×18cm @ 300dpi (PRD-112/ARCH-043); reads only an existing run's `per_query_results.jsonl` (no DB/Qdrant/models), defaults to the latest run; needs the `retrieval-tuning` extra |
 | `make recall-vs-bm25-weight-by-k-plot [RUN_ID=<run_id>] [K_VALUES=8,10,12,14]` | Recall@K vs. BM25 score weight, one line per K (default 8, 10, 12, 14), same 2×2 facets → `results/ablation/<run_id>/recall_at_k_vs_bm25_weight_by_k.png`, 18cm×18cm @ 300dpi (PRD-112/ARCH-043); reads only an existing run's `per_query_results.jsonl`, defaults to the latest run; needs pandas + seaborn in the active env |
 

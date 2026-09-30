@@ -25,7 +25,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from app.ingestion.corrections import AppliedCorrection, Correction, apply_to_units
-from app.ingestion.layout.boilerplate import remove_boilerplate
+from app.ingestion.layout.boilerplate import drop_leading_excerpt_fragment, remove_boilerplate
 from app.ingestion.layout.flowchart import (
     MIN_NODE_SIDE,
     UNVERIFIED,
@@ -35,6 +35,7 @@ from app.ingestion.layout.flowchart import (
     serialize,
 )
 from app.ingestion.layout.headings import fuse_heading_levels, split_number
+from app.ingestion.layout.label_boxes import apply_box_levels, restructure_label_boxes
 from app.ingestion.layout.model import (
     KIND_CAPTION,
     KIND_FOOTNOTE,
@@ -158,24 +159,31 @@ def _units_for_page(page: LayoutPage, opts: AssemblyOptions, report: dict) -> li
     units: list[_Unit] = []
     table_index = 0
     for el in page.elements:
+        # A row-labelled box cell continued from the next page is placed in
+        # this page's list but keeps its own page (DEVIATIONS.md #239).
         if el.kind == KIND_HEADING:
             units.append(
                 _Unit(
                     KIND_HEADING,
-                    page.page_no,
+                    el.page_no,
                     el.text,
                     el.origin,
                     heading_level=el.level or 1,
                     meta=_ocr_meta(el.origin, el.ocr_min_confidence, el.text),
                 )
             )
-        elif el.kind in _PROSE_KINDS and el.origin == ORIGIN_OCR and opts.prose_transcriber:
+        elif (
+            el.kind in _PROSE_KINDS
+            and el.origin == ORIGIN_OCR
+            and opts.prose_transcriber
+            and el.page_no == page.page_no
+        ):
             units.append(_prose_unit(el, page, opts, report))
         elif el.kind == KIND_LIST_ITEM:
             units.append(
                 _Unit(
                     KIND_LIST_ITEM,
-                    page.page_no,
+                    el.page_no,
                     f"• {el.text}",
                     el.origin,
                     structure=[(0, 2)],
@@ -187,7 +195,7 @@ def _units_for_page(page: LayoutPage, opts: AssemblyOptions, report: dict) -> li
                 units.append(
                     _Unit(
                         el.kind,
-                        page.page_no,
+                        el.page_no,
                         el.text,
                         el.origin,
                         meta=_ocr_meta(el.origin, el.ocr_min_confidence, el.text),
@@ -424,7 +432,11 @@ def assemble(doc: LayoutDocument, opts: AssemblyOptions) -> ParsedDocument:
         manifest_patterns=opts.boilerplate_patterns,
     )
     report["dropped_boilerplate"] = {"count": bp.dropped_count, "distinct": bp.distinct}
+    report["label_boxes"] = restructure_label_boxes(doc)
     fuse_heading_levels(doc)
+    apply_box_levels(doc)
+    if opts.source_pages:
+        report["excerpt_leading_fragment_dropped"] = drop_leading_excerpt_fragment(doc)
     for page in doc.pages:
         _find_unlabelled_flowcharts(page)
 
@@ -435,13 +447,18 @@ def assemble(doc: LayoutDocument, opts: AssemblyOptions) -> ParsedDocument:
 
     parts: list[str] = []
     blocks: list[Block] = []
-    page_starts: dict[int, int] = {}
+    # One entry per *run* of a page, not per page: a box cell continued onto
+    # the next page is joined back into its cell, so text can go p.34 → p.35
+    # → p.34 (DEVIATIONS.md #239). `page_for_offset` takes the last run
+    # starting at or before an offset, so every offset keeps its own page.
+    runs: list[tuple[int, int]] = []
     offset = 0
     for i, u in enumerate(units):
         if i:
             parts.append(_BLOCK_SEP)
             offset += len(_BLOCK_SEP)
-        page_starts.setdefault(u.page_no, offset)
+        if not runs or runs[-1][0] != u.page_no:
+            runs.append((u.page_no, offset))
         meta = dict(u.meta)
         meta["structure_spans"] = u.structure
         if u.kind == KIND_HEADING:
@@ -453,12 +470,15 @@ def assemble(doc: LayoutDocument, opts: AssemblyOptions) -> ParsedDocument:
     normalized = "".join(parts)
 
     # Pages with no blocks start where the next page with content starts.
+    with_text = {p for p, _ in runs}
     starts: list[tuple[int, int]] = []
-    next_start = len(normalized)
-    for page in reversed(doc.pages):
-        next_start = page_starts.get(page.page_no, next_start)
-        starts.append((page.page_no, next_start))
-    starts.reverse()
+    for page in doc.pages:
+        if page.page_no in with_text:
+            starts.extend(r for r in runs if r[0] == page.page_no and r not in starts)
+            continue
+        later = [start for p, start in runs if p > page.page_no]
+        starts.append((page.page_no, min(later) if later else len(normalized)))
+    starts.sort(key=lambda r: r[1])
 
     lines = [ln for p in doc.pages for ln in p.lines]
     ocr_lines = [ln for ln in lines if ln.from_ocr and len(ln.text.strip()) > 1]

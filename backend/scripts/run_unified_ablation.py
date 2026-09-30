@@ -1,6 +1,7 @@
 """CLI: python -m scripts.run_unified_ablation
 [--concepts-path PATH] [--k-values 2,4,...,20]
-[--bm25-weight-values 0.0,...,1.0] [--run-id ID] [--results-root DIR]
+[--bm25-weight-values 0.0,...,1.0] [--fusion minmax|rrf] [--rrf-k N]
+[--no-figures] [--run-id ID] [--results-root DIR]
 (PRD-112 / ARCH-043; UNIFIED-ABLATION-PROPOSAL.md §3.9, §12; Makefile
 `make unified-ablation-report`).
 
@@ -14,8 +15,10 @@ results and a reproducibility snapshot to `results/ablation/<run_id>/`
 Level 1/2/3 statistical comparisons (`app.eval.unified_ablation.summary`,
 primary metric recall@k), persisting them to `statistical_summary.json`
 in the same run directory. No combined PNG report is rendered (dropped at
-operator request, DEVIATIONS.md #212); the supplementary `scripts/plot_*`
-figures read `per_query_results.jsonl` separately.
+operator request, DEVIATIONS.md #212). The three `scripts/plot_*` figures
+(Recall@K by weight, Recall vs weight by K, MRR vs weight by arm) are
+rendered into the run directory at the end of every run
+(`scripts.plot_ablation_figures`, DEVIATIONS.md #229) unless `--no-figures`.
 
 Needs a real Postgres + Qdrant with an already-ingested guideline corpus and
 an already-seeded auto-generated question set — not runnable against
@@ -47,7 +50,14 @@ from pathlib import Path
 
 from app.config import get_settings
 from app.db.session import session_scope
-from app.eval.ablation_config import Level1Condition, bm25_weight_values, k_values, mrr_k
+from app.eval.ablation_config import (
+    Level1Condition,
+    bm25_weight_values,
+    fusion,
+    k_values,
+    mrr_k,
+    rrf_k,
+)
 from app.eval.bootstrap import DEFAULT_BOOTSTRAP_SEED
 from app.eval.orchestration_ablation.ablation import load_attested_vocabulary
 from app.eval.unified_ablation.per_query import (
@@ -162,16 +172,33 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--bm25-weight-values", type=str, default=None, help="comma-separated, e.g. 0.0,0.5,1.0"
     )
+    parser.add_argument(
+        "--fusion",
+        choices=["minmax", "rrf"],
+        default=None,
+        help="how the BM25/SapBERT sweep combines channels (default: ABLATION_FUSION)",
+    )
+    parser.add_argument("--rrf-k", type=str, default=None, help="RRF damping constant")
+    parser.add_argument(
+        "--no-figures",
+        action="store_true",
+        help="skip the three PNG figures (written into the run directory by default)",
+    )
     parser.add_argument("--run-id", type=str, default=None)
     parser.add_argument("--results-root", type=Path, default=_DEFAULT_RESULTS_ROOT)
     args = parser.parse_args(argv)
 
     _parse_values(args.k_values, env_var="ABLATION_K_VALUES")
     _parse_values(args.bm25_weight_values, env_var="ABLATION_BM25_WEIGHT_VALUES")
-    if args.k_values is not None or args.bm25_weight_values is not None:
+    _parse_values(args.fusion, env_var="ABLATION_FUSION")
+    _parse_values(args.rrf_k, env_var="ABLATION_RRF_K")
+    if any(
+        v is not None for v in (args.k_values, args.bm25_weight_values, args.fusion, args.rrf_k)
+    ):
         get_settings.cache_clear()
 
     settings = get_settings()
+    fusion()  # an invalid ABLATION_FUSION fails here, before hours of encoding
     if settings.model_ablation_backend == "stub":
         print(
             "[unified-ablation] MODEL_ABLATION_BACKEND=stub — using deterministic fake "
@@ -233,6 +260,8 @@ def main(argv: list[str] | None = None) -> int:
             "k_values": list(k_values()),
             "bm25_weight_values": list(bm25_weight_values()),
             "mrr_k": mrr_k(),
+            "fusion": fusion(),
+            "rrf_k": rrf_k() if fusion() == "rrf" else None,
             "primary_metric": "recall_at_k",
             "sapbert_model_id": settings.sapbert_model_id,
             "sapbert_model_verified": settings.sapbert_model_verified,
@@ -254,6 +283,17 @@ def main(argv: list[str] | None = None) -> int:
 
     k = mrr_k()
     _report_statistics(rows, k=k, weights=bm25_weight_values(), ks=k_values(), run_dir=run_dir)
+
+    if args.no_figures:
+        return 0
+    # Imported here so `--no-figures` runs without the plotting libraries.
+    # The results above are already on disk if rendering fails
+    # (DEVIATIONS.md #229).
+    from scripts.plot_ablation_figures import render_all  # noqa: PLC0415
+
+    del rows  # the figures re-read per_query_results.jsonl; free the rows first
+    for path in render_all(run_dir, weights=bm25_weight_values(), mrr_k=k):
+        print(f"[unified-ablation] wrote {path}")
     return 0
 
 

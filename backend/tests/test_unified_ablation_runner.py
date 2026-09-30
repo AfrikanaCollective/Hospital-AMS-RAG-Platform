@@ -85,6 +85,7 @@ def _sweep(
     questions: list[SweepQuestion],
     record_index: dict,
     vocabulary: ConceptVocabulary | None = None,
+    **fusion_kwargs,
 ) -> list[PerQueryResult]:
     corpus = fetch_corpus(store)
     sapbert_encoder = get_sapbert_encoder()
@@ -100,6 +101,7 @@ def _sweep(
             vocabulary=vocabulary,
             experiment_id="exp-1",
             k_grid=get_settings().ablation_k_values_tuple,
+            **fusion_kwargs,
         )
     )
 
@@ -258,3 +260,36 @@ def test_unparseable_stored_text_falls_back_to_current_topic(store: QdrantVector
     )
     rows = _sweep(store, questions=[question], record_index={RECORD_ID: RECORD})
     assert all(f"recommend about {_TOPIC} based only on" in r.query_text for r in rows)
+
+
+def test_rrf_fusion_method_routes_every_ranking_through_rrf(
+    store: QdrantVectorStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`fusion_method="rrf"` must reach the ranking, with the configured
+    damping constant (DEVIATIONS.md #227)."""
+    from app.eval.unified_ablation import runner
+
+    calls: list[int] = []
+    real = runner.blend_bm25_dense_rrf
+
+    def spy(*args, **kwargs):
+        calls.append(kwargs["rrf_k"])
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(runner, "blend_bm25_dense_rrf", spy)
+    question = SweepQuestion(
+        question_id="q1",
+        text="ignored",
+        gold_chunk_ids=frozenset({"gold-chunk"}),
+        source_record_id=RECORD_ID,
+    )
+    rows = _sweep(
+        store,
+        questions=[question],
+        record_index={RECORD_ID: RECORD},
+        fusion_method="rrf",
+        rrf_damping=7,
+    )
+    assert rows
+    # one ranking per (level1, level2, weight): 2 x 2 x 2 in this grid
+    assert calls == [7] * 8

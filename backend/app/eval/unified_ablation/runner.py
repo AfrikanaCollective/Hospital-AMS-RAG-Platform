@@ -31,7 +31,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from app.eval.ablation_config import ALL_ARMS as _ALL_ARMS
-from app.eval.ablation_config import bm25_weight_values, k_values
+from app.eval.ablation_config import bm25_weight_values, fusion, k_values, rrf_k
 from app.eval.auto_seed import _TOPIC
 from app.eval.deidentified_source import load_deidentified_records
 from app.eval.metrics import mrr, precision_recall_at_k
@@ -48,7 +48,12 @@ from app.eval.question_gen.deterministic import (
     extract_topic,
 )
 from app.eval.retrieval_tuning.sweep import SweepQuestion, fetch_calibration_questions
-from app.eval.unified_ablation.blend import blend_bm25_dense, bm25_raw_scores, cosine_raw_scores
+from app.eval.unified_ablation.blend import (
+    blend_bm25_dense,
+    blend_bm25_dense_rrf,
+    bm25_raw_scores,
+    cosine_raw_scores,
+)
 from app.eval.unified_ablation.per_query import PerQueryResult
 
 if TYPE_CHECKING:
@@ -111,6 +116,8 @@ def sweep_questions(
     vocabulary: ConceptVocabulary | None,
     experiment_id: str,
     k_grid: tuple[int, ...],
+    fusion_method: str = "minmax",
+    rrf_damping: int = 60,
 ) -> Iterator[PerQueryResult]:
     """Pure sweep over already-fetched `questions`/`corpus` — no I/O beyond
     the encoders/`store` callers already hold open, no Postgres session.
@@ -168,7 +175,12 @@ def sweep_questions(
 
                 arm = next(a for a in _ALL_ARMS if a.level1 == level1 and a.level2 == level2)
                 for weight in bm25_weight_values():
-                    ranking = blend_bm25_dense(scores.bm25, scores.sapbert, bm25_weight=weight)
+                    if fusion_method == "rrf":
+                        ranking = blend_bm25_dense_rrf(
+                            scores.bm25, scores.sapbert, bm25_weight=weight, rrf_k=rrf_damping
+                        )
+                    else:
+                        ranking = blend_bm25_dense(scores.bm25, scores.sapbert, bm25_weight=weight)
                     first_rank = _first_relevant_rank(ranking, gold)
                     for k in k_grid:
                         top_k = ranking[:k]
@@ -229,4 +241,6 @@ def run_unified_ablation(
         vocabulary=vocabulary,
         experiment_id=exp_id,
         k_grid=k_values(),
+        fusion_method=fusion(),
+        rrf_damping=rrf_k(),
     )

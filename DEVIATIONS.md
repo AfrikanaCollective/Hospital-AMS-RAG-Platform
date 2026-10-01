@@ -2818,3 +2818,165 @@ not retroactively. When in doubt, log it.
   - Updated sub-row, underline and spill tests. Full suite: 862 passed.
 - **Judgment call:** the text keeps its true page. The alternatives were relabelling the continuation as the earlier page, or keeping separate sections, which the operator rejected. The cost is that `page_starts` is no longer monotonic in page, and both consumers (`page_for_offset`, `apply_source_pages`) now handle that.
 - **Reversible?:** yes. Return the moves to the page (the #238 behaviour).
+
+### 240. MoH and WHO excerpts ingested; MoH full guideline and the two old WHO excerpts withdrawn; WHO gold remapped; hash-lookup fix
+- **Date / phase:** 2026-09-30, Phase 9. Operator: "title fixed, go ahead with the ingest and withdrawals" (after correcting the WHO manifest key to `…_76-77.pdf` and the title to "pp. 17-19, 76-77").
+- **Requirement ID(s):** PRD-113, ARCH-044, ARCH-038; PRD-005 (withdrawal keeps citations resolvable).
+- **Defect found and fixed:** `documents._find_version_by_sha256` used `scalar_one_or_none()`. `create_reparse_version` (#216, #230) creates further versions of the *same* file, which share its hash, so the lookup raised `MultipleResultsFound` on Kenya and NICE and aborted `scripts.ingest_manifest_documents` after the WHO file. It now returns the active version with that hash, else the most recent. Test: `test_sha256_lookup_prefers_the_active_version_when_several_share_a_hash`. Full suite: 863 passed.
+- **Ingested** (`scripts.ingest_manifest_documents`, layout parser, vision settings as before):
+  - WHO `…_pages_17-19_76-77.pdf`: version `4ed72fd2`, 19 chunks, 0 held, quality 1.0.
+  - MoH `…_pages_11-20_33-38_45-52.pdf`: version `7ad1209e`, 66 chunks, quality 0.998. 1 chunk held: the p.12 hand-hygiene poster figure (OCR'd numbers), awaiting `/corpus-review`.
+  - Kenya and NICE: skipped as already ingested.
+- **Withdrawn** through `POST /corpus/versions/{id}/withdraw` as `admin` (3 audit events), with Postgres status and Qdrant payload (229 points) both `withdrawn`. Nothing deleted, so citations stay resolvable:
+  - WHO `…_pages_16_20.pdf` (`b7cd3763`)
+  - WHO `…_pages_76_77.pdf` (`6f3df480`)
+  - MoH `…_FULL.pdf` (`502babdf`)
+- **Retrieval now:** 273 chunks. NICE 182, MoH excerpt 65 (plus 1 held), WHO 19, Kenya 7.
+- **Gold:**
+  - 11 review-queue questions (51 references) pointed into the withdrawn WHO excerpts. The old WHO chunks (18) were mapped to the merged file with `lineage.map_chunks`: 16 mapped, 41 links recorded in `corpus.chunk_lineage`, 11 of them exact.
+  - The 2 unmapped chunks are the p.16 background and the p.20 introduction, which are no longer in the corpus.
+  - Gold remapped with `remap_all_gold`: 11 questions, 0 left empty. The previous sets are in `data/ingest_artifacts/gold_remap_20260930T142110Z.json`.
+  - No gold referenced the MoH full document. The 191 regenerated holdout questions (#233) reference NICE only.
+  - After the remap, 0 of the 53 gold chunk ids point at a non-active version.
+- **Judgment call:** withdrawal, not hard removal (`remove_document.py`), for all three. Their citations must stay resolvable (PRD-005), and withdrawal is reversible.
+- **Reversible?:** yes. Set the three versions back to `active` (Postgres + `set_payload_by_version`), withdraw the two new versions, and restore gold from the backup JSON.
+
+### 241. PRD-005 waived for a one-off corpus reset: every document version hard-deleted and the excerpt corpus re-ingested afresh
+- **Date / phase:** 2026-09-30, Phase 9. Operator: "Is there a possibility of cleanly re-ingesting all the documents in excerpt_guidelines directory afresh while permanently dropping previous versions?", then, after the consequences were set out (options 1–3), "go with option 1".
+- **Requirement ID(s):** PRD-005 (superseded content remains resolvable for issued citations) is **waived for this one reset**. It is not changed for normal operation: supersession and withdrawal stay non-destructive. Also ARCH-038, ARCH-044.
+- **Why a waiver is acceptable here:** a development deployment on synthetic patient data. The corpus held 33 versions (4 active, 26 superseded, 3 withdrawn) and 3,169 chunks from repeated Phase 9 re-parses. The operator wants one clean, current parse per document.
+- **What will dangle** (no FK; references by id only), accepted by the operator:
+  - `audit.audit_event.retrieved` (3,148 events). These are append-only and are not touched (CLAUDE.md rule 6).
+  - `memory.message.citations` / `retrieved_chunk_ids` (30 messages).
+  - `eval.result.citations` and retrieval snapshots (101 results with citations).
+- **Mitigation:** every deleted row is first copied inside the database, in the same way as #209:
+  - `corpus.bak_20260930_document`
+  - `corpus.bak_20260930_document_version`
+  - `corpus.bak_20260930_chunk` (with text and offsets)
+  - `corpus.bak_20260930_chunk_lineage`
+
+  A Qdrant snapshot of the collection is also taken, so any dangling id can still be resolved by hand.
+- **Plan:**
+  1. Back up.
+  2. Record each eval question's gold as (source file, chunk text).
+  3. Delete all `corpus.chunk_lineage`, `chunk`, `document_version` and `document` rows, and all Qdrant points.
+  4. Re-ingest the four manifest files with the current parser.
+  5. Remap gold by text onto the new chunks.
+  6. Archive the open review-queue results whose citations point at deleted chunks, as in #185.
+
+  Outcomes are recorded in the following entry.
+- **Reversible?:** only from the backups: restore the four tables, restore the Qdrant snapshot, and restore gold from the gold backup JSON.
+
+### 242. Outcome of the #241 corpus reset
+- **Date / phase:** 2026-09-30 / 2026-10-01, Phase 9.
+- **Requirement ID(s):** PRD-005 (waived, #241), ARCH-038, ARCH-044.
+- **Backups:**
+  - `corpus.bak_20260930_{document,document_version,chunk,chunk_lineage}` hold 7 / 33 / 3,169 / 5,082 rows, verified equal to the source tables before deletion.
+  - Qdrant snapshot `guideline_chunks_v1-4348397273320828-2026-09-30-14-33-59.snapshot` (3,169 points, 50 MB).
+  - Gold as text: `data/ingest_artifacts/gold_text_before_reset_20260930.json` (256 questions, 796 references).
+- **Deleted:** all corpus rows (5,082 lineage, 3,169 chunks, 33 versions, 7 documents) in one transaction as `hrag_admin`, then all 3,169 Qdrant points. `eval`, `memory` and `audit` rows were not touched.
+- **Re-ingested** (`scripts.ingest_manifest_documents`, layout parser): NICE `81a64f2f` 182 chunks; WHO `337fbb94` 19; Kenya `05db22dd` 7 (4 held); MoH `ab264900` 66 (1 held). All quality ≥ 0.995. One version per document, no history.
+- **Gold:** remapped by text (`lineage.map_chunks`). 796/796 references mapped (53 distinct old chunks, all exact matches); 256 questions; 0 empty; 0 dangling ids.
+- **Review queue:** 83 of 100 open results whose citations pointed at deleted chunks were archived (`queue_state` only, as in #185); ids in `data/ingest_artifacts/archived_results_after_reset_20261001T032835Z.json`. 17 open results without citations were kept.
+- **Lost by the reset, flagged:**
+  1. **Reviewer confirmations.** The four Kenya p.48 chunks (dose tables and notes), confirmed on 2026-09-29, are held again because confirmation lived on the deleted chunks. They are not retrievable until re-confirmed on `/corpus-review`. The MoH p.12 hand-hygiene poster is held as before.
+  2. **Lineage.** `corpus.chunk_lineage` starts empty; history lives only in the backup table.
+- **Process note:** the first attempt to chain the steps used a "still running?" check that matched its own command line, so it never fired. Both waiters were stopped and the steps run directly; nothing was double-applied.
+
+### 243. OCR-artefact overrides: `ocr_override` corrections may undo OCR glyph confusions and split words, on every occurrence; corrections now work on tables
+- **Date / phase:** 2026-10-01, Phase 9. Operator: "go with option 1", after a fresh vision transcription of the Kenya p.48 ≥7-day table repeated the 2026-09-28 header shift: penicillin read "8 hrly" (printed 6 hrly), ampicillin "24 hrly" (printed 8). The table's OCR pin stays.
+- **Requirement ID(s):** ARCH-044; the #214 scope limit (SCOPE-2.4 guard). This entry relaxes that limit narrowly for OCR artefacts, which is a judgment call on a safety rule, operator-approved.
+- **Problem:** the pinned OCR reading of the ≥7-day table has "1.V / 1.M" for "I.V / I.M" (four variants) and "Metronid azole". The #214 scope limit rejected these fixes: a digit is removed and non-relational words change. The exactly-once rule also rejected a header label repeated in every row.
+- **What changed** (`app/ingestion/corrections.py`):
+  - `is_ocr_artefact_fix(original, corrected)`: equal after removing whitespace and folding the OCR look-alikes 1/l/| → I and 0 → O. No number may be added or changed. A number may only be dropped if it is a lone 1 or 0 glued to a letter (the "1" of "1.V"). An `ocr_override` that passes skips the relational-word scope check; an `erratum` never does.
+  - New field `occurrences: "one"` (default) or `"all"`. `"all"` is allowed only for such an artefact override, needs at least one match, and replaces every match on the page (`apply_all_to_units`).
+  - `assemble._apply_corrections` applies corrections to a table's derived copies (`table_parts`, `table_grid`, `header_paths`) too. Before this, a correction to a table unit would have made chunking fail, since chunking finds each part in the document text, so corrections had in practice never been usable on tables.
+  - Every applied span is still recorded and shown on citations, as before.
+- **Tests** (`tests/test_ocr_corrections.py`, 15):
+  - accepted: the four route variants, the Metronidazole join, the Flucloxacillin join;
+  - rejected: "1 g"→"I g", "IO mg"→"10 mg", "10 mg"→"IO mg", "0.5 g"→"O.5 g", Amikacin→Gentamicin, 8→6 hours, a no-op;
+  - "all" refused for an erratum; an unknown `occurrences` value refused;
+  - offsets across multiple matches;
+  - end-to-end: a corrected table still chunks, every occurrence is corrected, values are untouched.
+  - Full suite: 878 passed.
+- **Dry run** against the real Kenya p.48 (in memory, placeholder attester): five `ocr_override` corrections, each matched 4 times (once per weight band). The ≥7-day table has 0 "1.V" and 0 "Metronid azole" left, and every dose and frequency is unchanged.
+- **Not yet applied:** the manifest entries need a named clinician in `attested_by`, which every correction requires.
+- **Reversible?:** yes. Remove the artefact branch and the `occurrences` field.
+
+### 244. Kenya p.48 OCR-artefact corrections applied; attester convention ("Timothy Tuti", Primary Investigator)
+- **Date / phase:** 2026-10-01, Phase 9. Operator: "attested_by should always be 'Timothy Tuti'. attester does not have to be clinician, in this case it should be 'Primary Investigator'. Also correct 'Flucloxacill in' in the 0–6-day table".
+- **Requirement ID(s):** ARCH-044 (§5.11 attested corrections), #243.
+- **What changed:**
+  - **Attester:** corrections gain an optional `attester_role`. It is carried in the correction metadata and on citations, and shown as "Corrected at ingestion by Timothy Tuti (Primary Investigator) on …" in both `schemas.citation.correction_notice` and `CitationList.tsx`.
+  - **Notices:** the citation panel shows one notice per correction id, since an "all occurrences" override can overlap a quote more than once.
+  - **Wording:** the module docstring and the example manifest's field guide no longer say the attester must be a clinician.
+  - Saved as a standing convention in project memory.
+- **Manifest** (Kenya entry, inserted as text so the rest of the file is byte-identical): six `ocr_override` corrections, all `occurrences: "all"`, `attested_by: "Timothy Tuti"`, `attester_role: "Primary Investigator"`, `attested_on: 2026-10-01`:
+  - `kenya-p48-route-1`–`route-4` ("1.V / 1.M", "1.V/ 1.M", "1.V/1.M", "I.V / 1.M" → I.V / I.M);
+  - `kenya-p48-metronidazole` ("Metronid azole** 7.5 mg/kg · 1.V" → "Metronidazole** 7.5 mg/kg · I.V");
+  - `kenya-p48-flucloxacillin` ("Flucloxacill in" → "Flucloxacillin").
+- **Judgment call:** the Flucloxacillin split is in the 0–6-day table, whose text comes from the vision transcription, not OCR. `ocr_override` is used because it is the only kind whose artefact rule allows joining a split word. The rationale says it was the transcription.
+- **Re-ingest** (`reingest_layout --force --only` Kenya): new version `20a89dd1`, 7 → 7 chunks, all mapped, 4 held. The previous version is superseded normally; PRD-005 applies again after the #241 one-off.
+  - Corrections applied: route-1 to route-4 and metronidazole 4× each, flucloxacillin 8×.
+  - Both dose tables now have 0 "1.V", 0 "Metronid azole", 0 "Flucloxacill in", in both the chunk text and the review grid.
+  - No question has Kenya gold, so 0 were remapped.
+- **Tests:** full suite 878 passed; frontend `tsc` and `eslint` clean.
+- **Still needed:** the four Kenya chunks need confirming on `/corpus-review` before they are retrievable.
+
+### 245. All open and in-review HITL escalations deleted (outdated); the one resolved escalation and its decision kept
+- **Date / phase:** 2026-10-01, Phase 9. Operator: "Drop all existing escalations, they are based on outdated data/logic".
+- **Requirement ID(s):** ARCH §4.4, §12, §13 (HITL). §13.2: `hitl_decision` is append-only.
+- **What was there:** 1,012 escalations from 2026-09-15 to 09-30 (open 1,005, in_review 6, resolved 1). By trigger: grounding_failure 833, conflicting_sources 110, low_confidence 62, safety_filter 7. They were raised against corpora and grounding logic since replaced (#215–#244).
+- **What was done:**
+  - The 1,011 open and in-review escalations were copied to `hitl.bak_20261001_escalation` and deleted, in one transaction as `hrag_admin`.
+  - The transaction would have refused if any `hitl_decision` referenced them; none did.
+  - The escalation list (`GET /hitl/escalations`, the admin Escalations panel) now returns 0.
+- **Judgment call — kept:** the single *resolved* escalation, which has a real reviewer decision (`full_accept`, 2026-09-15) in `hitl.hitl_decision`. That table is append-only and holds the escalation by foreign key, so removing it would mean altering a decision row. It is not in the open queue. All 8 decisions and the 1,032 escalation audit events are untouched (append-only).
+- **Reversible?:** yes. `INSERT INTO hitl.escalation SELECT * FROM hitl.bak_20261001_escalation`.
+
+### 246. The last (resolved) escalation deleted; its append-only decision unlinked (one-off exception to ARCH §13.2)
+- **Date / phase:** 2026-10-01, Phase 9. Operator: "delete the resolved escalation too", after being told it is referenced by an append-only `hitl_decision` row (#245).
+- **Requirement ID(s):** ARCH §13.2 (`hitl_decision` append-only): a **one-off exception, operator-directed**. The audit log (CLAUDE.md rule 6) is untouched.
+- **What was done** (one transaction, `hrag_admin`):
+  - Escalation `82d76aa4…` (resolved/accepted, 2026-09-15) was copied to `hitl.bak_20261001_resolved_escalation`, and its decision row `6b51e4e6…` (`full_accept`, 2026-09-15) to `hitl.bak_20261001_hitl_decision_link`.
+  - The decision's `escalation_id` was set to NULL and the escalation deleted.
+  - Now: `hitl.escalation` has 0 rows; `hitl.hitl_decision` has 8 rows, none linked to an escalation. There are no DB triggers on `hitl`.
+- **Judgment call:** unlink rather than delete the decision. Changing one foreign-key field keeps the reviewer's recorded action, while deleting it would destroy it. The decision never had a `message_id`, so it now references nothing (reviewer, action and timestamp only); the backup keeps the original link.
+- **Reversible?:** yes. Re-insert the escalation from its backup, then restore the decision's `escalation_id` from `hitl.bak_20261001_hitl_decision_link`.
+
+### 247. The orphaned HITL decision deleted (completes #246)
+- **Date / phase:** 2026-10-01, Phase 9. Operator: "delete the orphaned decision too".
+- **Requirement ID(s):** ARCH §13.2 (append-only decisions): a one-off exception, operator-directed, as in #246.
+- **What was done:** decision `6b51e4e6…` (`full_accept`, 2026-09-15; no message, escalation unlinked in #246) was deleted as `hrag_admin`. The delete was guarded to only touch that id with both links empty. No foreign key references `hitl_decision`. The full original row, including its escalation link, is in `hitl.bak_20261001_hitl_decision_link`. 7 decisions remain, all message-level; the audit log is untouched.
+- **Reversible?:** yes. Re-insert from `hitl.bak_20261001_hitl_decision_link`, together with the escalation from `hitl.bak_20261001_resolved_escalation`.
+
+### 248. `value` operator for clinical concepts; birth weight in kg as provided and rounded to 0.25 kg and the whole kg
+- **Date / phase:** 2026-10-01, Phase 9. Operator: "allow provision of the birth weight (in kgs), while also including the birth weight in kgs rounded to both the nearest .25 (to two decimal places) and rounded to a whole number (to one decimal place, e.g. 4 should be 4.0)".
+- **Requirement ID(s):** SCOPE-2.6, ARCH-042, PRD-057 (concept labelling; internal retrieval signal only, never citation-bearing).
+- **What was done:**
+  - `app/records/concepts.py` has a new `value` operator. It fires whenever the field holds a recorded number (never on an absent value, a bool or text). The concept's synonyms become the value itself, rendered by plain code:
+    - the value is multiplied by `scale`;
+    - each `renderings` entry rounds it half-up to `round_to` (or leaves it as provided when that is `null`) and formats it to `decimals` places (when that is `null`, it uses as many as the value needs, with at least one);
+    - `unit` is appended, and duplicates are dropped.
+  - `data/clinical_concepts.yaml` has a new concept `birth weight (kg)`: `encounter.birth_weight_g`, `scale: 0.001`, `unit: kg`, with three renderings (as provided; 0.25 kg to 2 dp; whole kg to 1 dp).
+  - The vocabulary loads with 21 concepts. Arithmetic uses `Decimal`, so there is no float drift (2.35 stays 2.35).
+  - Examples:
+    - 2350 g → `birth weight (kg) (2.35 kg, 2.25 kg, 2.0 kg)`
+    - 2375 g → `(2.375 kg, 2.50 kg, 2.0 kg)`
+    - 4000 g → `(4.0 kg, 4.00 kg)` (the duplicate "4.0 kg" is dropped)
+- **Judgment calls:**
+  - (a) **Rounding.** Ties round half-up (2.375 → 2.50; 1.5 → 2.0), not banker's rounding, because that matches how weight bands are read off a table.
+  - (b) **As-provided form.** "As provided" keeps the recorded precision but always shows at least one decimal ("4.0 kg"), matching the operator's 4 → 4.0 example.
+  - (c) **Duplicates.** Identical renderings are collapsed.
+  - (d) **A new operator rather than a hardcoded birth-weight field.** The rendering lives in the attested vocabulary file, so the operator controls it with the same attestation gate as every other concept.
+  - (e) **Fail-closed validation.** The loader rejects a `value` concept that sets `value`/`low`/`high`, has empty `renderings`, a non-positive `scale` or `round_to`, or invalid `decimals`.
+- **Effect:** `concepts_sha256` changes, so Level-2 (enriched) ablation results from before this change are not directly comparable with later runs (as in #210/#211). The concept fires for every record with a recorded birth weight, which raises the Level-2 fired rate.
+- **Tests:** `tests/test_concepts.py` covers loading, the rejections, the renderings (2350/2375/4000/1500 g), the expansion term, and no-fire on a missing, bool or text value. Full suite: 894 passed.
+- **Reversible?:** yes. Remove the concept from the YAML; the operator is inert unless a concept uses it.
+
+### 249. `value` renderings keep duplicates (supersedes #248 judgment call (c))
+- **Date / phase:** 2026-10-01, Phase 9. Operator: "keep all three renderings even when they duplicate".
+- **Requirement ID(s):** SCOPE-2.6, ARCH-042, PRD-057.
+- **What changed:** `render_value` now returns one rendering per `renderings` entry, in order, and no longer collapses identical ones. 4000 g → `birth weight (kg) (4.0 kg, 4.00 kg, 4.0 kg)`. Every expansion now has a fixed shape (as provided, 0.25 kg, whole kg). The repeated term slightly up-weights that string for BM25; this is accepted as the operator's choice.
+- **Tests:** `tests/test_concepts.py` (4000 g case updated).
+- **Reversible?:** yes (restore the membership check in `render_value`).

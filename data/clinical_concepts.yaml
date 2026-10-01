@@ -43,6 +43,14 @@
 #                              `value`/`low`/`high`. Use for signs like
 #                              apnoea/grunting that are already booleans in
 #                              the record, not numeric thresholds.
+#   "value"                 -- derived value: fires whenever `field` is a
+#                              number, and adds the value itself to the query,
+#                              multiplied by `scale` (e.g. 0.001 for g -> kg),
+#                              with `unit`, once per entry in `renderings`:
+#                              {round_to: <step or null>, decimals: <n or null>}
+#                              (null round_to = as provided; null decimals =
+#                              as many as needed). Rounding is half-up. Needs
+#                              no `value`/`low`/`high`. DEVIATIONS.md #248.
 
 authored_by: "Timothy Tuti"
 authored_date: "19 Sep 2026"
@@ -121,6 +129,18 @@ concepts:
     source: "operator-curated"
     synonyms: ["lbw", "vlbw", "elbw"]
     notes: "WHO: less than 2500 grams at birth, regardless of how long the pregnancy lasted"
+
+  birth weight (kg):
+    field: encounter.birth_weight_g
+    operator: "value"
+    scale: 0.001
+    unit: "kg"
+    renderings:
+      - {round_to: null, decimals: null}   # as provided, e.g. 2350 g -> 2.35 kg
+      - {round_to: 0.25, decimals: 2}      # nearest 0.25 kg, e.g. 2.25 kg
+      - {round_to: 1, decimals: 1}         # nearest whole kg, e.g. 2.0 kg (4 -> 4.0)
+    source: "operator-curated"
+    notes: "Birth weight in kg as provided, and rounded to the nearest 0.25 kg and the nearest whole kg, to line up with weight-banded dose tables (operator instruction 2026-10-01)"
 
   early onset:
     field: encounter.day_of_life

@@ -22,7 +22,8 @@ rather than being silently used, the same pattern
 from __future__ import annotations
 
 import operator as _operator_module
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 from typing import Any
 
@@ -47,7 +48,14 @@ _RANGE_OPERATOR = "between"
 # absent/never-assessed field (handled the same way as every other operator,
 # via the `field not in features` check in `evaluate_concepts`).
 _PRESENCE_OPERATOR = "present"
-_ALL_OPERATORS = frozenset({*_THRESHOLD_OPERATORS, _RANGE_OPERATOR, _PRESENCE_OPERATOR})
+# Derived value (DEVIATIONS.md #248): fires whenever `field` is numeric, and
+# its expansion term carries the value itself, scaled (e.g. grams -> kg) and
+# rendered as operator-specified roundings, e.g. a birth weight of 2350 g as
+# "2.35 kg, 2.25 kg, 2.0 kg" -- so the query matches weight-banded dose tables.
+_VALUE_OPERATOR = "value"
+_ALL_OPERATORS = frozenset(
+    {*_THRESHOLD_OPERATORS, _RANGE_OPERATOR, _PRESENCE_OPERATOR, _VALUE_OPERATOR}
+)
 
 
 class ConceptVocabularyNotAttested(Exception):
@@ -68,6 +76,12 @@ class Concept:
     high: float | None = None  # `between` only
     synonyms: tuple[str, ...] = ()
     notes: str | None = None
+    # `value` operator only: multiply the field by `scale`, then render each
+    # (round_to, decimals) pair; round_to None = as provided, decimals None =
+    # as many as needed (at least one).
+    scale: float = 1.0
+    unit: str | None = None
+    renderings: tuple[tuple[float | None, int | None], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -110,7 +124,16 @@ def load_vocabulary(path: str | Path) -> ConceptVocabulary:
             raise ConceptVocabularyNotAttested(f"concept {name!r} synonyms still has a placeholder")
 
         value = low = high = None
-        if op == _PRESENCE_OPERATOR:
+        scale: float = 1.0
+        unit: str | None = None
+        renderings: tuple[tuple[float | None, int | None], ...] = ()
+        if op == _VALUE_OPERATOR:
+            if any(spec.get(k) is not None for k in ("value", "low", "high")):
+                raise ConceptVocabularyNotAttested(
+                    f"concept {name!r} uses operator 'value' and must not set value/low/high"
+                )
+            scale, unit, renderings = _value_spec(name, spec)
+        elif op == _PRESENCE_OPERATOR:
             if any(spec.get(k) is not None for k in ("value", "low", "high")):
                 raise ConceptVocabularyNotAttested(
                     f"concept {name!r} uses operator 'present' and must not set value/low/high"
@@ -136,6 +159,9 @@ def load_vocabulary(path: str | Path) -> ConceptVocabulary:
                 high=high,
                 synonyms=synonyms,
                 notes=spec.get("notes"),
+                scale=scale,
+                unit=unit,
+                renderings=renderings,
             )
         )
     return ConceptVocabulary(
@@ -153,6 +179,10 @@ def evaluate_concepts(vocabulary: ConceptVocabulary, features: dict[str, Any]) -
         if concept.field not in features:
             continue
         value = features[concept.field]
+        if concept.operator == _VALUE_OPERATOR:
+            if isinstance(value, int | float) and not isinstance(value, bool):
+                matched.append(replace(concept, synonyms=render_value(concept, value)))
+            continue
         if concept.operator == _PRESENCE_OPERATOR:
             if value is True:
                 matched.append(concept)
@@ -168,6 +198,64 @@ def evaluate_concepts(vocabulary: ConceptVocabulary, features: dict[str, Any]) -
         elif _THRESHOLD_OPERATORS[concept.operator](value, concept.value):
             matched.append(concept)
     return matched
+
+
+def _value_spec(
+    name: str, spec: dict
+) -> tuple[float, str | None, tuple[tuple[float | None, int | None], ...]]:
+    raw_scale = spec.get("scale", 1)
+    try:
+        scale = float(raw_scale)
+    except (TypeError, ValueError):
+        raise ConceptVocabularyNotAttested(f"concept {name!r} scale must be a number") from None
+    if scale <= 0:
+        raise ConceptVocabularyNotAttested(f"concept {name!r} scale must be positive")
+    unit = spec.get("unit")
+    if unit is not None and (not isinstance(unit, str) or unit == _PLACEHOLDER):
+        raise ConceptVocabularyNotAttested(f"concept {name!r} unit must be text")
+    raw = spec.get("renderings")
+    if not isinstance(raw, list) or not raw:
+        raise ConceptVocabularyNotAttested(
+            f"concept {name!r} uses operator 'value' and needs a non-empty 'renderings' list"
+        )
+    out: list[tuple[float | None, int | None]] = []
+    for entry in raw:
+        r = entry or {}
+        round_to, decimals = r.get("round_to"), r.get("decimals")
+        if round_to is not None and (not isinstance(round_to, int | float) or round_to <= 0):
+            raise ConceptVocabularyNotAttested(
+                f"concept {name!r} round_to must be a positive number or null"
+            )
+        if decimals is not None and (not isinstance(decimals, int) or decimals < 0):
+            raise ConceptVocabularyNotAttested(
+                f"concept {name!r} decimals must be a non-negative integer or null"
+            )
+        out.append((float(round_to) if round_to is not None else None, decimals))
+    return scale, unit, tuple(out)
+
+
+def render_value(concept: Concept, value: float) -> tuple[str, ...]:
+    """The `value` concept's renderings of `value` (scaled), one per entry in
+    order, duplicates kept (4000 g -> "4.0", "4.00", "4.0"). Rounding is
+    half-up (2.375 -> 2.5 to the nearest 0.25), not banker's rounding.
+    `decimals: null` keeps the value as provided, trimmed, with at least one
+    decimal (2350 g -> "2.35", 2000 g -> "2.0")."""
+    v = Decimal(str(value)) * Decimal(str(concept.scale))
+    out: list[str] = []
+    for round_to, decimals in concept.renderings:
+        q = v
+        if round_to is not None:
+            step = Decimal(str(round_to))
+            q = (v / step).to_integral_value(rounding=ROUND_HALF_UP) * step
+        if decimals is None:
+            text = format(q.normalize(), "f")
+            if "." not in text:
+                text += ".0"
+        else:
+            text = format(q.quantize(Decimal(1).scaleb(-decimals), rounding=ROUND_HALF_UP), "f")
+        text = f"{text} {concept.unit}" if concept.unit else text
+        out.append(text)
+    return tuple(out)
 
 
 def build_expansion_term(concept: Concept) -> str:

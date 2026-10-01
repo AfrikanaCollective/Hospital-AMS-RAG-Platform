@@ -18,6 +18,7 @@ from app.records.concepts import (
     build_expansion_term,
     evaluate_concepts,
     load_vocabulary,
+    render_value,
 )
 
 _ATTESTED = {
@@ -193,6 +194,77 @@ def test_evaluate_concepts_present_does_not_fire_on_assessed_negative() -> None:
     fire via the earlier `field not in features` check."""
     vocab = load_vocabulary_from_dict(_ATTESTED)
     assert evaluate_concepts(vocab, {"examination_findings.made_up_sign": False}) == []
+
+
+_VALUE_SPEC = {
+    "field": "encounter.made_up_mass_g",
+    "operator": "value",
+    "scale": 0.001,
+    "unit": "kg",
+    "renderings": [
+        {"round_to": None, "decimals": None},
+        {"round_to": 0.25, "decimals": 2},
+        {"round_to": 1, "decimals": 1},
+    ],
+    "source": "unit-test fixture, not a real clinical value",
+}
+
+
+def _value_vocab(tmp_path: Path, **overrides: object) -> ConceptVocabulary:
+    spec = {**_VALUE_SPEC, **overrides}
+    data = {**_ATTESTED, "concepts": {"fake mass (kg)": spec}}
+    return load_vocabulary(_write(tmp_path, data))
+
+
+def test_value_operator_loads_with_renderings(tmp_path: Path) -> None:
+    (concept,) = _value_vocab(tmp_path).concepts
+    assert concept.operator == "value" and concept.unit == "kg" and concept.scale == 0.001
+    assert concept.renderings == ((None, None), (0.25, 2), (1.0, 1))
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"value": 1},
+        {"low": 1, "high": 2},
+        {"renderings": []},
+        {"renderings": [{"round_to": 0, "decimals": 2}]},
+        {"renderings": [{"round_to": 0.25, "decimals": -1}]},
+        {"renderings": [{"round_to": 0.25, "decimals": 1.5}]},
+        {"scale": 0},
+        {"scale": "a lot"},
+    ],
+)
+def test_value_operator_rejects_bad_specs(tmp_path: Path, overrides: dict) -> None:
+    with pytest.raises(ConceptVocabularyNotAttested):
+        _value_vocab(tmp_path, **overrides)
+
+
+@pytest.mark.parametrize(
+    ("grams", "expected"),
+    [
+        (2350, ("2.35 kg", "2.25 kg", "2.0 kg")),
+        (2375, ("2.375 kg", "2.50 kg", "2.0 kg")),  # half-up at the 0.25 midpoint
+        (4000, ("4.0 kg", "4.00 kg", "4.0 kg")),  # one per rendering, duplicates kept
+        (1500, ("1.5 kg", "1.50 kg", "2.0 kg")),  # half-up to the whole kg
+    ],
+)
+def test_render_value_as_provided_and_rounded(tmp_path: Path, grams: int, expected: tuple) -> None:
+    (concept,) = _value_vocab(tmp_path).concepts
+    assert render_value(concept, grams) == expected
+
+
+def test_value_concept_fires_with_rendered_values_as_synonyms(tmp_path: Path) -> None:
+    vocab = _value_vocab(tmp_path)
+    (matched,) = evaluate_concepts(vocab, {"encounter.made_up_mass_g": 2350})
+    assert build_expansion_term(matched) == "fake mass (kg) (2.35 kg, 2.25 kg, 2.0 kg)"
+
+
+def test_value_concept_never_fires_on_missing_bool_or_text(tmp_path: Path) -> None:
+    vocab = _value_vocab(tmp_path)
+    assert evaluate_concepts(vocab, {}) == []
+    assert evaluate_concepts(vocab, {"encounter.made_up_mass_g": True}) == []
+    assert evaluate_concepts(vocab, {"encounter.made_up_mass_g": "heavy"}) == []
 
 
 def load_vocabulary_from_dict(data: dict) -> ConceptVocabulary:

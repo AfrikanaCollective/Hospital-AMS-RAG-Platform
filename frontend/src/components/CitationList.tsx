@@ -17,12 +17,17 @@ export default function CitationList({ citations }: { citations: Citation[] }) {
             {c.quote}
           </blockquote>
           {/* Attested source correction (ARCH-044 §5.11) — not dismissable. */}
-          {(c.corrections ?? []).map((corr) => (
+          {/* One notice per correction id: an "all occurrences" OCR override
+              can overlap a quote several times (DEVIATIONS.md #243). */}
+          {(c.corrections ?? [])
+            .filter((corr, i, all) => all.findIndex((o) => o.id === corr.id) === i)
+            .map((corr) => (
             <p
               key={corr.id}
               className="mt-1 rounded border border-danger/60 px-2 py-1 text-[12px] text-ink"
             >
-              <strong>Corrected at ingestion</strong> by {corr.attested_by} on{" "}
+              <strong>Corrected at ingestion</strong> by {corr.attested_by}
+              {corr.attester_role ? ` (${corr.attester_role})` : ""} on{" "}
               {corr.attested_on}. The source prints: “{corr.original}”.{" "}
               <span className="text-ink-muted">Reason: {corr.rationale}</span>
             </p>

@@ -24,7 +24,13 @@ import statistics
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from app.ingestion.corrections import AppliedCorrection, Correction, apply_to_units
+from app.ingestion.corrections import (
+    AppliedCorrection,
+    Correction,
+    apply_all_to_units,
+    apply_to_units,
+    correct_copy,
+)
 from app.ingestion.layout.boilerplate import drop_leading_excerpt_fragment, remove_boilerplate
 from app.ingestion.layout.flowchart import (
     MIN_NODE_SIDE,
@@ -336,17 +342,49 @@ def _apply_corrections(units: list[_Unit], opts: AssemblyOptions) -> list[dict]:
             if _source_page(u.page_no, opts.source_pages) == corr.page
         ]
         page_units = [units[i] for i in idx]
-        new_texts, done = apply_to_units(
-            [u.text for u in page_units], corr, protected=[u.structure for u in page_units]
+        texts = [u.text for u in page_units]
+        protected = [u.structure for u in page_units]
+        if corr.occurrences == "all":
+            new_texts, done_list = apply_all_to_units(texts, corr, protected=protected)
+        else:
+            new_texts, done = apply_to_units(texts, corr, protected=protected)
+            done_list = [done]
+        touched: set[int] = set()
+        for done in done_list:
+            unit = page_units[done.unit_index]
+            unit.structure = _shift(unit.structure, done)
+            unit.meta.setdefault("corrections", []).append(
+                {**corr.public(), "start": done.start, "end": done.end}
+            )
+            touched.add(done.unit_index)
+        for k in touched:
+            unit = page_units[k]
+            unit.text = new_texts[k]
+            if unit.kind == "table":
+                _correct_table_copies(unit, corr)
+        applied.append(
+            {
+                "id": corr.id,
+                "page": corr.page,
+                "unit_kind": page_units[done_list[0].unit_index].kind,
+                "occurrences": len(done_list),
+            }
         )
-        unit = page_units[done.unit_index]
-        unit.text = new_texts[done.unit_index]
-        unit.structure = _shift(unit.structure, done)
-        unit.meta.setdefault("corrections", []).append(
-            {**corr.public(), "start": done.start, "end": done.end}
-        )
-        applied.append({"id": corr.id, "page": corr.page, "unit_kind": unit.kind})
     return applied
+
+
+def _correct_table_copies(unit: _Unit, corr: Correction) -> None:
+    """A table's parts, grid and header paths are copies of its text that
+    chunking and the review page read; they must carry the same correction
+    (DEVIATIONS.md #243). Chunking locates each part in the document text, so
+    a stale part would not be found."""
+    meta = unit.meta
+    if meta.get("table_parts"):
+        meta["table_parts"] = [correct_copy(t, corr) for t in meta["table_parts"]]
+    if meta.get("table_grid"):
+        meta["table_grid"] = correct_copy(meta["table_grid"], corr)
+    if meta.get("header_paths"):
+        meta["header_paths"] = [correct_copy(t, corr) for t in meta["header_paths"]]
 
 
 def _shift(spans: list[tuple[int, int]], done: AppliedCorrection) -> list[tuple[int, int]]:

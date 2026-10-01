@@ -160,3 +160,46 @@ def test_new_document_when_external_ref_differs(monkeypatch: pytest.MonkeyPatch)
     docs = [o for o in session.added if isinstance(o, Document)]
     assert len(docs) == 1
     assert docs[0].external_ref == "WHO/OTHER/2"
+
+
+def test_sha256_lookup_prefers_the_active_version_when_several_share_a_hash() -> None:
+    """Re-parsing a file (`create_reparse_version`) leaves several versions
+    with one hash; the idempotency lookup must answer, not raise
+    (DEVIATIONS.md #240)."""
+    from datetime import UTC, datetime
+
+    def version(status: str, day: int) -> DocumentVersion:
+        v = DocumentVersion(
+            document_id=uuid.uuid4(), version_label="x", status=status, content_sha256="same"
+        )
+        v.id = uuid.uuid4()
+        v.ingested_at = datetime(2026, 9, day, tzinfo=UTC)
+        return v
+
+    older, active, newest_superseded = (
+        version("superseded", 1),
+        version("active", 2),
+        version("superseded", 3),
+    )
+
+    class _Rows:
+        def __init__(self, rows: list) -> None:
+            self.rows = rows
+
+        def scalars(self) -> _Rows:
+            return self
+
+        def all(self) -> list:
+            return self.rows
+
+    class _Session:
+        def __init__(self, rows: list) -> None:
+            self.rows = rows
+
+        def execute(self, _stmt: object) -> _Rows:
+            return _Rows(self.rows)
+
+    lookup = documents_mod._find_version_by_sha256
+    assert lookup(_Session([older, active, newest_superseded]), "same") is active
+    assert lookup(_Session([older, newest_superseded]), "same") is newest_superseded
+    assert lookup(_Session([]), "same") is None

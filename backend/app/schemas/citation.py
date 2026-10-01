@@ -50,8 +50,10 @@ class Citation(BaseModel):
 
 def correction_notice(correction: dict) -> str:
     """The fixed wording shown wherever a corrected quote appears."""
+    role = correction.get("attester_role")
+    by = f"{correction.get('attested_by')} ({role})" if role else correction.get("attested_by")
     return (
-        f"Corrected at ingestion by {correction.get('attested_by')} on "
+        f"Corrected at ingestion by {by} on "
         f'{correction.get("attested_on")}. The source prints: "{correction.get("original")}"'
     )
 

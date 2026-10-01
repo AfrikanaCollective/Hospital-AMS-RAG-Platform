@@ -971,6 +971,18 @@ not the mechanism itself:
   numeric thresholds). Which of `value`/`low`+`high`/nothing is required is
   gated by `operator` in the same attestation pass — `present` with a `value`
   set, or `between` with `low > high`, both fail closed.
+- **A fourth shape, `value`** (DEVIATIONS.md #248): no threshold — fires
+  whenever the field holds a recorded number, and the concept's synonyms
+  become the value itself, rendered by plain-code arithmetic: multiplied by
+  `scale` (e.g. 0.001 for g → kg), then once per entry in `renderings`
+  (`round_to`: step to round half-up to, or `null` for as provided;
+  `decimals`: fixed decimal places, or `null` for as many as the value needs
+  with at least one), with `unit` appended; one rendering per entry, duplicates kept (#249). Example:
+  `birth weight (kg)` at 2350 g → `birth weight (kg) (2.35 kg, 2.25 kg,
+  2.0 kg)`, to line up with weight-banded dose tables. It still only labels
+  what the record says; nothing is inferred. `value`/`low`/`high` set on a
+  `value` concept, empty `renderings`, a non-positive `scale` or `round_to`,
+  or invalid `decimals` fail closed.
 - `field` must resolve to a real `app.records.access.extract_features` path
   (the fixed schema's field names — `vitals.heart_rate_bpm`,
   `encounter.gestational_age_weeks`, etc. — not free-form names like

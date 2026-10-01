@@ -49,9 +49,23 @@ class DocumentMetadata:
 
 
 def _find_version_by_sha256(session: Session, content_sha256: str) -> DocumentVersion | None:
-    return session.execute(
-        select(DocumentVersion).where(DocumentVersion.content_sha256 == content_sha256)
-    ).scalar_one_or_none()
+    """A version of this exact file, preferring the active one, else the most
+    recent. Several versions can share a hash: `create_reparse_version`
+    re-parses the same file as a new version (ARCH-044), which made the old
+    `scalar_one_or_none()` raise instead of answering "already ingested"
+    (DEVIATIONS.md #240)."""
+    versions = list(
+        session.execute(
+            select(DocumentVersion).where(DocumentVersion.content_sha256 == content_sha256)
+        )
+        .scalars()
+        .all()
+    )
+    if not versions:
+        return None
+    active = [v for v in versions if v.status == "active"]
+    pool = active or versions
+    return max(pool, key=lambda v: v.ingested_at or datetime.min.replace(tzinfo=UTC))
 
 
 def _find_document_by_external_ref(session: Session, external_ref: str) -> Document | None:

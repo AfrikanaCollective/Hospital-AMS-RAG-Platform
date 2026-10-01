@@ -1237,6 +1237,16 @@ Weighted reciprocal-rank fusion (`ABLATION_FUSION=rrf`, #227; run
 `20260929T064213Z-6ea6c3b2`) removes that effect, so recall now falls
 gradually with BM25 weight. Still, no blend reliably beats pure SapBERT.
 
+**Corpus as of 2026-09-30 (DEVIATIONS #230–#240).** The guideline corpus is
+NICE NG195 (full), the Kenya newborn protocols excerpt (pp. 47-48), the
+WHO SBI excerpt (Tables 1.1 and 3.1, pp. 17-19, 76-77) and the Kenya MoH
+antibiotic guideline excerpt (pp. 11-20, 33-38, 45-52). The MoH full guideline
+and the two earlier WHO excerpts are withdrawn, and their citations still
+resolve. The layout parser now completes words cut at element edges, levels
+headings by font size, removes running page headers, nests WHO's typographic
+tables, and reads MoH's row-labelled boxes as sub-topics, with a cell that
+runs across a page break kept as one chunk.
+
 ### Repository layout
 
 ```
@@ -1499,6 +1509,12 @@ All config is via environment variables / `.env` (secrets via
   citation, optional `synonyms`) before `app/records/concepts.py`'s loader
   will use it; currently consumed only by the Phase 7 orchestration ablation
   (`PHASE7-PROPOSAL.md`), never by any agent, route, or answer path.
+  Besides threshold/`between`/`present` concepts it supports a `value`
+  operator, which renders a recorded number (scaled, rounded, with unit) as the
+  concept's synonyms. Example: `birth weight (kg)` at 2350 g expands to
+  `birth weight (kg) (2.35 kg, 2.25 kg, 2.0 kg)`, i.e. as provided, to the
+  nearest 0.25 kg and to the nearest whole kg (DEVIATIONS.md #248). Editing the
+  vocabulary changes the ablation's `concepts_sha256`.
 - `data/patient_records/` — patient record data (all files **gitignored**;
   only `DATASET.md` / `field_mapping.yaml` / `.gitkeep` are tracked):
   - `synthetic/` — output of `make gen-data` (a **fallback**). Domain via

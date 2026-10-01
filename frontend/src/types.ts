@@ -32,6 +32,7 @@ export interface CitationCorrection {
   kind: string;
   rationale: string;
   attested_by: string;
+  attester_role?: string | null;
   attested_on: string;
 }
 

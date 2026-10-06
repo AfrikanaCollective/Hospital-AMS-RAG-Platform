@@ -29,10 +29,12 @@ from collections.abc import Iterator
 from typing import TYPE_CHECKING
 
 import numpy as np
+from sqlalchemy import select
 
+from app.db.models.eval import EvalQuestion
 from app.eval.ablation_config import ALL_ARMS as _ALL_ARMS
 from app.eval.ablation_config import bm25_weight_values, fusion, k_values, rrf_k
-from app.eval.auto_seed import _TOPIC
+from app.eval.auto_seed import _TOPIC, FOUR_AREA_TEMPLATE
 from app.eval.deidentified_source import load_deidentified_records
 from app.eval.metrics import mrr, precision_recall_at_k
 from app.eval.model_ablation.ablation import Corpus, _l2_normalize_rows, fetch_corpus
@@ -42,6 +44,7 @@ from app.eval.orchestration_ablation.augment import (
     load_synthetic_record_index,
     resolve_source_record,
 )
+from app.eval.question_gen.areas import QueryAreas, build_area_question
 from app.eval.question_gen.deterministic import (
     build_deterministic_narrative,
     build_present_only_narrative,
@@ -55,6 +58,7 @@ from app.eval.unified_ablation.blend import (
     cosine_raw_scores,
 )
 from app.eval.unified_ablation.per_query import PerQueryResult
+from app.schemas.enums import ExpectedOutcome, Provenance
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
@@ -66,6 +70,44 @@ _LEVEL1_BUILDERS = {
     "present_only": build_present_only_narrative,
     "all_assessed": build_deterministic_narrative,
 }
+
+
+def fetch_four_area_questions(session: Session) -> list[SweepQuestion]:
+    """The four-area calibration pool (DEVIATIONS.md #264): `four-area-v2`
+    questions (one area per record), `well_supported`, auto-generated, with a
+    non-empty gold set, each carrying its area. The 2026-10-05 trial rows
+    (`four-area-v1`, four areas per record) are never selected."""
+    rows = (
+        session.execute(
+            select(EvalQuestion).where(
+                EvalQuestion.expected_outcome == ExpectedOutcome.WELL_SUPPORTED,
+                EvalQuestion.provenance == Provenance.AUTO_GENERATED,
+                EvalQuestion.generator_meta["template_version"].astext == FOUR_AREA_TEMPLATE,
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return [
+        SweepQuestion(
+            question_id=str(row.id),
+            text=row.text,
+            gold_chunk_ids=frozenset(row.gold_relevant_chunks),
+            source_record_id=row.source_record_id,
+            area=(row.generator_meta or {}).get("area"),
+        )
+        for row in rows
+        if row.gold_relevant_chunks
+    ]
+
+
+def _any_four_area_question_ids(session: Session) -> set[str]:
+    """Ids of every four-area question (`four-area-v1` trial and later), kept
+    out of the single-topic pool."""
+    stmt = select(EvalQuestion.id).where(
+        EvalQuestion.generator_meta["template_version"].astext.like("four-area-%")
+    )
+    return {str(i) for i in session.execute(stmt).scalars()}
 
 
 def _first_relevant_rank(retrieved: list[str], gold: set[str]) -> int | None:
@@ -118,6 +160,7 @@ def sweep_questions(
     k_grid: tuple[int, ...],
     fusion_method: str = "minmax",
     rrf_damping: int = 60,
+    query_areas: QueryAreas | None = None,
 ) -> Iterator[PerQueryResult]:
     """Pure sweep over already-fetched `questions`/`corpus` — no I/O beyond
     the encoders/`store` callers already hold open, no Postgres session.
@@ -138,7 +181,15 @@ def sweep_questions(
     or one present in neither the de-identified nor the synthetic index) is
     skipped entirely, not evaluated with a guessed/missing record: Level 1's
     whole point is deterministically rebuilding the narrative from the
-    record's own fields, so there is nothing to build from without one."""
+    record's own fields, so there is nothing to build from without one.
+
+    A four-area question (`question.area` set, DEVIATIONS.md #264) is rebuilt
+    with its own area's opening and record facts
+    (`question_gen.areas.build_area_question`): `all_assessed` keeps
+    assessed-absent findings, `present_only` drops them. An area with no
+    findings in its facts (antibiotic course) gives identical text for both.
+    A four-area question whose area isn't in `query_areas` is skipped."""
+    areas_by_name = {a.name: a for a in query_areas.areas} if query_areas else {}
     for question in questions:
         gold = set(question.gold_chunk_ids)
         record = resolve_source_record(question.source_record_id, record_index)
@@ -151,13 +202,22 @@ def sweep_questions(
         # seeded (DEVIATIONS.md #208). `_TOPIC` only as a fallback for text
         # not built by the deterministic template.
         topic = extract_topic(question.text) or _TOPIC
+        area = areas_by_name.get(question.area) if question.area else None
+        if question.area and area is None:
+            continue
 
         for level1, builder in _LEVEL1_BUILDERS.items():
             # The SAME topic for both Level-1 branches (DEVIATIONS.md #190/
             # #191), so the only thing that differs between them is
             # present/absent handling, per the comparability requirement
             # (proposal §III).
-            base_text = builder(record.model_dump(mode="json"), topic=topic)
+            record_dict = record.model_dump(mode="json")
+            if area is not None:
+                base_text = build_area_question(
+                    record_dict, area, include_absent=level1 == "all_assessed"
+                )
+            else:
+                base_text = builder(record_dict, topic=topic)
 
             enriched_text = base_text
             if vocabulary is not None:
@@ -200,6 +260,7 @@ def sweep_questions(
                             first_relevant_rank=first_rank,
                             recall_at_k=precision_recall_at_k(top_k, gold, k)[1],
                             reciprocal_rank_at_k=mrr(top_k, gold),
+                            question_area=question.area,
                         )
 
 
@@ -210,6 +271,8 @@ def run_unified_ablation(
     experiment_id: str | None = None,
     vocabulary: ConceptVocabulary | None,
     records_dir: str | None = None,
+    question_set: str = "four_area",
+    query_areas: QueryAreas | None = None,
 ) -> Iterator[PerQueryResult]:
     """Thin orchestrator: fetch questions/corpus/records from the real
     Postgres session + Qdrant store, then delegate to `sweep_questions` (the
@@ -219,7 +282,19 @@ def run_unified_ablation(
     `per_query.write_per_query_results` streams them to disk as they're
     produced rather than holding the whole run in memory."""
     exp_id = experiment_id or str(uuid.uuid4())
-    questions: list[SweepQuestion] = fetch_calibration_questions(session)
+    # `four_area` (DEVIATIONS.md #264): the per-area pool, rebuilt by area;
+    # `single_topic`: the original pool. Never mixed in one run.
+    if question_set == "four_area":
+        if query_areas is None:
+            raise ValueError("question_set='four_area' needs the attested query_areas")
+        questions: list[SweepQuestion] = fetch_four_area_questions(session)
+    elif question_set == "single_topic":
+        four_area_ids = _any_four_area_question_ids(session)
+        questions = [
+            q for q in fetch_calibration_questions(session) if q.question_id not in four_area_ids
+        ]
+    else:
+        raise ValueError(f"unknown question_set {question_set!r}")
     corpus: Corpus = fetch_corpus(store)
 
     sapbert_encoder = get_sapbert_encoder()
@@ -243,4 +318,5 @@ def run_unified_ablation(
         k_grid=k_values(),
         fusion_method=fusion(),
         rrf_damping=rrf_k(),
+        query_areas=query_areas,
     )

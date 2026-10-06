@@ -9,6 +9,7 @@ import pytest
 import app.audit.log as audit_log
 from app.config import get_settings
 from app.ingestion.embed import embed_texts
+from app.retrieval import hybrid
 from app.retrieval.hybrid import _expand_abbreviations, retrieve
 from app.retrieval.sparse import doc_sparse_vector
 from app.retrieval.vectorstore import QdrantVectorStore
@@ -20,6 +21,8 @@ _DENSE_DIM = 384
 def _stub_backends(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("EMBEDDING_BACKEND", "stub")
     monkeypatch.setenv("RERANKER_BACKEND", "stub")
+    # Global top_k unless a test opts into per-guideline retrieval (#252).
+    monkeypatch.setenv("RETRIEVAL_MODE", "fused")
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()
@@ -101,8 +104,9 @@ def test_retrieve_confidence_verdict_reflects_top_score(store: QdrantVectorStore
     # MIN_SUPPORTING_CHUNKS defaults to 2 -> seed a second, similar-enough chunk
     # so confidence isn't held down purely by a thin corpus (ARCH §7 step 5).
     target_text = "Blood cultures are recommended before starting antimicrobials."
-    _seed_chunk(store, 1, chunk_id="c1", text=target_text)
-    _seed_chunk(store, 2, chunk_id="c2", text=target_text)
+    # no heading path: the reranker then scores exactly the query text (#250)
+    _seed_chunk(store, 1, chunk_id="c1", text=target_text, section_path=None)
+    _seed_chunk(store, 2, chunk_id="c2", text=target_text, section_path=None)
 
     _items, snapshot = retrieve(target_text, vectorstore=store)
     assert snapshot["confidence"]["top_score"] == pytest.approx(1.0)
@@ -171,7 +175,7 @@ def test_retrieve_writes_a_retrieval_audit_event_when_session_given(
 ) -> None:
     monkeypatch.setattr(audit_log, "_fetch_last_row_hash", lambda session: None)
     target_text = "Blood cultures are recommended before starting antimicrobials."
-    _seed_chunk(store, 1, chunk_id="c1", text=target_text)
+    _seed_chunk(store, 1, chunk_id="c1", text=target_text, section_path=None)
 
     session = _FakeSession()
     items, _snapshot = retrieve(target_text, vectorstore=store, session=session)
@@ -191,3 +195,31 @@ def test_retrieve_skips_audit_write_when_no_session_given(store: QdrantVectorSto
     # no session kwarg -> must not raise, must not attempt a DB call
     items, _snapshot = retrieve(target_text, vectorstore=store)
     assert len(items) == 1
+
+
+def test_reranker_scores_the_heading_path_with_the_chunk_text(
+    store: QdrantVectorStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The cross-encoder sees what the indexes embed: heading path, then text
+    (DEVIATIONS.md #250). A flowchart chunk's own text never names its topic."""
+    _seed_chunk(
+        store,
+        1,
+        chunk_id="flow",
+        text="[n1] Has ONE of the following • made-up sign",
+        section_path="Assessing for possible made-up condition",
+    )
+    _seed_chunk(store, 2, chunk_id="bare", text="made-up sign alone", section_path=None)
+    seen: list[str] = []
+
+    def _capture(query: str, passages: list[str]) -> list[float]:
+        seen.extend(passages)
+        return [0.5] * len(passages)
+
+    monkeypatch.setattr(hybrid, "rerank", _capture)
+    retrieve("made-up sign", vectorstore=store)
+    assert (
+        "Assessing for possible made-up condition\n\n[n1] Has ONE of the following • made-up sign"
+        in seen
+    )
+    assert "made-up sign alone" in seen  # no heading path: the text alone

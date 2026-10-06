@@ -1,0 +1,159 @@
+# Operator-authored query areas for generated guideline questions.
+#
+# Attested by Timothy Tuti (Primary Investigator), 2026-10-02; caps, weight
+# renderings and age bands updated through 2026-10-05, and the presenting
+# complaint added to areas A-C on 2026-10-05, all on the same attester's
+# instruction (DEVIATIONS.md #252/#254/#256/#259). No code reads this file yet: the four-area question
+# generator will. It replaces the single fixed topic in app/eval/auto_seed.py (`_TOPIC`, "antibiotics
+# or infection in hospital settings for this newborn's presentation") with four
+# areas, each sent as its own query and fused by rank (RRF).
+#
+# Each question's first line keeps the existing template, so
+# app.eval.question_gen.deterministic.extract_topic still works:
+#   "What does the guideline recommend about <opening> based only on the
+#    content provided below:"
+# followed by only the record facts listed under `record_facts`.
+#
+# Every `opening` uses the guidelines' own section wording (NICE NG195, WHO
+# SBI 2024 Tables 1.1/3.1, MoH National Antibiotic Use Guidelines 2024,
+# Kenya Comprehensive Newborn Care Protocols 2022). The openings are
+# general on purpose: the record facts supply the specifics, so no area is
+# pulled toward one example's chunks regardless of the record.
+#
+# Openings agreed with the operator 2026-10-02. They are short on purpose:
+# each keeps only words that appear verbatim in the target sections of the
+# guidelines (the BM25 index does no stemming, and section breadcrumbs are
+# indexed with the chunk text), and drops generic words that mostly match
+# NICE. Examples: "case definitions" (WHO Table 1.1), "categorization" (MoH),
+# "admit category" (Kenya "Admit in category A/B"), "care setting" (NICE),
+# "bacteriology"/"microbiology" (MoH sample collection), "blood cultures"
+# (Kenya flowchart).
+#
+# Wording rule (CLAUDE.md §3 rules 2 and 4): every opening asks what the
+# guidelines SAY (criteria, categories, regimens, review rules); none asks
+# the system to place this baby in a category or to choose its treatment.
+#
+# Like data/clinical_concepts.yaml, code may use this file only while every
+# attestation field below is filled in by the operator.
+
+authored_by: "Timothy Tuti"
+authored_role: "Primary Investigator"
+authored_date: "2026-10-02"
+
+areas:
+
+  assessment:
+    opening: >-
+      assessing a newborn for possible bacterial infection or neonatal
+      sepsis: risk factors and clinical indicators of infection, including
+      signs, symptoms, red flags and danger signs
+    per_guideline_cap: 3
+    record_facts:
+      - age_days
+      - gestational_age
+      - presenting_complaint       # added 2026-10-05, operator instruction (DEVIATIONS.md #259)
+      - maternal_risk_factors      # present and assessed-absent
+      - vitals
+      - examination_findings       # present and assessed-absent
+    sources_in_mind: >-
+      NICE "Risk factors and clinical indicators: early-/late-onset neonatal
+      infection"; MoH "Neonatal sepsis > Symptoms"; WHO Table 1.1 clinical
+      signs; Kenya "Assessing for possible Bacterial Infection" flowchart.
+    attested: "Timothy Tuti (Primary Investigator)"
+
+  investigations:
+    opening: >-
+      investigations for suspected neonatal infection or sepsis before and
+      during antibiotic treatment: blood cultures and other microbiology or
+      bacteriology, lumbar puncture, and inflammatory markers
+    per_guideline_cap: 4  # operator decision 2026-10-05: a second MoH microbiology chunk ranks 4th (DEVIATIONS.md #254)
+    record_facts:
+      - age_days
+      - gestational_age
+      - presenting_complaint       # added 2026-10-05 (DEVIATIONS.md #259)
+      - maternal_risk_factors
+      - vitals
+      - examination_findings
+    sources_in_mind: >-
+      NICE "Investigations before starting antibiotics" and "Investigations
+      during antibiotic treatment"; MoH "Good practice on microbiology
+      sample collection" (bacteriology, CRP, procalcitonin) and "BSI > Lab
+      investigations / When to repeat cultures"; Kenya "Do blood cultures &
+      LP".
+    attested: "Timothy Tuti (Primary Investigator)"
+
+  severity_classification:
+    opening: >-
+      case definitions or categorization for the severity or risk of
+      bacterial infection or neonatal sepsis in a newborn or young infant and
+      the admit category or level of care setting for each class
+    per_guideline_cap: 3
+    record_facts:
+      - age_days
+      - gestational_age
+      - presenting_complaint       # added 2026-10-05 (DEVIATIONS.md #259)
+      - maternal_risk_factors
+      - vitals
+      - examination_findings
+    # No fixed default answer when no class is found (CLAUDE.md §3 rule 3:
+    # no match means "no guideline found"). Instead, the Kenya flowchart
+    # chunk carries every branch, including "Systemic bacterial infection
+    # unlikely -> Assess for other illness eg pneumonia fast breathing, eyes
+    # discharging pus, pallor, jaundice, congenital anomalies"; for a record
+    # whose n1 and n4 signs were all assessed absent, that chunk belongs in
+    # C's correct-chunk set, and such a record is not no_guideline_expected.
+    sources_in_mind: >-
+      Kenya flowchart (severe neonatal sepsis -> admit in category A;
+      neonatal sepsis -> admit in category B; systemic bacterial infection
+      unlikely); MoH "Neonatal sepsis > Categorization"; WHO Table 1.1 (PSBI,
+      critical illness, clinical severe infection, fast breathing only); NICE
+      risk factors / red flags and "Care setting".
+    attested: "Timothy Tuti (Primary Investigator)"
+
+  antibiotic_course:
+    opening: >-
+      antibiotic treatment for neonatal sepsis or serious bacterial
+      infection: empiric antibiotics, dose by weight and age, route and
+      frequency, duration of therapy, treatment failure, when to review,
+      switch, change or stop antibiotics
+    per_guideline_cap: 5  # per guideline; operator decision 2026-10-02 (DEVIATIONS.md #252)
+    record_facts:
+      - age_days_with_band
+      - gestational_age
+      - weight_kg
+      - care_setting
+    # Age band: the dose tables split by age (Kenya "aged 0-6days" / "aged 7
+    # days & over"; WHO "0-6 days" / "7-59 days"; MoH "< 60 days").
+    # Rendered as e.g. "aged 12 days (7 days and over; 7-59 days)".
+    # Each band names the dose tables in their own words (DEVIATIONS.md
+    # #256): Kenya headings "Antibiotic doses for Newborns aged 0-6days" /
+    # "... aged 7 days & over" and titles "aged <7 days" / "Neonates aged
+    # ≥ 7 days"; WHO "0–6 days" / "7–59 days".
+    age_bands:
+      - {from_day: 0, to_day: 6, text: "Newborns aged 0-6days; aged <7 days; 0-6 days"}
+      - {from_day: 7, to_day: 59, text: "Newborns aged 7 days & over; aged ≥ 7 days; 7-59 days"}
+    # Weight: the current weight (vitals.weight_g) when recorded, otherwise
+    # the birth weight, labelled as such. Rendered with the same three
+    # forms as the "birth weight (kg)" concept (DEVIATIONS #248/#249), e.g.
+    # "weight (kg): 2.35, 2.25, 2.0", to match the dose tables'
+    # "Weight (kg): 2.25" rows.
+    weight:
+      prefer_field: vitals.weight_g
+      fallback_field: encounter.birth_weight_g
+      scale: 0.001
+      renderings:
+        - {round_to: null, decimals: null}   # as provided
+        - {round_to: 0.25, decimals: 2}      # nearest 0.25 kg
+        - {round_to: 1, decimals: 1}         # nearest whole kg
+        - {round_to: 1, decimals: 2}         # nearest whole kg, 0-6-day rows (4.00)
+        - {round_to: 0.5, decimals: 2}       # nearest 0.5 kg, 0-6-day rows (2.50)
+        - {round_to: 0.5, decimals: 1}       # nearest 0.5 kg, 7-day rows (2.5)
+    sources_in_mind: >-
+      Kenya "Newborn antibiotic doses" tables (0-6 days, 7 days & over) and
+      the prophylaxis paragraph (start, reassess at two days, continue or
+      stop); MoH "Neonatal sepsis > Empiric Therapy" (first/second line) and
+      "Comments" (duration, meningitis, treatment failure); WHO Table 3.1
+      dosing; NICE "Antibiotics for early-/late-onset neonatal infection"
+      (choice and dosage, duration, switching to oral, decisions 48 hours
+      after starting).
+    attested: "Timothy Tuti (Primary Investigator)"

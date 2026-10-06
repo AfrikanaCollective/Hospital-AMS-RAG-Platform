@@ -128,7 +128,31 @@ class Settings(BaseSettings):
     retrieval_min_score: float = 0.30
     support_score_floor: float = 0.20
     min_supporting_chunks: int = 2
+    # Per-guideline retrieval (DEVIATIONS.md #252): search and rerank each
+    # guideline separately, keep its best RETRIEVAL_PER_GUIDELINE_CAP chunks
+    # scoring >= RETRIEVAL_MIN_SCORE, and order the groups by the manifest's
+    # `retrieval_priority`. Falls back to `fused` (one global top_k) when no
+    # manifest entry declares a priority.
+    retrieval_mode: str = "per_guideline"  # per_guideline | fused
+    retrieval_per_guideline_cap: int = 3
+    # Candidates per guideline sent to the reranker; 24 so a guideline's prose
+    # isn't crowded out of its pool by its own split-table rows (#257).
+    retrieval_per_guideline_candidates: int = 24
+    # At most this many row-group parts of one split table per guideline
+    # (DEVIATIONS.md #256): one-row dose-table parts are near-identical to the
+    # reranker and would otherwise fill a guideline's whole cap.
+    retrieval_max_parts_per_table: int = 2
     grounding_entailment_mode: str = "hybrid"  # lexical | model | hybrid
+    # Synthesis prompt budget (DEVIATIONS.md #260). LLM_CONTEXT_TOKENS must
+    # match the gateway model's context window (Ollama num_ctx): a prompt
+    # that leaves too little room is cut off mid-answer (finish_reason
+    # "length"), and an over-long prompt can be silently truncated by the
+    # server. The prompt gets LLM_CONTEXT_TOKENS - LLM_OUTPUT_RESERVE_TOKENS,
+    # estimated as characters / LLM_CHARS_PER_TOKEN (conservative; measured
+    # ~3.5 for qwen3.6 on the synthesis prompt).
+    llm_context_tokens: int = 8192
+    llm_output_reserve_tokens: int = 4096
+    llm_chars_per_token: float = 3.2
 
     # ── vector store (ARCH-002 / ARCH-023) ──
     qdrant_url: str = "http://qdrant:6333"

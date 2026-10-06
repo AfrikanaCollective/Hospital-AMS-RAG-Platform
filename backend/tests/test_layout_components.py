@@ -379,6 +379,29 @@ def test_citable_table_text_is_row_wise_with_header_path_labels() -> None:
     )
 
 
+def test_table_size_uses_the_supplied_token_counter() -> None:
+    """Splitting is decided by the pipeline's tokenizer, not word count: a dose
+    table that is few words but many tokens must still split (DEVIATIONS.md #254)."""
+    whole = render_table(dose_table(), max_tokens=100)
+    assert len(whole.parts) == 1  # whitespace words: under the limit
+    heavy = render_table(dose_table(), max_tokens=100, count_tokens=lambda t: 10 * len(t.split()))
+    assert len(heavy.parts) > 1
+    for part in heavy.parts:
+        assert part.startswith(whole.title_lines[0])  # title repeated in every part
+    rows = [b for p in heavy.parts for b in p.split("\n\n") if b not in whole.title_lines]
+    assert "\n\n".join(rows) in whole.parts[0]  # same rows, same order, nothing new
+
+
+def test_manifest_table_max_tokens_overrides_the_setting_and_is_validated() -> None:
+    from app.ingestion.corrections import CorrectionError
+    from app.ingestion.layout.pipeline import assembly_options
+
+    assert assembly_options({"table_max_tokens": 300}).table_max_tokens == 300
+    assert assembly_options(None).table_max_tokens == 700
+    with pytest.raises(CorrectionError, match="table_max_tokens"):
+        assembly_options({"table_max_tokens": "300"})
+
+
 def test_large_table_splits_by_row_group_repeating_the_title() -> None:
     render = render_table(dose_table(), max_tokens=25)
     assert len(render.parts) == 2

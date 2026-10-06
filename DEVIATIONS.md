@@ -2980,3 +2980,306 @@ not retroactively. When in doubt, log it.
 - **What changed:** `render_value` now returns one rendering per `renderings` entry, in order, and no longer collapses identical ones. 4000 g → `birth weight (kg) (4.0 kg, 4.00 kg, 4.0 kg)`. Every expansion now has a fixed shape (as provided, 0.25 kg, whole kg). The repeated term slightly up-weights that string for BM25; this is accepted as the operator's choice.
 - **Tests:** `tests/test_concepts.py` (4000 g case updated).
 - **Reversible?:** yes (restore the membership check in `render_value`).
+
+### 250. The reranker scores the heading path with the chunk text
+- **Date / phase:** 2026-10-02, Phase 9. Operator: "make change 1", following the read-only check of the draft query areas (`data/query_areas.yaml`).
+- **Requirement ID(s):** ARCH-003, ARCH §7 step 4, PRD-010.
+- **Problem found:** the dense and sparse indexes embed `section_path + "\n\n" + text`, but `retrieve()` gave the cross-encoder `text` only.
+  - A chunk whose text depends on its heading was then reranked below prose. The Kenya flowchart starts "[n1] Has ONE of the following • Unconscious…" and never says what it assesses.
+  - Example: the flowchart was fused rank 8–9 for area A, then reranked to 10–13, out of the top 8.
+- **What was done:**
+  - `app/retrieval/hybrid.py:_rerank_passage` passes the heading path, a blank line, then the text (text only when there is no heading path), matching `app.ingestion.chunking`'s `embedding_text` minus its retrieval-only extras.
+  - Read-only re-score on two synthetic records: the flowchart moves to rank 5–6 with score 0.81 → 0.94. Area D was unaffected.
+  - The api and worker images were rebuilt.
+- **Side effect (confidence verdict):** reranker scores feed `assess()` (`RETRIEVAL_MIN_SCORE` 0.30, `MIN_SUPPORTING_CHUNKS` 2), which decides low confidence, and so "no guideline found" or escalation.
+  - Measured read-only on 80 eval questions: top-score change −0.174 to +0.123, median +0.003.
+  - The verdict changed for 8 of 80: 6 became low-confidence and 2 became confident.
+  - The thresholds were not changed. Flagged to the operator; this needs watching in the next ablation and review queue.
+- **Tests:** `tests/test_hybrid_retrieve.py::test_reranker_scores_the_heading_path_with_the_chunk_text`. The two exact-match confidence tests now seed chunks without a heading path (the stub reranker is a lexical Jaccard score, so an added heading would lower the exact-match score). Full suite: 895 passed.
+- **Not addressed here:** oversized chunks that the reranker (512 tokens per query+chunk pair) and the embedder (512) truncate. 28 chunks exceed 400 reranker tokens; for the operator's decision.
+- **Reversible?:** yes. `_rerank_passage` returns `candidate["text"]`.
+
+### 251. Non-recommendation sections excluded from retrieval (manifest `exclude_sections`)
+- **Date / phase:** 2026-10-02, Phase 9. Operator: "go ahead and exclude them, including Rationale and impact".
+- **Requirement ID(s):** ARCH-044 (review gate), ARCH-038 (operator-attested manifest), ARCH-003, CLAUDE.md §3 rules 2–3 (report and cite recommendations only).
+- **Problem:** 127 of NICE's 182 chunks were not practice recommendations, and they dominated retrieval and gold.
+  - The breakdown: Rationale and impact 94, Recommendations for research 16, plus Contents, title page, logos, Overview, Context, Update information and similar.
+  - They took top-8 slots in every query area.
+  - NICE's two Overview chunks were gold for 97 of 256 questions, inflating NICE recall in every ablation.
+  - Committee rationale or research recommendations cited under "Guideline X recommends…" would misattribute them.
+- **What was done:**
+  - A new chunk status `excluded` was added to `NOT_RETRIEVABLE`, so it is honoured by hybrid search, both ablation corpora and the verifier.
+  - The manifest field `exclude_sections` lists heading-path prefixes; each matches its section and subsections, and `""` matches chunks with no heading. It is applied at ingest after the parse-quality hold, and overrides a pending hold.
+  - An excluded chunk is not a review decision. It never enters the review queue, and `review_chunk` refuses it.
+  - The manifest now lists:
+    - NICE: `""`, title page, Your responsibility, Contents, Overview, Using this guideline, Context, Update information, Finding more information…, Recommendations for research, Rationale and impact.
+    - MoH: INTRODUCTION (stewardship preamble and handwashing poster).
+  - Kept: NICE "Terms used in this guideline" (definitions, e.g. early-onset = within 72 hours) and "Information and support for parents and carers" (numbered recommendations).
+  - The existing corpus was updated with `scripts/exclude_manifest_sections.py --strip-gold --apply`: 130 chunks excluded (NICE 127, MoH 3) in Postgres and Qdrant, with one audit event per version.
+  - Retrievable corpus: 274 → 144 chunks (MoH 63, NICE 55, WHO 19, Kenya 7).
+- **Gold:** 195 excluded ids were removed from 125 questions. 6 questions now have no gold; they were left empty rather than archived (no archive field exists on `eval_question`), and the planned new holdout set replaces them.
+- **Backups:** `corpus.bak_20261002_chunk_meta`, `eval.bak_20261002_gold`, and `data/ingest_artifacts/gold_before_exclusion_20261002T064707Z.json`.
+- **Judgment calls:**
+  - Rationale excluded (operator decision): answers to "why" questions lose their source.
+  - Exclusion is a status rather than deletion, so chunks remain for provenance and reverting needs no re-ingest.
+  - The manifest edits were text insertions so other formatting is unchanged.
+- **Effect:** ablation results before and after this change are not comparable (corpus and gold both changed).
+- **Tests:** `tests/test_corpus_review.py` (section matching, ingest marking and hold override, manifest validation, excluded not reviewable, excluded not retrievable). Full suite: 906 passed.
+- **Reversible?:** yes. Restore `meta` from `corpus.bak_20261002_chunk_meta`, reset the Qdrant `review_status` payload for those ids, restore gold from `eval.bak_20261002_gold`, and remove `exclude_sections` from the manifest.
+
+### 252. Per-guideline retrieval ordered by manifest `retrieval_priority`
+- **Date / phase:** 2026-10-02, Phase 9. Operator:
+  - priority order "Kenya protocol → MoH national → WHO → NICE (local to international)", recorded as a `retrieval_priority` number on each manifest entry;
+  - "When a guideline contributes fewer than 3, its empty slots stay empty";
+  - "implement it with cap 5 for D, keep 0.30".
+- **Requirement ID(s):** ARCH-003, ARCH §7 steps 2–5, ARCH-038 (operator-attested manifest), PRD-010.
+- **Problem:** one global top 8 let one guideline crowd out the others.
+  - NICE crowded the others while its non-recommendation sections were still retrievable; after #251, WHO's ten near-identical Table 1.1 case-definition chunks filled 33 of 48 area-C slots.
+  - The Kenya flowchart and dose tables fell just outside the top 8.
+- **What was done:**
+  - `RETRIEVAL_MODE=per_guideline` (the new default): `retrieve()` runs one hybrid search per listed guideline (filtered by `document_title`), plus one for guidelines the manifest doesn't list. It reranks all candidates in one call.
+  - Selection keeps each guideline's best `RETRIEVAL_PER_GUIDELINE_CAP` (3) chunks scoring at least `RETRIEVAL_MIN_SCORE` (0.30), best first, and orders the groups by priority. The unlisted group comes last, capped per document.
+  - Slots are never backfilled: a guideline with nothing relevant contributes nothing.
+  - Confidence is still assessed on the best `TOP_K` relevance scores across all candidates, never on priority order, so "no guideline found" and low-confidence escalation behave as before.
+  - `retrieve(per_guideline_cap=…)` overrides the cap per call. `data/query_areas.yaml` records the per-area caps: A–C 3, D (antibiotic course) 5.
+  - With no manifest priorities, retrieval falls back to `fused` (one global `TOP_K`).
+  - The snapshot records `mode`; the audit `fusion` field is `rrf_per_guideline`.
+  - New filter keys: `document_titles` and `exclude_document_titles`. New module: `app/retrieval/priority.py`, which validates that each priority is a positive integer on an entry with a title.
+- **Manifest:** `retrieval_priority` set to Kenya Comprehensive Newborn Care Protocols 1, MoH National Antibiotic Use Guidelines 2, WHO 3, NICE 4, each with a note. Manifest titles match the stored `document_title` exactly (checked).
+- **Read-only test before implementing (6 synthetic records, four query areas):** every area's selection contained each relevant guideline's target section for all 6 records. WHO correctly contributed 0–1 chunks to the investigations area.
+  - Context size: about 3–4k tokens for areas A–C.
+  - Area D: about 5–6k tokens at cap 3, and 7–8k at cap 5. Cap 5 is needed for MoH "Empiric Therapy › First/Second line" (ranked 4th–5th within MoH).
+  - Area D at cap 8–10 mostly added chunks scoring 0.30–0.56, and about 10–11k tokens.
+- **Judgment calls / flagged:**
+  - (a) **Priority is presentation order only.** All guidelines with relevant text are still included and conflicts are still flagged (CLAUDE.md §3); this is not local adaptation (SCOPE-2.4).
+  - (b) **Synthesis now receives up to 12 chunks** instead of 8; nothing downstream truncated at 8.
+  - (c) **The 0.30 threshold rarely bites per guideline.** Rerank scores are mostly 0.4–0.99, so most guidelines fill their cap. Kept at the operator's instruction; to revisit with the ablation.
+  - (d) **More guidelines per answer** will likely raise conflicting-sources flags and escalations.
+  - (e) **Reranker cost roughly doubles** (about 48 pairs instead of 24, on CPU).
+  - (f) **Not yet wired into the unified and model ablations,** which rank without the reranker. They need the same selection on their own fused lists to be comparable; that is follow-up work, together with the four-area question generator.
+- **Tests:** `tests/test_per_guideline_retrieval.py` covers priority order, cap, weak chunks dropped, per-call cap, empty slots not backfilled, fused fallback, per-document cap in the unlisted group, and manifest validation. `tests/test_hybrid_retrieve.py` pins `fused`. Full suite: 912 passed.
+- **Reversible?:** yes. `RETRIEVAL_MODE=fused`, or remove `retrieval_priority` from the manifest.
+
+### 253. MoH "GOOD PRACTICE ON ANTIMICROBIAL USE" excluded from retrieval
+- **Date / phase:** 2026-10-05, Phase 9. Operator: "remove 'GOOD PRACTICE ON ANTIMICROBIAL USE' chunk", after asking whether it also covers "GOOD PRACTICE ON MICROBIOLOGY SAMPLE COLLECTION" (it does not: p.13 vs pp.14–16, separate sections).
+- **Requirement ID(s):** as #251 (manifest `exclude_sections`, ARCH-044 review gate).
+- **What was done:**
+  - The section was added to the MoH manifest entry's `exclude_sections`.
+  - `scripts/exclude_manifest_sections.py --strip-gold --apply` excluded its single chunk (ordinal 3, p.13, 13 general stewardship rules). It was kept for provenance, not deleted, with one audit event.
+  - No eval gold referenced it.
+  - The retrievable corpus is now 143 chunks (MoH 62).
+  - The microbiology sample-collection section (7 chunks) is unaffected.
+- **Flagged to the operator before the decision:** the chunk ranked high in every query area, taking one of MoH's per-guideline slots (#252). Its rules 8–11 are relevant to the antibiotic-course area: review at 48 hours and stop if investigations don't suggest infection; neonatal sepsis as an exception to 5-day courses; de-escalation; IV-to-oral switch. These are no longer retrievable from MoH; the neonatal sepsis "Comments" rows still cover duration and treatment failure.
+- **Backups:** chunk meta before the change is in `corpus.bak_20261002_chunk_meta` (#251); the manifest before the change is in the session scratchpad.
+- **Reversible?:** yes. Remove the prefix from `exclude_sections` and restore the chunk's `meta.review_status` from `meta.exclusion.previous_status`, in both Postgres and the Qdrant payload.
+
+### 254. Kenya dose tables split into one-row chunks; table size measured in real tokens; area B cap 4
+- **Date / phase:** 2026-10-05, Phase 9. Operator: "split the Kenya tables, raise B's cap to 4".
+- **Requirement ID(s):** ARCH-044 (table serialization; review gate), ARCH-038 (manifest), ARCH §7.
+- **Problem:** the row-group splitter (`app/ingestion/layout/tables.py`) measured size in whitespace words. Dose rows are few words but many tokens, so the Kenya 0–6-day table read as 623 "words" (under the 700 limit) while being 1,715 embedder / 1,565 reranker tokens. It was never split, so the reranker (512 tokens per question+chunk pair) and the embedder (512) saw only its first rows.
+- **What was done:**
+  - `render_table(..., count_tokens=)` and `AssemblyOptions.token_counter`. The layout pipeline passes the embedding model's tokenizer, loaded `local_files_only` (never downloaded at ingest), falling back to ceil(chars/3) with a warning. Calibrated on the corpus: words undercount tables by a median of 2.4×, and chars/3 is off by up to 2×, hence the real tokenizer.
+  - A new per-document manifest field `table_max_tokens` (an integer ≥ 50, fail closed) overrides `INGEST_TABLE_MAX_TOKENS`. The Kenya entry is set to 300, with a note.
+  - Kenya was re-ingested (`scripts/reingest_layout --only … --force`):
+    - 7 → 17 chunks: the 0–6-day table became 8 one-row chunks (1.00–4.00 kg) and the 7-days-and-over table 4 (2.5–5.0 kg), each about 225 reranker tokens with heading and repeated title.
+    - The prior version is `superseded`, not deleted (#241's single-version state no longer holds for Kenya).
+    - No eval gold referenced Kenya.
+  - `data/query_areas.yaml`: investigations (B) `per_guideline_cap` 3 → 4. A second MoH microbiology chunk ranks 4th within MoH (0.38–0.45).
+- **Review gate:** the 12 table parts and 2 dose-note chunks are held (`pending`: OCR digits) and are not retrievable until an admin confirms them on `/corpus-review`. They were not auto-confirmed.
+  - A check found every held chunk's text identical to text confirmed on 2026-09-28 in the previous version.
+  - The 7-days-and-over parts keep the manifest's `table_sources` OCR pin.
+- **Side effect:** with the global setting unchanged at 700 but now measured in real tokens, any other document's table over 700 real tokens would split at its next re-ingest. None does today (largest remaining: MoH AWARE, 413), apart from the NICE Contents tables, which are excluded (#251).
+- **Flagged, not changed:** one-row chunks are near-identical except for the weight, so the question's weight values decide which row ranks first. The `birth weight (kg)` renderings (as provided, nearest 0.25 kg to 2 dp, whole kg to 1 dp) only partly match the table row labels: "4.0" matches the ≥7-day row; "3.75" and "2.25" match none; the 0–6-day rows are written "2.00", "4.00". Changing that is an operator edit to `clinical_concepts.yaml`.
+- **Tests:** `tests/test_layout_components.py`: token counter drives splitting, parts reuse rows verbatim with the title repeated, manifest override and validation. Full suite: 914 passed.
+- **Reversible?:** yes. Remove `table_max_tokens` from the Kenya manifest entry and re-ingest, or reactivate version 20a89dd1.
+
+### 255. Review confirmations carried over to re-chunked, identical text
+- **Date / phase:** 2026-10-05, Phase 9. Operator: "write the script to confirm the identical held chunks", after the #254 Kenya re-ingest held 14 chunks whose text a reviewer had already confirmed.
+- **Requirement ID(s):** ARCH-044 review gate (a held chunk becomes retrievable only by confirmation); CLAUDE.md §3 rule 6 (audit is append-only).
+- **What was done:**
+  - `app.ingestion.review.identical_confirmed_source(text, table_source, confirmed)` returns a confirmed chunk whose blocks (split on blank lines) include every block of the held chunk's text as a whole block, with the same `table_source` pin, or None.
+  - Whole-block equality, not substring: a row cut short mid-number ("Agent: 1" of "Agent: 12") would be a substring of the confirmed text but not one of its blocks.
+  - `scripts/carry_over_review_confirmations.py` (dry run by default) searches the most recent superseded version first. It confirms through the normal `review_chunk` path: Postgres meta, the Qdrant `review_status` payload, and one append-only `chunk_review_confirmed` audit event per chunk, with `actor_role = system:carry_over_review` and a note naming the source chunk.
+  - Anything not identical stays held for a human.
+- **Applied:** all 14 held Kenya chunks were confirmed:
+  - 8 + 4 table parts from source chunks 15d56d89… (0–6-day table) and 017077c5… (7-days-and-over table);
+  - the two dose-note chunks from 725a393a… and ff2e8a99….
+  - All sources are in version 20a89dd1, confirmed by the reviewer on 2026-10-01.
+  - All 17 Kenya chunks are retrievable; the corpus is 153 retrievable chunks.
+- **Judgment calls:**
+  - (a) This relaxes the gate only for text a person already confirmed verbatim. It is a script, never automatic at ingest, so an operator decides when to run it.
+  - (b) The first dry run matched the dose notes to an older superseded version (05db22dd, also confirmed by a person that day). The script now prefers the most recent version.
+- **Tests:** `tests/test_corpus_review.py`: identical text found; any differing digit, table-source pin, foreign block, truncated block or empty text leaves the chunk held. Full suite: 920 passed.
+- **Reversible?:** the confirmations are recorded in chunk meta and the audit log; a reviewer can reject any of them on `/corpus-review` (`review_chunk` accepts confirmed → rejected).
+
+### 256. At most 2 rows per split table; weight renderings aligned with Kenya row labels; table names in D's age bands
+- **Date / phase:** 2026-10-05, Phase 9. Operator: "make fix 1, at most 2 rows per split table. Confirm alignment of the weight renderings with the tables' row labels in clinical_concepts.yaml. Add the age-band table name to D's question text".
+- **Requirement ID(s):** ARCH §7 (per-guideline selection, #252), SCOPE-2.6 / ARCH-042 / PRD-057 (concept vocabulary), `data/query_areas.yaml` (draft, not yet attested).
+- **Found by the read-only live check:** after #254, Kenya's one-row dose chunks scored 0.56–0.65, nearly indistinguishable, and filled all 5 of Kenya's area-D slots. This pushed out the prophylaxis paragraph (start, reassess at two days, stop) in 5 of 6 records.
+- **What was done:**
+  1. **Parts per split table.** `select_per_guideline(max_parts_per_table=)` keeps at most `RETRIEVAL_MAX_PARTS_PER_TABLE` (2) parts with the same `meta.split_group_id` per guideline; the other slots go to the guideline's next-best chunks.
+  2. **Weight renderings.**
+     - The operator had already added nearest whole kg to 2 decimals ("4.00") to the `birth weight (kg)` concept.
+     - This change adds nearest 0.5 kg to 2 decimals ("2.50", 0–6-day style) and to 1 decimal ("2.5", 7-day style). It covers the Kenya row labels: 0–6 days 1.00–2.00 in 0.25 steps, then 2.50, 3.00, 4.00; 7 days and over 2.5, 3.0, 4.0, 5.0.
+     - Checked over 0.9–5.6 kg in 25 g steps: weights whose nearest row label was not rendered fell from 58 to 4 (0–6-day table) and from 16 to 3 (7-day table). The remaining 7 are exact midpoints between two rows (1.375, 1.875, 2.75, 3.5, 4.5 kg), where half-up rounding renders the upper row.
+     - The same six renderings are now in `query_areas.yaml`'s area-D weight block (current weight, else birth weight).
+     - Example: 3.669 kg → "3.669, 3.75, 4.0, 4.00, 3.50, 3.5 kg".
+  3. **Age bands.** D's age bands now name the dose tables in their own words: "Newborns aged 0-6days; aged <7 days; 0-6 days" and "Newborns aged 7 days & over; aged ≥ 7 days; 7-59 days".
+- **Effects:**
+  - `concepts_sha256` changes, so Level-2 ablation results are not comparable with earlier runs (#210/#211).
+  - The age band is a plain-code mapping of the recorded day of life to the tables' own headings; it does not classify the baby.
+  - Retrieval surfaces the rows nearest the recorded weight; the answer must quote the table, never state "this baby's dose" (SCOPE-2.3).
+- **Tests:** `tests/test_per_guideline_retrieval.py::test_a_split_table_contributes_at_most_max_parts`. Full suite: 921 passed.
+- **Reversible?:** yes. `RETRIEVAL_MAX_PARTS_PER_TABLE` set high; remove the two renderings and the band texts.
+
+### 257. Per-guideline reranker pool raised from 12 to 24 candidates
+- **Date / phase:** 2026-10-05, Phase 9. Operator: "make change 1" (raise `RETRIEVAL_PER_GUIDELINE_CANDIDATES` to 24).
+- **Requirement ID(s):** ARCH §7 (per-guideline mode, #252).
+- **Problem:** after the Kenya split (#254), Kenya's 12 one-row table parts filled its 12-candidate pool before reranking. The prophylaxis paragraph ("Do blood culture… Reassess after two days… Stop antibiotics if the baby has remained entirely well") never reached the reranker and was missing from area D in 5 of 6 records, even with the 2-parts-per-table limit (#256).
+- **What was done:** the default `retrieval_per_guideline_candidates` was changed 12 → 24 (config, `.env.example`, README); `.env` does not set it.
+- **Read-only check before the change** (same 6 synthetic records, `RETRIEVAL_PER_GUIDELINE_CANDIDATES=24`):
+  - the prophylaxis paragraph is Kenya's top area-D chunk for all 6 records (0.75–0.80);
+  - areas A, B and C each gained a third Kenya chunk;
+  - target-section hits are unchanged (all found) and no record became low-confidence.
+- **Cost:** about twice as many reranker pairs per question (~96 with four guidelines), on CPU.
+- **Reversible?:** yes. `RETRIEVAL_PER_GUIDELINE_CANDIDATES=12`.
+
+### 258. Four-area question generator
+- **Date / phase:** 2026-10-05, Phase 9. Operator: "build the four-area question generator", after attesting `data/query_areas.yaml` (Timothy Tuti, Primary Investigator, 2026-10-02).
+- **Requirement ID(s):** PRD-112 / ARCH-043 (ablation calibration pool), ARCH-022 / PRD-062 (question generation), ARCH-039 (tri-state), CLAUDE.md §3 rules 2–4.
+- **What was done:**
+  - **`app/eval/question_gen/areas.py`:**
+    - `load_query_areas` is attestation-gated and fails closed (`QueryAreasNotAttested`) on any missing or `TODO_CONFIRM` attestation field, a missing area, an unknown or empty `record_facts`, a non-positive cap, or a malformed age band or weight spec. It records the file's sha256.
+    - `build_area_question` puts the area's opening in the existing template (so `extract_topic` still works) and renders only the listed facts from the record's own values. Supported facts: `age_days`, `age_days_with_band`, `gestational_age`, `care_setting`, `presenting_complaint`, `weight_kg`, `maternal_risk_factors`, `vitals`, `examination_findings`.
+    - Tri-state findings reuse `deterministic.py`'s helpers, with `include_absent` for the present-only variant. Medications and interventions never appear (#155).
+    - Area D's age band and weight renderings come from the YAML: current weight preferred, else birth weight.
+  - **`app/eval/auto_seed.py`:**
+    - `run_four_area_holdout_generation` (top-up counted in records) and `_generate_one_four_area_set`.
+    - The record pick, near-duplicate filter and one-record-one-scenario exclusion are shared with the existing pipelines.
+    - Each area's question runs through the real pipeline with the area's `per_guideline_cap`. All four calls happen before anything is written, so a transient gateway error skips the whole record (no partial set).
+    - Four `EvalQuestion` rows per record, with `generator_meta`: `template_version` `four-area-v1`, `purpose` `ablation_holdout`, `area`, `area_set_id`, `per_guideline_cap`, `query_areas_sha256` and attester. `target_guideline_ref` is `{topic, area}`. Gold = the answer's cited chunk ids. One commit per record.
+  - **Pipeline hook:** `GraphState.per_guideline_cap` is passed by `retrieval_agent` to `retrieve()`. `/query` leaves it unset, so its behaviour is unchanged.
+  - **`scripts/generate_ablation_holdout_questions.py`:** `--question-mode four_area` (new default; `--target-records`, default target count / 4; `--areas-path`) or `single` (unchanged).
+- **Judgment calls / flagged:**
+  - (a) **Questions follow the attested `record_facts` exactly.** The attested lists for areas A–C don't include the presenting complaint, so a record whose only clinical information is its presenting complaint gets a nearly empty A–C question. The read-only four-area checks used the old full narrative, which includes it. `presenting_complaint` is supported in code but is not added to the attested file; that is for the operator.
+  - (b) **Gold stays "the answer's citations"**, the same definition as the single-topic holdout. With per-guideline retrieval it now spans the guidelines the answer cites.
+  - (c) **Four real pipeline calls per record.** 4,572 unused de-identified records are available (5,000 loaded, 428 already used).
+  - (d) **The unified ablation runner does not yet select or rebuild questions by area.** It rebuilds narratives with the old builder and the extracted topic, so four-area rows must not be mixed into an ablation run until it does; that is the next step.
+- **Tests:** `tests/test_four_area_questions.py` (18):
+  - the attested file loads, and 9 fail-closed mutations are refused;
+  - each opening survives `extract_topic` and classifies as SCOPE-1, and medications never appear;
+  - only listed facts appear, and `include_absent` is respected;
+  - area D has its age band and weight renderings, with the birth-weight fallback;
+  - one record yields 4 questions with the right caps, gold, metadata and one commit;
+  - a gateway error leaves no partial set, and an unattested file is refused.
+  - Full suite: 939 passed.
+- **Reversible?:** yes. `--question-mode single`; rows are identifiable by `template_version`.
+
+### 259. Presenting complaint added to query areas A–C
+- **Date / phase:** 2026-10-05, Phase 9. Operator: "add presenting_complaint to A, B and C", after #258 flagged that the attested `record_facts` for assessment, investigations and severity classification omitted it.
+- **Requirement ID(s):** as #258.
+- **What was done:**
+  - `presenting_complaint` was added to `record_facts` for `assessment`, `investigations` and `severity_classification` in `data/query_areas.yaml`, with the header updated. The attestation (Timothy Tuti, Primary Investigator) stands, since the change is on the attester's own instruction.
+  - It renders as "presenting with <complaint>" in the patient sentence, from the record's own field. Example: a record whose only clinical information is its complaint now reads "The newborn patient is 5 days old, presenting with difficulty breathing." instead of "…5 days old."
+  - Area D is unchanged.
+- **Effect:** the file's sha256 changed (now 55793e6e…). No four-area questions had been generated yet, so nothing is stale.
+- **Tests:** existing `tests/test_four_area_questions.py` (loads the real file). Full suite: 939 passed.
+
+### 260. Synthesis prompt budget and truncated-output handling
+- **Date / phase:** 2026-10-05, Phase 9. Operator: "implement 2, I'll raise num_ctx to 32k", after diagnosing the four-area trial's empty area-D questions.
+- **Requirement ID(s):** ARCH §8.2 (segmented output, retry then escalate), §10.2 (synthesis agent), ARCH-005 (gateway), CLAUDE.md §3 rule 3 (grounding).
+- **Diagnosis (read-only re-runs; escalation node stubbed, no HITL rows written):**
+  - Every failed area-D synthesis reply had `finish_reason: length`, with prompt + output tokens = exactly 8,192, the gateway model's (qwen3.6:35b) context window.
+  - Area D's 20 chunks (cap 5 × 4 guidelines, #252/#257) made prompts of about 8,000–8,130 tokens, leaving 65–190 tokens for the answer. The JSON was cut mid-string and parsing failed on all three attempts: retries were deterministic and cut at the same character.
+  - One successful retry reported only 4,098 prompt tokens for a ~8,100-token prompt, so the model server silently truncates over-long input.
+- **What was done:**
+  - `ChatResult.finish_reason`, from the gateway response.
+  - New settings `LLM_CONTEXT_TOKENS` (default 8192; must equal the model's `num_ctx`), `LLM_OUTPUT_RESERVE_TOKENS` (4096; the successful D answer used 3,241) and `LLM_CHARS_PER_TOKEN` (3.2; measured ~3.5 on these prompts, so conservative).
+  - `guideline_synthesis_agent.fit_retrieval_to_budget` drops chunks until the estimated prompt fits `LLM_CONTEXT_TOKENS - reserve`:
+    - lowest rerank score first;
+    - a guideline's last chunk only once every guideline is down to one;
+    - order preserved.
+  - Dropped chunks leave `state["retrieval"]`, so the verifier accepts citations only to chunks the model saw. If nothing fits, the agent escalates `grounding_failure` with a context-window message.
+  - A `finish_reason == "length"` reply is retried with the reserve doubled (a smaller prompt), without the "not valid JSON" STRICT suffix, which is kept for malformed replies. Escalation after all attempts names the truncation.
+  - `GraphState.synthesis_context` records the budget, estimated prompt tokens, dropped chunk ids and truncated attempts. The attempt loop moved into `_synthesize`.
+- **Operator action:** raise the gateway model's `num_ctx` to 32k, then set `LLM_CONTEXT_TOKENS=32768` in `.env` and restart api/worker. Until then the default (8192) keeps prompts within 4,096 tokens, so answers see fewer chunks.
+- **Effect:** retrieval snapshots stored with eval results now reflect the chunks the model saw (after any trimming).
+- **Tests:** `tests/test_guideline_synthesis_agent.py`:
+  - drop order keeps one per guideline and preserves order;
+  - the fitted prompt is within budget and dropped chunks leave retrieval;
+  - a truncated reply retries with a smaller prompt and no STRICT suffix;
+  - always-truncated replies escalate saying so.
+  - Full suite: 943 passed.
+- **Reversible?:** yes. Set `LLM_OUTPUT_RESERVE_TOKENS` to 0 and `LLM_CONTEXT_TOKENS` very large to disable trimming.
+
+### 261. Conflict rule (a) keyed on document + section; cross-guideline detection gap flagged
+- **Date / phase:** 2026-10-06, Phase 9. Operator: "Make the detector less trigger-happy first", after asking whether a conflict could instead go to the higher-priority guideline. Advised against: that would auto-resolve conflicts, contrary to PRD-014 / ARCH §7.6 and #252.
+- **Requirement ID(s):** PRD-014, ARCH §7.6, CLAUDE.md §3 rule 3.
+- **Finding (read-only re-retrieval of the 12 four-area trial questions; only guideline sections and rule names printed):**
+  - Every conflict flag was rule (a), "same section, different versions", between different guidelines that merely share a section number:
+    - Kenya flowchart / prose "1.10" vs NICE "1.10" (two flags, record f1689aae area A);
+    - MoH "5" vs WHO Table 1.1 "5" (area C).
+  - The rule grouped by `section_number` alone and only checked that the version ids differed, never that it was the same document.
+  - These were the two `conflicting_sources` escalations in both trials.
+- **What was done:** rule (a) now groups by (`document_id`, `section_number`), so it compares versions of one document, as the requirement says. With it, the 12 trial questions raise 0 flags.
+- **Known gap, flagged and not changed:**
+  - Rule (b) (lexical negation between `recommendation` chunks) never runs: the layout corpus has no `recommendation`-typed chunks (retrievable: prose 130, table 21, flowchart 1, figure 1).
+  - Measured read-only: applying (b) to cross-guideline prose/table pairs would flag 350 of 909 pairs (38%; trigger words "not" 311, "is not" 39) and escalate all 12 questions, so it was not enabled.
+  - Real disagreement between guidelines is therefore not detected today. Answers still cite each guideline separately, and grounding still verifies every quote.
+  - A better detector (e.g. a model-based contradiction check on cited claims, or recommendation-typed chunking) is an open decision for the operator.
+- **Tests:** `tests/test_conflict.py::test_different_guidelines_sharing_a_section_number_not_flagged`; existing same-document version tests unchanged. Full suite: 944 passed.
+- **Reversible?:** yes (key back on `section_number`).
+
+### 262. Synthesis prompt rule 8: report each guideline's position separately when they differ
+- **Date / phase:** 2026-10-06, Phase 9. Operator: "go with option 2", for the cross-guideline detection gap in #261.
+- **Requirement ID(s):** PRD-014 (surface both sides with citations, never auto-resolve), CLAUDE.md §3 rules 2–3 (report and cite), ARCH §8.2.
+- **What was done:**
+  - `backend/app/agents/prompts/guideline_synthesis.md` is now v2 with a new rule 8. When more than one guideline addresses the same point, each guideline's position goes in its own `claim` segment(s), naming that guideline and citing only its own passage.
+  - Guidelines are presented in SOURCES order, which is the per-guideline priority order from #252.
+  - If positions differ, a neutral `framing` segment says so (e.g. "The retrieved guidelines differ on the duration of treatment:").
+  - Never: choosing between them, saying which applies or should be followed, merging them into one recommendation, or leaving one out because another differs.
+  - The example framing passes `wording.has_directive_phrasing`.
+- **Judgment calls:**
+  - This is a prompt-level mitigation, not detection. Escalation still happens only on a detected conflict (#261), and the wording filter and grounding verifier still apply to every segment.
+  - Template version bumped to v2, so results generated before and after differ in synthesis instructions.
+- **Tests:** `tests/test_guideline_synthesis_agent.py::test_prompt_requires_separate_positions_when_guidelines_differ`. Full suite: 945 passed.
+- **Reversible?:** yes (remove rule 8).
+
+### 263. Four-area trial gold regenerated under prompt v2; trial escalations removed
+- **Date / phase:** 2026-10-06, Phase 9. Operator: "regenerate the other 10 and remove the trial escalations".
+- **Requirement ID(s):** as #258/#262; ARCH §12–13 (HITL).
+- **What was done:**
+  - **Gold regenerated.** The remaining 10 four-area trial questions were re-answered through the real pipeline with synthesis prompt v2 (#262), each with its own area cap and its text unchanged. Gold = the new answer's cited chunks.
+    - 10/10 answered with no escalation. With the 2 regenerated in #262, all 12 trial questions now have gold: 4–10 chunks each.
+    - Assessment and severity cite Kenya, MoH and WHO for all 3 records, and NICE for 2 and 1 of the 3 respectively; investigations cite NICE, MoH and Kenya; antibiotic course cites MoH, Kenya and NICE for all 3 records, and WHO for 1.
+    - Each question's `generator_meta.gold_regenerated` records when and why.
+  - **Escalations removed.** The 6 HITL escalations created by the two trials (2026-10-05: 4 `conflicting_sources` from the #261 false positives, 2 `grounding_failure` from the #260 context truncation) were copied to `hitl.bak_20261006_trial_escalation` and deleted, in one transaction as `hrag_admin`.
+    - The transaction refuses if any `hitl_decision` references them; none did.
+    - `hitl.escalation` now has 0 rows. The audit log is untouched (append-only).
+- **Reversible?:** yes. `INSERT INTO hitl.escalation SELECT * FROM hitl.bak_20261006_trial_escalation`; the previous gold for the first 2 questions was empty, and for the other 10 it is the trial-2 gold, not separately backed up (it was produced by the same pipeline before the prompt change).
+
+### 264. Four-area pool: one area per record, 200 usable cases per area; unified ablation handles it
+- **Date / phase:** 2026-10-06, Phase 9. Operator: "teach the unified ablation runner to handle four-area questions. Each patient case can only feature in one of the four areas so one pipeline call per record. Each four areas should have exactly 200 cases."
+- **Requirement ID(s):** PRD-112 / ARCH-043 (unified ablation), as #258.
+- **Generator (`app/eval/auto_seed.py`):** replaces #258's four-questions-per-record design.
+  - `run_four_area_holdout_generation(per_area_target=200)` uses each record for one area only: one question and one real pipeline call with that area's cap.
+  - Each new record goes to the area with the fewest usable (non-empty gold) cases still below target, ties in attested order, so no area overshoots. Generation stops when every area has exactly `per_area_target` usable questions.
+  - An answer with no citations still uses up its record (one-record-one-scenario) and is stored, but doesn't count; the ablation filters it out.
+  - New template marker `four-area-v2`; `area_set_id` is gone. The 12 trial rows (`four-area-v1`, four per record) are left in place and are never selected.
+  - CLI `--per-area` (default 200) replaces `--target-records`.
+- **Ablation (`app/eval/unified_ablation/runner.py`, `scripts/run_unified_ablation.py`):**
+  - `fetch_four_area_questions` selects well_supported `four-area-v2` questions with gold, each with its area. `SweepQuestion.area` is a new optional field.
+  - `sweep_questions(query_areas=)` rebuilds a four-area question with `build_area_question` for its own area: `all_assessed` = include_absent, `present_only` = without. A question whose area isn't in the loaded file is skipped.
+  - `PerQueryResult.question_area` is a new optional field; old result files still read.
+  - CLI `--question-set four_area|single_topic` (default four_area) and `--areas-path`. single_topic excludes every `four-area-*` question, so the pools are never mixed.
+  - `configuration.json` records `question_set`, `questions_per_area`, `query_areas_sha256` and the hash(es) at generation, with a warning if they differ.
+- **Judgment calls / flagged:**
+  - (a) **"Exactly 200" counts usable questions.** Those are the only ones the ablation can score; others are stored but not counted.
+  - (b) **Level 1 is uninformative for area D.** The antibiotic-course area has no findings in its facts, so its present-only and all-assessed texts are identical, and it contributes zero difference to that comparison.
+  - (c) **The ablation still ranks the whole corpus by blended BM25/SapBERT score.** It does not apply the live per-guideline selection (#252) or the reranker; that remains a separate, unrequested change.
+  - (d) **The trial rows can be deleted on request.** Their 3 records are already used, so they don't feed the v2 pool.
+- **Tests:**
+  - `tests/test_four_area_questions.py`: one call and one area per record until 2-per-area, citation-less answers not counted, areas already at target skipped, gateway errors write nothing, unattested file refused.
+  - `tests/test_unified_ablation_runner.py`: area rebuild with present-only vs all-assessed, D identical, unknown area skipped.
+  - Full suite: 950 passed.
+- **Reversible?:** `--question-mode single` / `--question-set single_topic`.

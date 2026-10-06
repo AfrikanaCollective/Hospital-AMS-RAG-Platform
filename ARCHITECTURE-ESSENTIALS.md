@@ -40,7 +40,7 @@ Judgment calls: [DEVIATIONS.md](DEVIATIONS.md).
 |---|---|---|
 | Backend | Python + FastAPI | async, Pydantic schemas, ML ecosystem |
 | Vector store | **Qdrant** (self-hosted) | native dense+sparse hybrid + server-side RRF + fast payload filtering for access scoping |
-| Retrieval | dense + BM25 (sparse) → RRF → cross-encoder rerank | precision for citation-grade grounding |
+| Retrieval | dense + BM25 (sparse) → RRF → cross-encoder rerank; per guideline by default (best 3 per guideline ≥ `RETRIEVAL_MIN_SCORE`, ordered by manifest `retrieval_priority`, #252) | precision for citation-grade grounding; every guideline represented without crowding |
 | RDBMS | **PostgreSQL** (schemas: corpus, records, memory, hitl, eval, audit, iam) | one transactional system of record; RLS; pgcrypto; LangGraph checkpointer |
 | Orchestration | LangGraph (Postgres checkpointer) | typed state, deterministic routing, HITL interrupts |
 | Async | Redis + Celery | ingestion fan-out, long agent runs, eval/IRR jobs |
@@ -112,7 +112,9 @@ adapter / `field_mapping.yaml`; no source-specific field enters the schema.
    fallback). Only text-layer, OCR, attested-correction, or verified-structure
    text is citable, never model-generated text. OCR'd digits and low
    parse-quality documents are held (`review_status = pending`) until an admin
-   confirms them. D12: OCR tables may be re-transcribed by the gateway's vision
+   confirms them. Sections listed in a manifest's `exclude_sections`
+   (navigation, front matter, rationale, research recommendations) are
+   `excluded`: kept, never retrieved or cited (#251). D12: OCR tables may be re-transcribed by the gateway's vision
    model (`vlm_transcription`), which is always held and cross-checked against
    OCR per cell and header; the manifest's `table_sources` can pin a table to
    OCR. Flowcharts are one atomic `flowchart` chunk with their

@@ -60,6 +60,9 @@ class ChatResult:
     model_id: str
     used_fallback: bool = False
     usage: dict = field(default_factory=dict)
+    # "length" means the model hit its token limit and the text is cut off
+    # (DEVIATIONS.md #260); None when the gateway doesn't report it.
+    finish_reason: str | None = None
 
 
 class LLMGatewayError(RuntimeError):
@@ -147,6 +150,7 @@ class LLMGateway:
                         model_id=data.get("model", model_id),
                         used_fallback=i > 0,
                         usage=data.get("usage", {}),
+                        finish_reason=data.get("finish_reason"),
                     )
                 except (httpx.HTTPError, KeyError, IndexError, ValueError) as exc:
                     last_error = exc

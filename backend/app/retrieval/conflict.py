@@ -1,7 +1,7 @@
 """Conflict detection between retrieved sources (ARCH §7.6; PRD-014).
 
-Flags material disagreement: (a) same section_number/topic across two `active`
-versions with different recommendation text, or (b) a lightweight
+Flags material disagreement: (a) the same section of the same document in two
+`active` versions with different recommendation text (DEVIATIONS.md #261), or (b) a lightweight
 NLI/contradiction pass between top recommendation chunks. Any flag =>
 escalation (conflicting_sources); both sides are surfaced with citations, never
 auto-resolved. Starts conservative (over-flag), tuned on the eval set
@@ -46,13 +46,19 @@ def _lexically_contradicts(a: str, b: str) -> bool:
 def detect_conflicts(items: list[RetrievalItem]) -> list[dict]:
     flags: list[dict] = []
 
-    # (a) same section_number, different active document_versions, different text.
-    by_section: dict[str, list[RetrievalItem]] = {}
+    # (a) same section of the SAME document in two different active versions,
+    # with different text. Keyed on (document_id, section_number): before
+    # DEVIATIONS.md #261 it was keyed on section_number alone, so two
+    # different guidelines that merely number a section alike (Kenya "1.10"
+    # vs NICE "1.10", MoH "5" vs WHO "5") were flagged as conflicting
+    # versions -- every conflict flag in the four-area trial was this.
+    by_section: dict[tuple[str, str], list[RetrievalItem]] = {}
     for item in items:
         section_number = item.get("section_number")
         if item.get("version_status") == "active" and section_number:
-            by_section.setdefault(section_number, []).append(item)
-    for section_number, group in by_section.items():
+            key = (str(item.get("document_id")), section_number)
+            by_section.setdefault(key, []).append(item)
+    for (_doc, section_number), group in by_section.items():
         for a, b in combinations(group, 2):
             if a["document_version_id"] == b["document_version_id"]:
                 continue

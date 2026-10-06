@@ -55,11 +55,21 @@ def _build_filter(flt: dict) -> qm.Filter:
         must.append(qm.FieldCondition(key="status", match=qm.MatchAny(any=statuses)))
     if flt.get("topic_tags"):
         must.append(qm.FieldCondition(key="topic_tags", match=qm.MatchAny(any=flt["topic_tags"])))
+    if flt.get("document_titles"):
+        must.append(
+            qm.FieldCondition(key="document_title", match=qm.MatchAny(any=flt["document_titles"]))
+        )
     if flt.get("allowed_doc_ids"):
         must.append(
             qm.FieldCondition(key="document_id", match=qm.MatchAny(any=flt["allowed_doc_ids"]))
         )
     must_not: list[qm.Condition] = []
+    if flt.get("exclude_document_titles"):
+        must_not.append(
+            qm.FieldCondition(
+                key="document_title", match=qm.MatchAny(any=flt["exclude_document_titles"])
+            )
+        )
     # Chunks held for review (OCR'd numbers, low parse quality) or rejected by
     # a reviewer are never retrievable (ARCH-044, app.ingestion.review).
     if flt.get("exclude_review_status"):

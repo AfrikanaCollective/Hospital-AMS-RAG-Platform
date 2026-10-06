@@ -617,7 +617,9 @@ Rules, in priority order:
    one indented `<column header path>: <value>` line per non-empty cell, so
    every quoted value carries its own column context. The markdown grid is
    kept in `meta.table_grid` for display. Tables over `INGEST_TABLE_MAX_TOKENS`
-   split by row group with the title repeated. On this path the heading is **not** prepended to the table text
+   (or the manifest entry's `table_max_tokens`), measured with the embedding
+   model's tokenizer, split by row group with the title repeated
+   (DEVIATIONS.md #254). On this path the heading is **not** prepended to the table text
    (it is in `section_path` and the embedding text), so the chunk stays an
    exact slice of the normalized text.
 3e. **Layout from Docling, characters from pdfplumber** (DEVIATIONS.md #221).
@@ -709,8 +711,22 @@ until cutover. Config records `embedding_collection` so eval snapshots pin it.
    (default 40) each.
 3. **Fusion.** Reciprocal Rank Fusion (RRF, k=60) of the dense and sparse
    rankings → top `FUSED_K` (default 24).
-4. **Rerank.** Cross-encoder (`RERANKER_MODEL_ID`) scores (query, chunk.text)
-   for the fused set → top `TOP_K` (default 8). **Decided: `RERANKER_BACKEND
+4. **Rerank.** Cross-encoder (`RERANKER_MODEL_ID`) scores (query, heading
+   path + chunk.text) for the fused set (the same leading text the dense and
+   sparse indexes embed; DEVIATIONS.md #250). **Per-guideline mode**
+   (`RETRIEVAL_MODE=per_guideline`, default; DEVIATIONS.md #252): steps 2–4
+   run once per guideline (filtered by `document_title`, plus one search for
+   guidelines the manifest doesn't list), each guideline keeps its best
+   `RETRIEVAL_PER_GUIDELINE_CAP` chunks scoring at least
+   `RETRIEVAL_MIN_SCORE`, and groups are ordered by the manifest's
+   operator-attested `retrieval_priority`. A guideline with nothing relevant
+   contributes nothing; slots are never backfilled. Priority orders results
+   only: it never changes source text or resolves a conflict between
+   guidelines (step 6 still flags it). Confidence (step 5) is assessed on the
+   best `TOP_K` relevance scores, not on priority order. `fused` mode, or a
+   manifest without priorities, keeps the single global list. Within a
+   guideline, at most `RETRIEVAL_MAX_PARTS_PER_TABLE` (2) parts of one split
+   table are kept (DEVIATIONS.md #256) → top `TOP_K` (default 8). **Decided: `RERANKER_BACKEND
    =local`**, not gateway-routed (DEVIATIONS.md #44 — supersedes the earlier
    #43 recommendation, now confirmed): `sentence-transformers.CrossEncoder`
    (already in the `local-models` optional extra — `BAAI/bge-reranker-v2-m3`
@@ -729,11 +745,20 @@ until cutover. Config records `embedding_collection` so eval snapshots pin it.
      found" (if essentially nothing retrieved) or HITL escalation
      (`trigger_code = low_confidence`).
 6. **Conflict detection.** For the reranked set, a pairwise check flags
-   material disagreement: (a) same `section_number`/topic across two
-   `active` versions with different recommendation text, or (b) a lightweight
+   material disagreement: (a) the same `section_number` of the **same
+   document** across two `active` versions with different text (keyed on
+   document + section since DEVIATIONS.md #261; different guidelines that
+   merely number a section alike are not versions), or (b) a lightweight
    NLI/contradiction pass between top recommendation chunks. Any flag ⇒
    escalation (`trigger_code = conflicting_sources`); both sides surfaced with
-   citations, never auto-resolved.
+   citations, never auto-resolved. **Known gap (#261):** the layout parser
+   emits no `recommendation`-typed chunks, so (b) never runs; applying its
+   lexical heuristic to prose instead would flag ~38% of cross-guideline pairs.
+   Disagreement *between* guidelines is therefore not detected today; the
+   synthesis prompt (rule 8, DEVIATIONS.md #262) instead reports each
+   guideline's position in its own cited claim, in source (priority) order,
+   with a neutral framing segment when they differ -- never choosing,
+   merging or omitting one.
 7. **Context expansion** (optional, `expand_context` tool): pull
    `parent_chunk_id` text for the chosen chunks when the synthesis agent needs
    surrounding qualifiers; expansion text is available to the model but every
@@ -795,6 +820,16 @@ each either:
 Free-form prose without this structure is rejected by the orchestrator and
 regenerated once; a second failure → escalation.
 
+**Context budget (DEVIATIONS.md #260).** The synthesis prompt is kept within
+`LLM_CONTEXT_TOKENS - LLM_OUTPUT_RESERVE_TOKENS` (the gateway model's context
+window less room for the answer) by dropping the lowest-scoring retrieved
+chunks, one guideline's last chunk only after every guideline is down to one.
+Dropped chunks leave that turn's retrieval set, so the verifier only accepts
+citations to chunks the model saw. A reply the gateway reports as cut off
+(`finish_reason: length`) is retried with a smaller prompt, never the same
+one; exhausting attempts escalates (grounding_failure) saying the output was
+truncated.
+
 ### 8.3 Grounding check (ARCH-015) — the enforced gate
 
 Runs in the **citation-verifier agent** after synthesis, before anything is
@@ -827,7 +862,17 @@ For each **claim segment**:
 6. **Held chunks never support a claim** (ARCH-044). A chunk with
    `review_status` `pending` or `rejected` is excluded from retrieval. If one
    reaches the verifier anyway, the segment is `unsupported`
-   (`chunk_under_review`).
+   (`chunk_under_review`). So is a chunk with `review_status` `excluded`:
+   one in a section the document's manifest lists under `exclude_sections`
+   (navigation, front matter, committee rationale, research
+   recommendations). Such text is kept for provenance but is not a
+   recommendation and is never cited as one; it is not a review decision and
+   cannot be confirmed back into retrieval (DEVIATIONS.md #251). A held
+   chunk whose text is, block for block, text a reviewer already confirmed in
+   a superseded version of the same document (same table-source pin) may be
+   confirmed by `scripts/carry_over_review_confirmations.py`, through the
+   normal review path with an audit event naming the source chunk
+   (DEVIATIONS.md #255).
 7. **Attested corrections are always shown** (ARCH-044). A citation whose
    quote overlaps an operator-attested correction carries it in
    `corrections`, and the response's `correction_notices` (derived from the
@@ -1363,6 +1408,16 @@ corpus — §5.2, DEVIATIONS.md #30); otherwise steps 2 and 8 below cannot match
 record fields to guideline applicability/criteria.
 
 ### 15.1 Pipeline
+
+> **Ablation calibration pool, four-area mode (DEVIATIONS.md #258, #264).**
+> For the ablation-only holdout, each record is used for ONE area in the
+> operator-attested `data/query_areas.yaml` (assessment; investigations;
+> severity / risk classification; antibiotic course), balanced to an equal
+> number of usable cases per area (200): the area's opening in the standard
+> template plus only that area's record facts, one real pipeline call with
+> the area's per-guideline cap; gold = that answer's cited chunks. The
+> unified ablation rebuilds each question with its own area. The steps below
+> describe the review-queue pipeline.
 
 1. **Plan the set.** Given a target size N and the 60/20/20 composition
    (§15.3), allocate slots per `expected_outcome` and per guideline

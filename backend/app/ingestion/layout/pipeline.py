@@ -6,8 +6,12 @@ like `app.ingestion.pdf_parse.parse_document`, so the rest of the pipeline
 (page provenance, chunking, persistence) is unchanged.
 
 - Manifest options (ARCH-038 extension): `boilerplate_patterns`,
-  `text_corrections`, `flowchart_attestations`, and the existing
-  `source_pages`.
+  `text_corrections`, `flowchart_attestations`, `table_max_tokens` (a
+  per-document override of `INGEST_TABLE_MAX_TOKENS`; DEVIATIONS.md #254),
+  and the existing `source_pages`.
+- Table size is measured with the embedding model's tokenizer, loaded from
+  the local model cache only (never downloaded at ingest). Without it, a
+  conservative characters / 3 estimate is used and a warning logged.
 - **Corrections fail closed**: a malformed, out-of-scope or non-matching
   correction raises `CorrectionError` and the document is not ingested. It
   never falls back to `pypdf`, because that would silently ingest the
@@ -23,7 +27,9 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import math
 from collections.abc import Callable
+from functools import lru_cache
 from pathlib import Path
 
 from app.config import get_settings
@@ -51,15 +57,42 @@ def save_crops(crops: dict[str, bytes], crop_dir: str | Path) -> int:
     return written
 
 
+MIN_TABLE_MAX_TOKENS = 50
+
+
+@lru_cache(maxsize=2)
+def table_token_counter(model_id: str) -> Callable[[str], int]:
+    """Token count with the embedding model's tokenizer (the chunk limit that
+    matters for retrieval). Local cache only; falls back to len / 3."""
+    try:
+        from transformers import AutoTokenizer  # noqa: PLC0415
+
+        tok = AutoTokenizer.from_pretrained(model_id, local_files_only=True)
+    except Exception as exc:  # noqa: BLE001 - optional dependency / cache miss
+        logger.warning("table token counter: %s unavailable (%s); using len/3", model_id, exc)
+        return lambda text: math.ceil(len(text) / 3)
+    return lambda text: len(tok(text, add_special_tokens=False)["input_ids"])
+
+
 def assembly_options(manifest_entry: dict | None) -> AssemblyOptions:
     s = get_settings()
     entry = manifest_entry or {}
+    table_max = entry.get("table_max_tokens", s.ingest_table_max_tokens)
+    if (
+        isinstance(table_max, bool)
+        or not isinstance(table_max, int)
+        or table_max < MIN_TABLE_MAX_TOKENS
+    ):
+        raise CorrectionError(
+            f"table_max_tokens must be an integer of at least {MIN_TABLE_MAX_TOKENS}"
+        )
     return AssemblyOptions(
         margin_zone=s.ingest_margin_zone,
         repeat_ratio=s.ingest_boilerplate_repeat_ratio,
         boilerplate_min_pages=s.ingest_boilerplate_min_pages,
         boilerplate_patterns=list(entry.get("boilerplate_patterns") or []),
-        table_max_tokens=s.ingest_table_max_tokens,
+        table_max_tokens=table_max,
+        token_counter=table_token_counter(s.embedding_model_id),
         images_scale=s.ingest_images_scale,
         low_density_chars=s.ingest_ocr_force_page_below_chars,
         source_pages=list(entry["source_pages"]) if entry.get("source_pages") else None,

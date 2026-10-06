@@ -226,3 +226,127 @@ def test_prose_with_inline_citation_markers_is_rejected_not_parsed(monkeypatch) 
     }
     out = gsa.run(state)  # type: ignore[arg-type]
     assert out["escalation"]["trigger_code"] == EscalationTrigger.GROUNDING_FAILURE
+
+
+# ── context budget and truncated output (DEVIATIONS.md #260) ──
+
+
+def _chunk(cid: str, doc: str, score: float, words: int = 200) -> dict:
+    return {
+        **CHUNK,
+        "chunk_id": cid,
+        "document_id": doc,
+        "score": score,
+        "text": f"{cid} " + "made-up guideline text " * words,
+    }
+
+
+def _state(retrieval: list[dict]) -> dict:
+    return {
+        "query": "what does the guideline say?",
+        "retrieval": retrieval,
+        "retrieval_confidence": {
+            "essentially_empty": False,
+            "low_confidence": False,
+            "conflicts": [],
+        },
+    }
+
+
+def _settings(monkeypatch, context: int, reserve: int) -> None:  # noqa: ANN001
+    from app.config import get_settings
+
+    monkeypatch.setenv("LLM_CONTEXT_TOKENS", str(context))
+    monkeypatch.setenv("LLM_OUTPUT_RESERVE_TOKENS", str(reserve))
+    monkeypatch.setenv("LLM_CHARS_PER_TOKEN", "3.2")
+    get_settings.cache_clear()
+    monkeypatch.setattr(gsa, "get_settings", get_settings)
+
+
+def test_fit_drops_lowest_scores_but_keeps_one_per_guideline() -> None:
+    items = [
+        _chunk("k1", "kenya", 0.9),
+        _chunk("k2", "kenya", 0.3),
+        _chunk("m1", "moh", 0.5),
+        _chunk("w1", "who", 0.4),
+        _chunk("w2", "who", 0.2),
+    ]
+
+    def render(kept: list[dict]) -> str:
+        return "".join(i["text"] for i in kept)
+
+    one = len(render(items[:1]))
+    kept, dropped = gsa.fit_retrieval_to_budget(items, render, budget_tokens=int(3.3 * one / 3.2))
+    assert dropped == ["w2", "k2"]  # lowest first, never a guideline's last chunk
+    assert [i["chunk_id"] for i in kept] == ["k1", "m1", "w1"]  # order preserved
+
+
+def test_prompt_is_fitted_and_dropped_chunks_leave_retrieval(monkeypatch) -> None:  # noqa: ANN001
+    _settings(monkeypatch, context=6000, reserve=1000)
+    prompts: list[str] = []
+    monkeypatch.setattr(gsa, "_CHAT_FN", lambda p: prompts.append(p) or _valid_response())
+    retrieval = [_chunk(f"c{i}", f"doc{i % 2}", 1 - i / 10) for i in range(8)]
+    out = gsa.run(_state(retrieval))  # type: ignore[arg-type]
+    assert "escalation" not in out
+    assert gsa.estimate_tokens(prompts[0]) <= 5000
+    assert out["synthesis_context"]["dropped_chunk_ids"]  # 8 x ~1.4k tokens can't all fit
+    kept = {i["chunk_id"] for i in out["retrieval"]}
+    assert kept and kept.isdisjoint(out["synthesis_context"]["dropped_chunk_ids"])
+    assert {i["document_id"] for i in out["retrieval"]} == {"doc0", "doc1"}
+
+
+def test_truncated_reply_retries_with_a_smaller_prompt(monkeypatch) -> None:  # noqa: ANN001
+    _settings(monkeypatch, context=6000, reserve=1000)
+    prompts: list[str] = []
+    replies = [('[{"type": "claim", "text": "Guideline', "length"), (_valid_response(), "stop")]
+
+    class _Result:
+        def __init__(self, text: str, reason: str) -> None:
+            self.text, self.finish_reason, self.model_id = text, reason, "m"
+
+    class _Gateway:
+        def chat(self, **kw):  # noqa: ANN003
+            prompts.append(kw["messages"][0]["content"])
+            return _Result(*replies[len(prompts) - 1])
+
+    monkeypatch.setattr(gsa, "_CHAT_FN", None)
+    monkeypatch.setattr(gsa, "LLMGateway", _Gateway)
+    retrieval = [_chunk(f"c{i}", f"doc{i % 3}", 1 - i / 10, words=120) for i in range(9)]
+    out = gsa.run(_state(retrieval))  # type: ignore[arg-type]
+    assert "escalation" not in out
+    assert len(prompts) == 2 and len(prompts[1]) < len(prompts[0])
+    assert "STRICT" not in prompts[1]  # truncation is not a malformed reply
+    assert out["synthesis_context"]["truncated_attempts"] == 1
+
+
+def test_always_truncated_escalates_saying_so(monkeypatch) -> None:  # noqa: ANN001
+    _settings(monkeypatch, context=6000, reserve=500)
+
+    class _Result:
+        text, finish_reason, model_id = '[{"type": "claim", "text": "Guid', "length", "m"
+
+    class _Gateway:
+        def chat(self, **kw):  # noqa: ANN003, ARG002
+            return _Result()
+
+    monkeypatch.setattr(gsa, "_CHAT_FN", None)
+    monkeypatch.setattr(gsa, "LLMGateway", _Gateway)
+    out = gsa.run(_state([_chunk("c1", "d", 0.9, words=50)]))  # type: ignore[arg-type]
+    assert out["escalation"]["trigger_code"] == EscalationTrigger.GROUNDING_FAILURE
+    assert "truncated" in out["escalation"]["message"]
+
+
+def test_prompt_requires_separate_positions_when_guidelines_differ() -> None:
+    """Rule 8 (DEVIATIONS.md #262): differences between guidelines are reported
+    side by side, never resolved, merged or dropped (PRD-014; report-and-cite)."""
+    template = gsa._load_template()
+    rule = template[template.index("8. **Several guidelines") : template.index("# Output format")]
+    for phrase in (
+        "own `claim` segment(s)",
+        "neutral `framing` segment",
+        "Never choose between them",
+        "never merge them",
+        "never leave out a guideline's position",
+    ):
+        assert phrase in rule
+    assert "should be followed" in rule  # only inside the prohibition

@@ -75,6 +75,8 @@ class AssemblyOptions:
     boilerplate_min_pages: int = 3
     boilerplate_patterns: list[str] = field(default_factory=list)
     table_max_tokens: int = 700
+    # Measures table size for row-group splitting; None = whitespace words.
+    token_counter: Callable[[str], int] | None = None
     images_scale: float = 2.0
     low_density_chars: int = 200
     source_pages: list[int] | None = None  # physical page i -> source page source_pages[i-1]
@@ -266,7 +268,7 @@ def _table_unit(
             # The OCR reading stays beside the transcription for the reviewer.
             extra["ocr_alternative"] = ocr_render.markdown
             report["tables_vlm"] = report.get("tables_vlm", 0) + 1
-    render = render_table(table, max_tokens=opts.table_max_tokens)
+    render = render_table(table, max_tokens=opts.table_max_tokens, count_tokens=opts.token_counter)
     text = _BLOCK_SEP.join(render.parts)
     meta = {
         "table_parts": render.parts,

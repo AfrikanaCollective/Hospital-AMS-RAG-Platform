@@ -99,6 +99,9 @@ services:
       # mounted into `worker` (DEVIATIONS.md #186) -- see the matching
       # comment there for why that mount was missing until now.
       - ./data/clinical_concepts.yaml:/app/data/clinical_concepts.yaml:ro
+      # Operator-attested four-area question openings (DEVIATIONS.md #258);
+      # read by the four-area question generator.
+      - ./data/query_areas.yaml:/app/data/query_areas.yaml:ro
       # Read-only: an optional extra CA cert for LLM_GATEWAY_CA_BUNDLE /
       # EMBEDDING_GATEWAY_CA_BUNDLE, e.g. a self-signed cert on an operator's
       # own gateway (DEVIATIONS.md #103). Gitignored (deploy/tls/*.pem); the
@@ -147,6 +150,9 @@ services:
       # `api` — the mount just never existed here because nothing running in
       # `worker` had ever needed it before.
       - ./data/clinical_concepts.yaml:/app/data/clinical_concepts.yaml:ro
+      # Operator-attested four-area question openings (DEVIATIONS.md #258);
+      # read by the four-area question generator.
+      - ./data/query_areas.yaml:/app/data/query_areas.yaml:ro
       - ./deploy/tls:/app/deploy/tls:ro
 
   redis:

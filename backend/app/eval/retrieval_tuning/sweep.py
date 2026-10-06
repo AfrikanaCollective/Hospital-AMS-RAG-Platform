@@ -88,6 +88,9 @@ class SweepQuestion:
     # app.eval.orchestration_ablation.augment's module docstring). Additive:
     # this module's own sweep never reads the field.
     source_record_id: uuid.UUID | None = None
+    # Four-area questions (DEVIATIONS.md #264): the attested query area the
+    # question was generated for; None for single-topic questions.
+    area: str | None = None
 
 
 def fetch_calibration_questions(session: Session) -> list[SweepQuestion]:

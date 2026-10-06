@@ -139,8 +139,15 @@ concepts:
       - {round_to: null, decimals: null}   # as provided, e.g. 2350 g -> 2.35 kg
       - {round_to: 0.25, decimals: 2}      # nearest 0.25 kg, e.g. 2.25 kg
       - {round_to: 1, decimals: 1}         # nearest whole kg, e.g. 2.0 kg (4 -> 4.0)
+      - {round_to: 1, decimals: 2 }         # nearest whole kg, e.g. 2.00 kg (4 -> 4.00)
+      # Kenya dose-table row labels (DEVIATIONS.md #256): 0-6 days "1.00".."2.00"
+      # in 0.25 steps, then "2.50", "3.00", "4.00"; 7 days & over "2.5", "3.0",
+      # "4.0", "5.0". With the renderings above and these two, every weight's
+      # nearest row label is rendered (exact midpoints render the upper row).
+      - {round_to: 0.5, decimals: 2}       # nearest 0.5 kg, e.g. 2.50 kg (0-6-day rows)
+      - {round_to: 0.5, decimals: 1}       # nearest 0.5 kg, e.g. 2.5 kg (7-day rows)
     source: "operator-curated"
-    notes: "Birth weight in kg as provided, and rounded to the nearest 0.25 kg and the nearest whole kg, to line up with weight-banded dose tables (operator instruction 2026-10-01)"
+    notes: "Birth weight in kg as provided, and rounded to the nearest 0.25 kg and the nearest whole kg, to line up with weight-banded dose tables (operator instruction 2026-10-01); nearest 0.5 kg added to match the Kenya dose-table row labels (operator instruction 2026-10-05)"
 
   early onset:
     field: encounter.day_of_life

@@ -28,16 +28,28 @@ gateway model wrote flattened prose with inline `[c1]`-style citation
 markers instead of the required JSON list, DEVIATIONS.md #111) is rejected
 and regenerated up to `_MAX_ATTEMPTS - 1` times; exhausting every attempt
 escalates (grounding_failure) rather than passing bad output downstream.
+
+Context budget (DEVIATIONS.md #260): the rendered prompt must leave the model
+room to answer. `fit_retrieval_to_budget` drops the lowest-scoring chunks
+(keeping at least one per guideline while possible) until the estimated prompt
+fits `LLM_CONTEXT_TOKENS - LLM_OUTPUT_RESERVE_TOKENS`; the dropped chunks also
+leave `state["retrieval"]`, so the verifier only accepts citations to chunks
+the model actually saw. A reply the gateway reports as cut off at its length
+limit (`finish_reason == "length"`) is retried with a smaller prompt budget
+rather than the same prompt (which would be cut off at the same point), and
+escalation then says the output was truncated.
 """
 
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
 from app.agents.state import GraphState
+from app.config import get_settings
 from app.grounding.segments import SegmentParseError, is_structurally_valid, parse_segments
 from app.llm.gateway import LLMGateway
 from app.schemas.enums import EscalationTrigger, ObservedOutcome
@@ -76,6 +88,8 @@ def _default_chat_fn(state: GraphState) -> Callable[[str], str]:
         messages = [{"role": "user", "content": prompt}]
         result = LLMGateway().chat(system="", messages=messages, contains_phi=True)
         state["model_id"] = result.model_id
+        ctx = state.setdefault("synthesis_context", {})
+        ctx["last_finish_reason"] = getattr(result, "finish_reason", None)
         return result.text
 
     return _fn
@@ -112,6 +126,33 @@ def _render_prompt(state: GraphState) -> str:
         .replace("{{hospital_constraint}}", state.get("hospital_constraint") or "")
         .replace("{{sources}}", _build_sources(state.get("retrieval") or []))
     )
+
+
+def estimate_tokens(text: str) -> int:
+    """Conservative token estimate for the gateway model (no local tokenizer
+    for it): characters / LLM_CHARS_PER_TOKEN, rounded up."""
+    return math.ceil(len(text) / max(get_settings().llm_chars_per_token, 1.0))
+
+
+def fit_retrieval_to_budget(
+    items: list[Any], render: Callable[[list[Any]], str], budget_tokens: int
+) -> tuple[list[Any], list[str]]:
+    """Drop chunks until `render(kept)` fits `budget_tokens` (estimated).
+    Lowest rerank score goes first, but a guideline keeps its last chunk
+    until every guideline is down to one; order is preserved (priority
+    groups stay in place). Returns (kept items, dropped chunk ids)."""
+    kept = list(items)
+    dropped: list[str] = []
+    while kept and estimate_tokens(render(kept)) > budget_tokens:
+        per_doc: dict[str, int] = {}
+        for item in kept:
+            doc = str(item.get("document_id"))
+            per_doc[doc] = per_doc.get(doc, 0) + 1
+        removable = [i for i in kept if per_doc[str(i.get("document_id"))] > 1] or kept
+        victim = min(removable, key=lambda i: float(i.get("score") or 0.0))
+        kept.remove(victim)
+        dropped.append(str(victim.get("chunk_id")))
+    return kept, dropped
 
 
 def _no_guideline(state: GraphState) -> GraphState:
@@ -152,8 +193,18 @@ def run(state: GraphState) -> GraphState:
             "Retrieval confidence was too low to synthesize a grounded answer.",
         )
 
+    return _synthesize(state)
+
+
+def _synthesize(state: GraphState) -> GraphState:
+    """Prompt the model within the context budget and parse its segments;
+    escalate (grounding_failure) after `_MAX_ATTEMPTS` failed attempts."""
     chat_fn = _resolve_chat_fn(state)
-    prompt = _render_prompt(state)
+    settings = get_settings()
+    full_retrieval = list(state.get("retrieval") or [])
+    reserve = settings.llm_output_reserve_tokens
+    ctx = state.setdefault("synthesis_context", {})
+    ctx.update(context_tokens=settings.llm_context_tokens, truncated_attempts=0)
     last_error: Exception | None = None
     # DEVIATIONS.md #111: the original one-line "STRICT" suffix wasn't
     # forceful enough on its own — a real gateway model was observed
@@ -171,16 +222,51 @@ def run(state: GraphState) -> GraphState:
         '"citation_ids": ["c1"], "quote": "<verbatim quote from c1>"}]. No text '
         "before or after the array."
     )
-    for attempt in range(_MAX_ATTEMPTS):
-        this_prompt = prompt if attempt == 0 else prompt + retry_suffix
-        raw = chat_fn(this_prompt)
+
+    def _render(items: list[Any]) -> str:
+        state["retrieval"] = items
+        return _render_prompt(state)
+
+    malformed_before = False
+    for _attempt in range(_MAX_ATTEMPTS):
+        # the STRICT suffix answers a malformed reply, not a truncated one
+        suffix = retry_suffix if malformed_before else ""
+        budget = settings.llm_context_tokens - reserve - estimate_tokens(suffix)
+        kept, dropped = fit_retrieval_to_budget(full_retrieval, _render, budget)
+        if not kept:
+            return _escalate(
+                state,
+                EscalationTrigger.GROUNDING_FAILURE,
+                "The retrieved sources do not fit the model's context window "
+                f"(LLM_CONTEXT_TOKENS={settings.llm_context_tokens}).",
+            )
+        state["retrieval"] = kept
+        prompt = _render_prompt(state)
+        ctx.update(
+            prompt_budget_tokens=budget,
+            prompt_tokens_estimated=estimate_tokens(prompt),
+            dropped_chunk_ids=dropped,
+        )
+        ctx.pop("last_finish_reason", None)
+        raw = chat_fn(prompt + suffix)
+        if ctx.get("last_finish_reason") == "length":
+            # Cut off at the model's length limit: the same prompt would be
+            # cut off at the same point, so shrink the prompt and retry.
+            ctx["truncated_attempts"] += 1
+            reserve *= 2
+            last_error = SegmentParseError(
+                "model output was truncated at the context limit (finish_reason=length)"
+            )
+            continue
         try:
             segments = parse_segments(raw)
         except SegmentParseError as exc:
             last_error = exc
+            malformed_before = True
             continue
         if not is_structurally_valid(segments):
             last_error = SegmentParseError("structurally invalid segment list")
+            malformed_before = True
             continue
         state["candidate_segments"] = segments
         return state

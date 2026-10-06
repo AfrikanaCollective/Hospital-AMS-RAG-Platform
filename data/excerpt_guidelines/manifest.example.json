@@ -31,7 +31,11 @@
       "topic_tags": [
         "serious bacterial infection", "young infant", "neonatal sepsis",
         "antibiotics", "0-59 days", "possible serious bacterial infection"
-      ]
+      ],
+      "retrieval_priority": 1,
+      "_retrieval_priority_note": "Optional, operator-attested: order of this guideline's group in per-guideline retrieval (1 = first). Orders results only; never changes content or resolves a conflict between guidelines (DEVIATIONS.md #252).",
+      "exclude_sections": ["Contents", "Rationale and impact"],
+      "_exclude_sections_note": "Optional: heading-path prefixes whose chunks are kept but never retrieved (each matches its section and subsections; \"\" matches chunks with no heading). For text that is not a recommendation: navigation, front matter, committee rationale, research recommendations (DEVIATIONS.md #251)."
     },
     "Comprehensive Newborn Care Protocols (Ministry of Health Kenya, Nov 2022).pdf": {
       "title": "Comprehensive Newborn Care Protocols",

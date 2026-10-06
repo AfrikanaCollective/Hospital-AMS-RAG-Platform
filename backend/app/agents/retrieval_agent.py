@@ -37,6 +37,7 @@ def run(state: GraphState) -> GraphState:
             actor_id=uuid.UUID(user_id) if user_id else None,
             actor_role=actor_role,
             purpose=state.get("purpose"),
+            per_guideline_cap=state.get("per_guideline_cap"),
         )
     state["retrieval"] = items
     state["retrieval_confidence"] = {

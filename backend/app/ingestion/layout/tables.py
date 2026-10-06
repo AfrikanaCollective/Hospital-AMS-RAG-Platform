@@ -20,11 +20,17 @@ LAYOUT-INGESTION-PROPOSAL.md §5.5).
   Empty cells are omitted. The markdown grid is kept as
   `grid_markdown` for display and the review page.
 - **Size**: above `max_tokens` the table is split by row group with the title
-  repeated in every part; each row block already carries its headers.
+  repeated in every part; each row block already carries its headers. Size
+  is measured with `count_tokens` -- the ingest pipeline passes the embedding
+  model's tokenizer. The default whitespace word count undercounts dose
+  tables about 2.5x ("(50,000 i.u/kg) · I.V / I.M 12 hrly: 50,000" is a few
+  words but ~25 tokens), which left a 1,700-token Kenya table unsplit
+  (DEVIATIONS.md #254).
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from app.ingestion.layout.model import TableData
@@ -79,7 +85,10 @@ def _approx_tokens(text: str) -> int:
     return max(1, len(text.split()))
 
 
-def render_table(table: TableData, *, max_tokens: int) -> TableRender:
+def render_table(
+    table: TableData, *, max_tokens: int, count_tokens: Callable[[str], int] | None = None
+) -> TableRender:
+    count = count_tokens or _approx_tokens
     grid = _grid(table)
     n_header = _header_rows(table)
     title_cells = {
@@ -125,13 +134,13 @@ def render_table(table: TableData, *, max_tokens: int) -> TableRender:
 
     blocks = [_row_block(header_paths, row) for row in body]
     full = "\n\n".join([*title_lines, *blocks]) if title_lines else "\n\n".join(blocks)
-    if _approx_tokens(full) <= max_tokens or len(blocks) < MIN_ROWS_TO_SPLIT:
+    if count(full) <= max_tokens or len(blocks) < MIN_ROWS_TO_SPLIT:
         return TableRender(title_lines, header_paths, [full], grid_markdown)
 
     parts: list[str] = []
     current: list[str] = []
     for block in blocks:
-        if current and _approx_tokens("\n\n".join([*title_lines, *current, block])) > max_tokens:
+        if current and count("\n\n".join([*title_lines, *current, block])) > max_tokens:
             parts.append("\n\n".join([*title_lines, *current]))
             current = []
         current.append(block)

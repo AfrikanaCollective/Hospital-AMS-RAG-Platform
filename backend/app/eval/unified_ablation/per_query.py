@@ -56,6 +56,10 @@ class PerQueryResult:
     recall_at_k: float
     reciprocal_rank_at_k: float  # secondary (MRR) metric, kept for continuity
 
+    # Four-area questions (DEVIATIONS.md #264): the query area; None for the
+    # single-topic pool and for rows written before this field existed.
+    question_area: str | None = None
+
     def to_json_dict(self) -> dict:
         return asdict(self)
 

@@ -45,6 +45,9 @@ class GraphState(TypedDict, total=False):
     # query
     query: str
     hospital_constraint: str | None
+    # Per-guideline retrieval cap for this query (DEVIATIONS.md #258); the
+    # four-area question generator sets it per area, /query leaves it unset.
+    per_guideline_cap: int | None
     scope_label: ScopeLabel
 
     # patient path (SCOPE-2.*)
@@ -58,6 +61,9 @@ class GraphState(TypedDict, total=False):
     retrieval_confidence: dict[str, Any]  # top_score, supporting_count, low_confidence, conflict
 
     # synthesis + grounding
+    # Prompt budgeting / truncation record (DEVIATIONS.md #260): budget,
+    # estimated prompt tokens, chunk ids dropped to fit, truncated attempts.
+    synthesis_context: dict[str, Any]
     candidate_segments: list[dict[str, Any]]
     candidate_citations: list[dict[str, Any]]
     grounding_report: dict[str, Any]

@@ -60,6 +60,7 @@ from app.eval.ablation_config import (
 )
 from app.eval.bootstrap import DEFAULT_BOOTSTRAP_SEED
 from app.eval.orchestration_ablation.ablation import load_attested_vocabulary
+from app.eval.question_gen.areas import load_query_areas
 from app.eval.unified_ablation.per_query import (
     PerQueryResult,
     file_sha256,
@@ -184,6 +185,14 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="skip the three PNG figures (written into the run directory by default)",
     )
+    parser.add_argument(
+        "--question-set",
+        choices=("four_area", "single_topic"),
+        default="four_area",
+        help="four_area (DEVIATIONS.md #264): the per-area pool, rebuilt by area; "
+        "single_topic: the original pool",
+    )
+    parser.add_argument("--areas-path", type=Path, default=Path("data/query_areas.yaml"))
     parser.add_argument("--run-id", type=str, default=None)
     parser.add_argument("--results-root", type=Path, default=_DEFAULT_RESULTS_ROOT)
     args = parser.parse_args(argv)
@@ -218,6 +227,10 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
 
+    # Fails closed if the areas file isn't attested (DEVIATIONS.md #258).
+    query_areas = load_query_areas(args.areas_path) if args.question_set == "four_area" else None
+    query_areas_sha256 = query_areas.sha256 if query_areas else None
+
     run_id = (
         args.run_id or datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ") + f"-{uuid.uuid4().hex[:8]}"
     )
@@ -232,14 +245,23 @@ def main(argv: list[str] | None = None) -> int:
     experiment_id = str(uuid.uuid4())
     with session_scope() as session:
         rows = list(
-            run_unified_ablation(session, store, experiment_id=experiment_id, vocabulary=vocabulary)
+            run_unified_ablation(
+                session,
+                store,
+                experiment_id=experiment_id,
+                vocabulary=vocabulary,
+                question_set=args.question_set,
+                query_areas=query_areas,
+            )
         )
+        generated_with = _check_area_hashes(session, query_areas_sha256)
 
     if not rows:
         print(
             "[unified-ablation] no well_supported auto_generated questions with a "
-            "gold_relevant_chunks set (and a resolvable source record) found — run the "
-            "auto-seed pipeline first (app.eval.auto_seed).",
+            f"gold_relevant_chunks set (and a resolvable source record) found for "
+            f"--question-set {args.question_set} — generate them first "
+            "(python -m scripts.generate_ablation_holdout_questions).",
             file=sys.stderr,
         )
         return 1
@@ -266,10 +288,23 @@ def main(argv: list[str] | None = None) -> int:
             "sapbert_model_id": settings.sapbert_model_id,
             "sapbert_model_verified": settings.sapbert_model_verified,
             "retrieval_depth": "full_corpus_brute_force",  # no ANN/candidate-depth truncation
-            "template_version": {
-                "all_assessed": "deterministic-v1",
-                "present_only": "deterministic-present-only-v1",
-            },
+            "question_set": args.question_set,
+            "template_version": (
+                {
+                    "question": "four-area-v2 (one area per record)",
+                    "all_assessed": "area builder, include_absent=True",
+                    "present_only": "area builder, include_absent=False",
+                }
+                if args.question_set == "four_area"
+                else {
+                    "all_assessed": "deterministic-v1",
+                    "present_only": "deterministic-present-only-v1",
+                }
+            ),
+            "query_areas_path": str(args.areas_path) if query_areas else None,
+            "query_areas_sha256": query_areas_sha256,
+            "query_areas_sha256_at_generation": generated_with or None,
+            "questions_per_area": _questions_per_area(rows) if query_areas else None,
             "vocabulary_attested": vocabulary is not None,
             "concepts_path": str(args.concepts_path),
             "concepts_sha256": concepts_sha256,
@@ -295,6 +330,42 @@ def main(argv: list[str] | None = None) -> int:
     for path in render_all(run_dir, weights=bm25_weight_values(), mrr_k=k):
         print(f"[unified-ablation] wrote {path}")
     return 0
+
+
+def _questions_per_area(rows: list) -> dict[str, int]:
+    seen: dict[str, set[str]] = {}
+    for r in rows:
+        seen.setdefault(r.question_area or "none", set()).add(r.query_id)
+    return {area: len(ids) for area, ids in sorted(seen.items())}
+
+
+def _check_area_hashes(session, current: str | None) -> list[str]:  # noqa: ANN001
+    """The query_areas.yaml hashes the four-area questions were generated
+    with; warns when the file used for this run's rebuild differs."""
+    if current is None:
+        return []
+    generated_with = _generation_area_hashes(session)
+    if generated_with and generated_with != [current]:
+        print(
+            "[unified-ablation] WARNING: questions were generated with query_areas.yaml "
+            f"sha256 {generated_with}, but this run rebuilds them with {current}; "
+            "rebuilt question text may differ from the text their gold sets came from.",
+            file=sys.stderr,
+        )
+    return generated_with
+
+
+def _generation_area_hashes(session) -> list[str]:  # noqa: ANN001
+    """Distinct query_areas.yaml hashes the four-area questions were generated with."""
+    from sqlalchemy import select  # noqa: PLC0415
+
+    from app.db.models.eval import EvalQuestion  # noqa: PLC0415
+    from app.eval.auto_seed import FOUR_AREA_TEMPLATE  # noqa: PLC0415
+
+    stmt = select(EvalQuestion.generator_meta["query_areas_sha256"].astext).where(
+        EvalQuestion.generator_meta["template_version"].astext == FOUR_AREA_TEMPLATE
+    )
+    return sorted({h for h in session.execute(stmt).scalars() if h})
 
 
 if __name__ == "__main__":

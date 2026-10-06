@@ -293,3 +293,59 @@ def test_rrf_fusion_method_routes_every_ranking_through_rrf(
     assert rows
     # one ranking per (level1, level2, weight): 2 x 2 x 2 in this grid
     assert calls == [7] * 8
+
+
+# ── four-area questions (DEVIATIONS.md #264) ──
+
+from pathlib import Path  # noqa: E402
+
+from app.eval.question_gen.areas import load_query_areas  # noqa: E402
+
+_AREAS = load_query_areas(Path(__file__).resolve().parents[2] / "data" / "query_areas.yaml")
+
+
+def _area_question(area: str) -> SweepQuestion:
+    return SweepQuestion(
+        question_id=f"q-{area}",
+        text="stored text is ignored for four-area questions",
+        gold_chunk_ids=frozenset({"gold-chunk"}),
+        source_record_id=RECORD_ID,
+        area=area,
+    )
+
+
+def test_four_area_question_is_rebuilt_with_its_own_area(store: QdrantVectorStore) -> None:
+    rows = _sweep(
+        store,
+        questions=[_area_question("assessment")],
+        record_index={RECORD_ID: RECORD},
+        query_areas=_AREAS,
+    )
+    opening = next(a.opening for a in _AREAS.areas if a.name == "assessment")
+    assert rows and all(r.question_area == "assessment" for r in rows)
+    texts = {r.level1_condition: r.query_text for r in rows if r.level2_condition == "raw"}
+    assert all(opening in t for t in texts.values())
+    # assessment lists examination findings: absent findings only in all_assessed
+    assert "did NOT have convulsions" in texts["all_assessed"]
+    assert "convulsions" not in texts["present_only"]
+
+
+def test_area_without_findings_gives_identical_level1_texts(store: QdrantVectorStore) -> None:
+    rows = _sweep(
+        store,
+        questions=[_area_question("antibiotic_course")],
+        record_index={RECORD_ID: RECORD},
+        query_areas=_AREAS,
+    )
+    texts = {r.level1_condition: r.query_text for r in rows if r.level2_condition == "raw"}
+    assert texts["all_assessed"] == texts["present_only"]
+
+
+def test_four_area_question_with_unknown_area_is_skipped(store: QdrantVectorStore) -> None:
+    rows = _sweep(
+        store,
+        questions=[_area_question("made_up_area")],
+        record_index={RECORD_ID: RECORD},
+        query_areas=_AREAS,
+    )
+    assert rows == []

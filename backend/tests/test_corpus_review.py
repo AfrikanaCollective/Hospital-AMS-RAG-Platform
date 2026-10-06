@@ -12,7 +12,11 @@ from app.ingestion.embed import embed_texts
 from app.ingestion.review import (
     NOT_RETRIEVABLE,
     ChunkReviewError,
+    exclude_sections,
+    identical_confirmed_source,
+    load_exclude_sections,
     review_chunk,
+    section_excluded,
 )
 from app.retrieval.sparse import doc_sparse_vector, query_sparse_vector
 from app.retrieval.vectorstore import QdrantVectorStore
@@ -63,7 +67,7 @@ RETRIEVAL_FILTER = {"status": "active", "exclude_review_status": list(NOT_RETRIE
 
 
 def test_held_and_rejected_chunks_are_not_retrievable(store: QdrantVectorStore) -> None:
-    ids = {r: str(uuid.uuid4()) for r in ("none", "pending", "confirmed", "rejected")}
+    ids = {r: str(uuid.uuid4()) for r in ("none", "pending", "confirmed", "rejected", "excluded")}
     for review, pid in ids.items():
         _upsert(
             store,
@@ -177,3 +181,89 @@ def test_review_queue_lists_only_active_versions() -> None:
     assert "JOIN corpus.document_version" in sql
     assert "corpus.document_version.status = 'active'" in sql
     assert "review_status" in sql and "'pending'" in sql
+
+
+# --- excluded sections (DEVIATIONS.md #251) ---
+
+_PREFIXES = ["", "Contents", "Rationale and impact"]
+
+
+@pytest.mark.parametrize(
+    ("path", "rule"),
+    [
+        ("Rationale and impact", "Rationale and impact"),
+        ("Rationale and impact › Lumbar puncture › Why", "Rationale and impact"),
+        ("Contents", "Contents"),
+        (None, ""),  # no heading: title pages, logos
+        ("", ""),
+        ("Rationale and impacts of fluids", None),  # longer heading, same start
+        ("Antibiotics for late-onset neonatal infection › Treatment duration", None),
+        ("Terms used in this guideline › Early-onset", None),
+    ],
+)
+def test_section_excluded_matches_section_and_subsections_only(
+    path: str | None, rule: str | None
+) -> None:
+    assert section_excluded(path, _PREFIXES) == rule
+
+
+def test_exclude_sections_marks_chunks_and_overrides_a_pending_hold() -> None:
+    chunks = [
+        {"section_path": "Rationale and impact › CRP", "meta": {"review_status": "pending"}},
+        {"section_path": "Antibiotics › Choice", "meta": {}},
+        {"section_path": None, "meta": {}},
+    ]
+    assert exclude_sections(chunks, _PREFIXES) == 2
+    assert chunks[0]["meta"]["review_status"] == "excluded"
+    assert chunks[0]["meta"]["exclusion"] == {
+        "rule": "Rationale and impact",
+        "previous_status": "pending",
+    }
+    assert "review_status" not in chunks[1]["meta"]
+    assert chunks[2]["meta"]["review_status"] == "excluded"
+
+
+def test_load_exclude_sections_validates_the_manifest_field() -> None:
+    assert load_exclude_sections(None) == []
+    assert load_exclude_sections({"exclude_sections": [" Contents "]}) == ["Contents"]
+    with pytest.raises(ValueError, match="exclude_sections"):
+        load_exclude_sections({"exclude_sections": "Contents"})
+
+
+def test_an_excluded_chunk_cannot_be_reviewed_back_into_retrieval() -> None:
+    chunk = _Chunk({"review_status": "excluded"})
+    with pytest.raises(ChunkReviewError, match="not under review"):
+        review_chunk(
+            _Session(chunk),
+            _Store(),
+            chunk.id,
+            decision="confirmed",
+            note=None,
+            actor_id=None,
+            actor_role=None,
+        )
+
+
+# --- carrying confirmations over identical text (DEVIATIONS.md #255) ---
+
+_OLD_TABLE = "Title line\n\nRow: 1.00\n  Agent P: 10\n\nRow: 1.25\n  Agent P: 12"
+
+
+def test_identical_text_finds_its_confirmed_source() -> None:
+    confirmed = [("old-1", _OLD_TABLE, "ocr")]
+    part = "Title line\n\nRow: 1.25\n  Agent P: 12"  # title repeated + one row
+    assert identical_confirmed_source(part, "ocr", confirmed) == "old-1"
+
+
+@pytest.mark.parametrize(
+    ("text", "source"),
+    [
+        ("Title line\n\nRow: 1.25\n  Agent P: 13", "ocr"),  # one digit differs
+        ("Title line\n\nRow: 1.25\n  Agent P: 12", None),  # table source pin differs
+        ("Other title\n\nRow: 1.25\n  Agent P: 12", "ocr"),  # a block not in the source
+        ("Title line\n\nRow: 1.25\n  Agent P: 1", "ocr"),  # block cut short mid-number
+        ("", "ocr"),
+    ],
+)
+def test_any_difference_leaves_the_chunk_held(text: str, source: str | None) -> None:
+    assert identical_confirmed_source(text, source, [("old-1", _OLD_TABLE, "ocr")]) is None

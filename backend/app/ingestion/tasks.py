@@ -56,7 +56,7 @@ from app.ingestion.page_provenance import (
     load_source_pages,
 )
 from app.ingestion.pdf_parse import parse_document
-from app.ingestion.review import hold_low_quality_chunks
+from app.ingestion.review import exclude_sections, hold_low_quality_chunks, load_exclude_sections
 from app.retrieval.vectorstore import QdrantVectorStore, VectorStore
 from app.worker import celery_app
 
@@ -87,8 +87,8 @@ def _run_process_document(
 
     settings = get_settings()
     filename = Path(document.source_uri).name
+    manifest_entry = load_manifest_entry(settings.sample_guidelines_dir, filename)
     if settings.ingest_parser == "layout":
-        manifest_entry = load_manifest_entry(settings.sample_guidelines_dir, filename)
         parsed = parse_with_layout(document.source_uri, manifest_entry)
     else:
         parsed = parse_document(document.source_uri)
@@ -103,6 +103,8 @@ def _run_process_document(
     format_profile = version.format_profile or "narrative"
     chunk_dicts = chunk_document(parsed, format_profile=format_profile)
     hold_low_quality_chunks(chunk_dicts, parsed.parse_quality, settings.ingest_min_parse_quality)
+    # Non-recommendation sections never reach retrieval (DEVIATIONS.md #251).
+    exclude_sections(chunk_dicts, load_exclude_sections(manifest_entry))
 
     store = vectorstore or _default_vectorstore()
     dense_dim = len(embed_texts(["dimension probe"])[0])

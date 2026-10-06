@@ -30,6 +30,7 @@ from app.ingestion.embed import embed_texts
 from app.ingestion.review import NOT_RETRIEVABLE
 from app.retrieval.confidence import assess
 from app.retrieval.conflict import detect_conflicts
+from app.retrieval.priority import load_priorities
 from app.retrieval.rerank import rerank
 from app.retrieval.sparse import query_sparse_vector
 from app.retrieval.vectorstore import QdrantVectorStore, VectorStore
@@ -105,6 +106,74 @@ def _to_retrieval_item(candidate: dict, score: float) -> RetrievalItem:
     )
 
 
+def _rerank_passage(candidate: dict) -> str:
+    """The text the cross-encoder scores: the chunk's heading path, then its
+    text -- the same leading text the dense and sparse indexes embed
+    (`app.ingestion.chunking`'s `embedding_text`), so all three stages see a
+    chunk the same way. Without it, a heading-dependent chunk such as a
+    flowchart ("[n1] Has ONE of the following...") never says what it is
+    about and is reranked below prose (DEVIATIONS.md #250)."""
+    path = candidate.get("section_path")
+    return f"{path}\n\n{candidate['text']}" if path else candidate["text"]
+
+
+def _per_guideline_groups(
+    store: VectorStore,
+    dense: list[float],
+    sparse: dict,
+    flt: dict,
+    *,
+    priorities: list[tuple[int, str]],
+    candidates: int,
+    prefetch: int,
+) -> list[list[dict]]:
+    """One hybrid search per listed guideline, in priority order, plus one for
+    every guideline the manifest doesn't list (last). Searching each
+    guideline separately means its best chunks are considered even when other
+    guidelines would fill a single global candidate list."""
+    titles = [t for _, t in priorities]
+    filters = [{**flt, "document_titles": [t]} for t in titles]
+    filters.append({**flt, "exclude_document_titles": titles})
+    return [
+        store.hybrid_search(
+            dense=dense, sparse=sparse, prefetch_limit=prefetch, limit=candidates, flt=f
+        )
+        for f in filters
+    ]
+
+
+def select_per_guideline(
+    groups: list[list[tuple[dict, float]]],
+    *,
+    cap: int,
+    min_score: float,
+    max_parts_per_table: int | None = None,
+) -> list[tuple[dict, float]]:
+    """Per-guideline selection (DEVIATIONS.md #252): within each group (already
+    in priority order), the best `cap` chunks per document scoring at least
+    `min_score`, best first. A guideline with nothing relevant contributes
+    nothing -- its slots stay empty rather than being filled with weak chunks
+    or backfilled from another guideline. At most `max_parts_per_table` parts
+    of one split table (same `meta.split_group_id`) are kept, so a table split
+    into near-identical rows can't take every slot (DEVIATIONS.md #256)."""
+    out: list[tuple[dict, float]] = []
+    for group in groups:
+        taken: dict[str, int] = {}
+        parts: dict[str, int] = {}
+        for cand, score in sorted(group, key=lambda cs: cs[1], reverse=True):
+            doc = str(cand.get("document_id"))
+            split = (cand.get("meta") or {}).get("split_group_id")
+            if score < min_score or taken.get(doc, 0) >= cap:
+                continue
+            if split and max_parts_per_table is not None:
+                if parts.get(split, 0) >= max_parts_per_table:
+                    continue
+                parts[split] = parts.get(split, 0) + 1
+            taken[doc] = taken.get(doc, 0) + 1
+            out.append((cand, score))
+    return out
+
+
 def retrieve(
     query: str,
     *,
@@ -116,6 +185,7 @@ def retrieve(
     actor_id: uuid.UUID | None = None,
     actor_role: str | None = None,
     purpose: str | None = None,
+    per_guideline_cap: int | None = None,
 ) -> tuple[list[RetrievalItem], dict]:
     """Run the full hybrid retrieval pipeline for one query.
 
@@ -124,6 +194,12 @@ def retrieve(
     ) or to reuse a warm client. `session` is optional — when given, one
     `retrieval` audit event is written (DEVIATIONS.md #50); offline unit
     tests pass none.
+
+    `RETRIEVAL_MODE=per_guideline` (default) returns up to
+    `per_guideline_cap` (default `RETRIEVAL_PER_GUIDELINE_CAP`) chunks per
+    guideline, grouped in manifest `retrieval_priority` order; `fused`
+    returns one global `TOP_K`. Confidence is always assessed on relevance
+    (the best `TOP_K` rerank scores), never on priority order.
     """
     settings = get_settings()
     store = vectorstore or _default_vectorstore()
@@ -136,26 +212,61 @@ def retrieve(
     flt.setdefault("status", "active")
     flt.setdefault("exclude_review_status", list(NOT_RETRIEVABLE))
 
-    candidates = store.hybrid_search(
-        dense=dense,
-        sparse=sparse,
-        prefetch_limit=settings.candidate_k,
-        limit=settings.fused_k,
-        flt=flt,
+    priorities = (
+        load_priorities(settings.sample_guidelines_dir)
+        if settings.retrieval_mode == "per_guideline"
+        else []
     )
+    mode = "per_guideline" if priorities else "fused"
+    if priorities:
+        groups = _per_guideline_groups(
+            store,
+            dense,
+            sparse,
+            flt,
+            priorities=priorities,
+            candidates=settings.retrieval_per_guideline_candidates,
+            prefetch=settings.candidate_k,
+        )
+    else:
+        groups = [
+            store.hybrid_search(
+                dense=dense,
+                sparse=sparse,
+                prefetch_limit=settings.candidate_k,
+                limit=settings.fused_k,
+                flt=flt,
+            )
+        ]
 
-    passages = [c["text"] for c in candidates]
-    rerank_scores = rerank(expanded_query, passages)
-    ranked = sorted(zip(candidates, rerank_scores, strict=True), key=lambda cs: cs[1], reverse=True)
-    top = ranked[: settings.top_k]
+    # One rerank call over every candidate, then split back into groups.
+    flat = [c for g in groups for c in g]
+    flat_scores = rerank(expanded_query, [_rerank_passage(c) for c in flat])
+    scored: list[list[tuple[dict, float]]] = []
+    i = 0
+    for g in groups:
+        scored.append(list(zip(g, flat_scores[i : i + len(g)], strict=True)))
+        i += len(g)
+    by_relevance = sorted((cs for g in scored for cs in g), key=lambda cs: cs[1], reverse=True)
+
+    if mode == "per_guideline":
+        top = select_per_guideline(
+            scored,
+            cap=per_guideline_cap or settings.retrieval_per_guideline_cap,
+            min_score=settings.retrieval_min_score,
+            max_parts_per_table=settings.retrieval_max_parts_per_table,
+        )
+    else:
+        top = by_relevance[: settings.top_k]
 
     items = [_to_retrieval_item(c, s) for c, s in top]
-    confidence = assess([s for _, s in top])
+    confidence = assess([s for _, s in by_relevance[: settings.top_k]])
     conflicts = detect_conflicts(items)
 
     snapshot = {
         "query": query,
         "expanded_query": expanded_query,
+        "mode": mode,
         "items": [dict(item) for item in items],
         "confidence": {
             "top_score": confidence.top_score,
@@ -180,7 +291,7 @@ def retrieve(
                 {
                     "chunk_id": item["chunk_id"],
                     "score": item["score"],
-                    "fusion": "rrf",
+                    "fusion": "rrf" if mode == "fused" else "rrf_per_guideline",
                     "rerank": settings.reranker_backend,
                 }
                 for item in items

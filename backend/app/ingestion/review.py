@@ -18,6 +18,13 @@ edit source text: a wrong OCR reading is fixed with a manifest
 `text_corrections` entry (`kind = ocr_override`) and re-ingestion. Every
 decision is an append-only audit event.
 
+A chunk is **excluded** (`meta.review_status = "excluded"`) when its section
+is on its document's manifest `exclude_sections` list -- navigation, front
+matter, committee rationale, research recommendations: text that is not a
+recommendation and must never be cited as one (DEVIATIONS.md #251). It is
+kept for provenance but never retrieved, and it is not a review decision:
+it does not enter the review queue and a reviewer cannot confirm it.
+
 Qdrant is the retrieval filter's source of truth (`review_status` payload),
 so every status change is written to both Postgres and Qdrant — the same
 applies to document-version status (`sync_version_status`), which
@@ -43,8 +50,13 @@ if TYPE_CHECKING:
 PENDING = "pending"
 CONFIRMED = "confirmed"
 REJECTED = "rejected"
+EXCLUDED = "excluded"
 # Excluded from retrieval (hybrid search and the offline ablation corpus).
-NOT_RETRIEVABLE = (PENDING, REJECTED)
+NOT_RETRIEVABLE = (PENDING, REJECTED, EXCLUDED)
+
+# `exclude_unheaded` in a manifest's `exclude_sections` selects chunks with no
+# heading path at all (title pages, logos).
+UNHEADED = ""
 
 
 class ChunkReviewError(ValueError):
@@ -66,6 +78,70 @@ def hold_low_quality_chunks(chunk_dicts: list[dict], parse_quality: float, thres
         if "low_parse_quality" not in reasons:
             reasons.append("low_parse_quality")
     return held
+
+
+def load_exclude_sections(entry: dict | None) -> list[str]:
+    """A manifest entry's `exclude_sections`: heading-path prefixes whose
+    chunks are excluded from retrieval. A prefix matches its own section and
+    every subsection ("Rationale and impact" matches "Rationale and impact ›
+    Lumbar puncture"), never a longer heading that merely starts with the
+    same words. An empty string selects chunks with no heading path."""
+    raw = (entry or {}).get("exclude_sections") or []
+    if not isinstance(raw, list) or not all(isinstance(p, str) for p in raw):
+        raise ValueError("exclude_sections must be a list of heading-path strings")
+    return [p.strip() for p in raw]
+
+
+def section_excluded(section_path: str | None, prefixes: list[str]) -> str | None:
+    """The `exclude_sections` prefix that excludes `section_path`, or None."""
+    path = (section_path or "").strip()
+    for prefix in prefixes:
+        if prefix == UNHEADED:
+            if not path:
+                return prefix
+        elif path == prefix or path.startswith(f"{prefix} ›"):
+            return prefix
+    return None
+
+
+def exclude_sections(chunk_dicts: list[dict], prefixes: list[str]) -> int:
+    """Mark every chunk in an excluded section (at ingest, before persisting).
+    Overrides a pending hold: an excluded chunk is never reviewed. Returns how
+    many were excluded."""
+    excluded = 0
+    for c in chunk_dicts:
+        rule = section_excluded(c.get("section_path"), prefixes)
+        if rule is None:
+            continue
+        meta = c.setdefault("meta", {})
+        meta["exclusion"] = {"rule": rule, "previous_status": meta.get("review_status")}
+        meta["review_status"] = EXCLUDED
+        excluded += 1
+    return excluded
+
+
+def identical_confirmed_source(
+    text: str, table_source: str | None, confirmed: list[tuple[str, str, str | None]]
+) -> str | None:
+    """Id of a previously confirmed chunk that already contains every block of
+    `text` verbatim (blocks split on blank lines -- e.g. a table part's
+    repeated title and its row), with the same table source pin, or None.
+    `confirmed` is `[(chunk_id, text, table_source)]`. Used only to carry a
+    reviewer's confirmation across a re-chunking of the same, unchanged text
+    (DEVIATIONS.md #255); any difference at all leaves the chunk held."""
+    blocks = _blocks(text)
+    if not blocks:
+        return None
+    for chunk_id, old_text, old_source in confirmed:
+        # whole blocks only: a block cut short ("Agent: 1" of "Agent: 12")
+        # is a substring of the confirmed text but not one of its blocks
+        if old_source == table_source and set(blocks) <= set(_blocks(old_text)):
+            return chunk_id
+    return None
+
+
+def _blocks(text: str) -> list[str]:
+    return [b.strip() for b in text.split("\n\n") if b.strip()]
 
 
 def review_reasons(meta: dict) -> list[str]:

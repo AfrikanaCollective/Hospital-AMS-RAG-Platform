@@ -1093,6 +1093,31 @@ tests passing offline (695 + 10 new), same 19 pre-existing unrelated
 failures. Live-smoke-tested against the real corpus. Full account in
 `DEVIATIONS.md` #202.
 
+**Four-area questions (DEVIATIONS.md #258, #264).** The holdout generator's
+default mode draws questions for the four attested areas in
+`data/query_areas.yaml` (assessment; investigations; severity / risk
+classification; antibiotic course). **Each de-identified record is used for
+one area only**, with one real pipeline call and that area's per-guideline
+cap (A 3, B 4, C 3, D 5); each new record goes to the area with the fewest
+usable cases, until every area has exactly `--per-area` (default 200)
+questions with a non-empty gold set (the answer's cited chunks). An answer
+that cites nothing uses up its record but doesn't count:
+
+    python -m scripts.generate_ablation_holdout_questions --per-area 200
+    python -m scripts.generate_ablation_holdout_questions --question-mode single   # old single topic
+
+Rows carry `generator_meta.template_version = "four-area-v2"`, `area` and
+`query_areas_sha256`. The unified ablation selects them by default
+(`python -m scripts.run_unified_ablation --question-set four_area`; the old
+pool is `--question-set single_topic`, never mixed in one run) and rebuilds
+each question with its own area's facts for both Level-1 conditions
+(present-only drops assessed-absent findings; the antibiotic-course area has
+none, so its two Level-1 texts are identical). Each result row records its
+`question_area`; `configuration.json` records the question set, questions per
+area and the `query_areas.yaml` hash (warning if it differs from the hash the
+questions were generated with). The 2026-10-05 trial rows (`four-area-v1`,
+four areas per record) are never selected.
+
 **Full-scale re-run against the ablation-holdout pool (2026-09-25).**
 Following a host restart that took the whole stack down mid-generation,
 brought the deployment back up (rebuilding `api`/`worker` — the images
@@ -1181,6 +1206,17 @@ citable; model-generated text never is. Chunks containing OCR'd numbers are
 held until an admin confirms them on the new **Corpus review** page
 (`/corpus-review`), and so is every chunk of a low-parse-quality document.
 The queue lists only chunks of each document's active version (#225).
+A manifest entry's optional `exclude_sections` (heading-path prefixes; `""`
+for chunks with no heading) keeps non-recommendation text (navigation, front
+matter, committee rationale, research recommendations) out of retrieval: those
+chunks get `review_status = excluded` at ingest, and
+`python -m scripts.exclude_manifest_sections [--strip-gold] --apply` applies
+the list to an already-ingested corpus (dry run without `--apply`;
+DEVIATIONS.md #251). After a re-ingest that only re-chunks unchanged text,
+`python -m scripts.carry_over_review_confirmations [--apply]` confirms a held
+chunk only when every block of its text is a whole block of a chunk already
+confirmed in the most recent superseded version, with the same table-source
+pin; anything else stays held for a reviewer (DEVIATIONS.md #255).
 Evident source errors can be fixed only through an attested manifest
 `text_corrections` entry, which is shown on every citation. Supersession and
 withdrawal now also update Qdrant, so superseded chunks leave retrieval,
@@ -1475,7 +1511,9 @@ All config is via environment variables / `.env` (secrets via
 | `EMBEDDING_GATEWAY_URL` / `EMBEDDING_GATEWAY_API_KEY` | `` / `` | base URL + Bearer token for the embedding gateway (`EMBEDDING_BACKEND=gateway`); set only in your local `.env`, never committed |
 | `RERANKER_MODEL_ID` | `BAAI/bge-reranker-v2-m3` | **UNVERIFIED placeholder** — HuggingFace repo id (the only format needed now that the reranker backend is decided as `local`) |
 | `RERANKER_BACKEND` | `stub` (dev/CI) | **decided: `local` in real deployments** (DEVIATIONS.md #44) — `gateway` is not a supported option for the reranker here |
-| `RERANKER_DEVICE` / `RERANKER_BATCH_SIZE` / `RERANKER_MAX_LENGTH` | `auto` / `16` / `512` | local in-process serving knobs; the `local-models` extra (sentence-transformers + torch) is installed by default in `backend/Dockerfile` and pinned in `requirements-lock.txt` (DEVIATIONS.md #44b/#45) |
+| `LLM_CONTEXT_TOKENS` / `LLM_OUTPUT_RESERVE_TOKENS` / `LLM_CHARS_PER_TOKEN` | `8192` / `4096` / `3.2` | Synthesis prompt budget (DEVIATIONS.md #260). **`LLM_CONTEXT_TOKENS` must equal the gateway model's context window** (Ollama `num_ctx`). The synthesis agent keeps the rendered prompt within `LLM_CONTEXT_TOKENS - LLM_OUTPUT_RESERVE_TOKENS` (estimated as characters / `LLM_CHARS_PER_TOKEN`) by dropping the lowest-scoring chunks, keeping one per guideline while possible; dropped chunks leave the turn's retrieval set, so they can't be cited. A reply cut off at the model's limit (`finish_reason: length`) is retried with a smaller prompt, and escalation says it was truncated |
+| `RETRIEVAL_MODE` / `RETRIEVAL_PER_GUIDELINE_CAP` / `RETRIEVAL_PER_GUIDELINE_CANDIDATES` / `RETRIEVAL_MAX_PARTS_PER_TABLE` | `per_guideline` / `3` / `24` / `2` | Per-guideline retrieval (DEVIATIONS.md #252): each guideline is searched and reranked separately, keeps its best `CAP` chunks scoring at least `RETRIEVAL_MIN_SCORE` (a guideline with nothing relevant contributes nothing), and groups are ordered by each manifest entry's operator-attested `retrieval_priority` (currently Kenya protocol 1, MoH 2, WHO 3, NICE 4). Priority orders results only; it never changes content or resolves a conflict. Confidence is still assessed on the best `TOP_K` relevance scores. `fused` (or a manifest with no priorities) restores the single global `TOP_K`. `data/query_areas.yaml` sets a per-area cap (5 for the antibiotic-course area). At most `RETRIEVAL_MAX_PARTS_PER_TABLE` row-group parts of one split table are kept per guideline, so near-identical dose-table rows can't fill a guideline's cap (DEVIATIONS.md #256) |
+| `RERANKER_DEVICE` / `RERANKER_BATCH_SIZE` / `RERANKER_MAX_LENGTH` | `auto` / `16` / `512` | local in-process serving knobs; the `local-models` extra (sentence-transformers + torch) is installed by default in `backend/Dockerfile` and pinned in `requirements-lock.txt` (DEVIATIONS.md #44b/#45). The reranker scores each chunk's heading path plus its text, the same leading text the indexes embed (DEVIATIONS.md #250); `RERANKER_MAX_LENGTH` covers question and chunk together, so longer chunks are truncated |
 | `EMBEDDING_BACKEND` | `local` | `local` \| `gateway` \| `stub` — still config-selectable (embeddings are not decided the way the reranker is) |
 | `SECRETS_BACKEND` | `file` | `env` \| `file` \| `vault` |
 | `AUTH_PROVIDER` | `devjwt` | `devjwt` \| `oidc` |
@@ -1484,7 +1522,7 @@ All config is via environment variables / `.env` (secrets via
 | `INGEST_PARSER` | `pypdf` (code) / `layout` (`.env.example`) | `layout` = Docling + pdfplumber + local OCR (ARCH-044); `pypdf` = original text-only path, also the automatic fallback (held for review) |
 | `INGEST_OCR_ENGINE` | `rapidocr` | `rapidocr` \| `easyocr` \| `tesseract`; RapidOCR won the bake-off on Kenya MoH p. 48 (DEVIATIONS.md #215). Only RapidOCR is in the image |
 | `INGEST_MARGIN_ZONE` / `INGEST_BOILERPLATE_REPEAT_RATIO` / `INGEST_BOILERPLATE_MIN_PAGES` | `0.08` / `0.5` / `3` | header/footer fallback: margin text repeated on ≥ ratio of pages, only for documents with ≥ min pages |
-| `INGEST_TABLE_MAX_TOKENS` | `700` | tables above this split by row group with the header repeated |
+| `INGEST_TABLE_MAX_TOKENS` | `700` | tables above this split by row group with the header repeated. Size is measured with the embedding model's tokenizer (local cache; characters / 3 if unavailable), not word count. A manifest entry's `table_max_tokens` overrides it per document (Kenya dose tables: 300, one weight row per chunk; DEVIATIONS.md #254) |
 | `INGEST_CROP_DIR` | `data/ingest_artifacts/crops` | figure/table crops for the Corpus review page; bind-mounted into `api` and `worker` (host dir must be writable by uid 10001 — `chmod -R a+rwX data/ingest_artifacts`, dev only) |
 | `INGEST_VLM_TABLES` | `off` (this deployment: `ocr_only`) | vision-LLM transcription of OCR tables through the gateway's `/generate-with-image` (ARCH-044 D12); every transcribed table is held for admin review, cross-checked against OCR |
 | `VISION_MODEL_ID` / `VISION_MODEL_ID_VERIFIED` | `<set-me>` / `false` | the model the gateway is **expected** to answer with (`qwen3.6:35b` here, DEVIATIONS.md #218); the placeholder disables the path, and any response from another model is rejected |

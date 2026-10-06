@@ -122,3 +122,25 @@ def test_unrelated_recommendations_not_flagged() -> None:
         _item(chunk_id="b", chunk_type="recommendation", text=unrelated),
     ]
     assert detect_conflicts(items) == []
+
+
+def test_different_guidelines_sharing_a_section_number_not_flagged() -> None:
+    """Rule (a) compares versions of ONE document (DEVIATIONS.md #261): two
+    guidelines that both number a section "1.10" are not two versions."""
+    items = [
+        _item(
+            chunk_id="a",
+            document_id="kenya",
+            document_version_id="vk",
+            section_number="1.10",
+            text="Admit in category A and do blood cultures.",
+        ),
+        _item(
+            chunk_id="b",
+            document_id="nice",
+            document_version_id="vn",
+            section_number="1.10",
+            text="Perform an immediate clinical assessment and review the history.",
+        ),
+    ]
+    assert detect_conflicts(items) == []

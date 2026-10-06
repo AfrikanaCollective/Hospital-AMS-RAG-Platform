@@ -132,6 +132,12 @@ from app.eval.deidentified_source import load_deidentified_records
 # inside the functions that use them instead -- same rationale/pattern as
 # this module's own existing lazy `app.agents.graph_runtime` import in
 # `_invoke_pipeline` below.
+from app.eval.question_gen.areas import (
+    QueryArea,
+    QueryAreas,
+    build_area_question,
+    load_query_areas,
+)
 from app.eval.question_gen.deterministic import build_deterministic_narrative
 from app.eval.question_gen.diversity import is_clinically_near_duplicate
 from app.eval.question_gen.planner import Composition, allocate
@@ -251,6 +257,33 @@ def _count_existing_ablation_holdout(session: Session) -> int:
 
 
 _COUNT_EXISTING_ABLATION_HOLDOUT_FN = _count_existing_ablation_holdout
+
+# Four-area questions (DEVIATIONS.md #258, #264): each record yields ONE
+# question for ONE area (one real pipeline call per record), balanced so every
+# area reaches the same number of usable cases. `four-area-v1` rows (the
+# 2026-10-05 trial, four areas per record) are a different design and are
+# never selected by the ablation.
+FOUR_AREA_TEMPLATE = "four-area-v2"
+FOUR_AREA_PER_AREA_TARGET = 200
+_DEFAULT_QUERY_AREAS_PATH = "data/query_areas.yaml"
+
+
+def _count_usable_four_area_by_area(session: Session) -> dict[str, int]:
+    """Usable (non-empty gold) `four-area-v2` questions per area."""
+    rows = session.execute(
+        select(EvalQuestion.generator_meta["area"].astext, func.count())
+        .where(
+            EvalQuestion.provenance == Provenance.AUTO_GENERATED.value,
+            EvalQuestion.generator_meta["template_version"].astext == FOUR_AREA_TEMPLATE,
+            EvalQuestion.gold_relevant_chunks.is_not(None),
+            func.jsonb_array_length(EvalQuestion.gold_relevant_chunks) > 0,
+        )
+        .group_by(EvalQuestion.generator_meta["area"].astext)
+    ).all()
+    return {area: n for area, n in rows}
+
+
+_COUNT_USABLE_FOUR_AREA_FN = _count_usable_four_area_by_area
 
 
 def _used_patient_ids(session: Session) -> set[uuid.UUID]:
@@ -595,7 +628,7 @@ def _generate_one_ablation_question(
     return question.id
 
 
-def _invoke_pipeline(question_text: str) -> dict:
+def _invoke_pipeline(question_text: str, *, per_guideline_cap: int | None = None) -> dict:
     # Lazy import: app.agents.graph_runtime pulls in every agent module at
     # import time — a real cost worth avoiding for callers (most tests) that
     # never invoke the real pipeline (same rationale as app.eval.harness's
@@ -615,6 +648,9 @@ def _invoke_pipeline(question_text: str) -> dict:
         "patient_id": None,
         "query": question_text,
         "hospital_constraint": None,
+        # Four-area questions retrieve with their area's cap (#258); None
+        # keeps RETRIEVAL_PER_GUIDELINE_CAP.
+        "per_guideline_cap": per_guideline_cap,
     }
     return invoke_graph(initial_state, conversation_id)
 
@@ -903,4 +939,141 @@ def run_ablation_holdout_generation(
     logger.info(
         "ablation_holdout_generation: created %d new ablation-holdout question(s)", len(created)
     )
+    return created
+
+
+def _next_area(counts: dict[str, int], areas: QueryAreas, target: int) -> str | None:
+    """The area with the fewest usable cases still below `target` (ties in
+    attested order), or None once every area has reached it."""
+    open_areas = [a.name for a in areas.areas if counts.get(a.name, 0) < target]
+    return min(open_areas, key=lambda name: counts.get(name, 0)) if open_areas else None
+
+
+def _generate_one_area_question(
+    session: Session,
+    state: _GenerationState,
+    area: QueryArea,
+    areas: QueryAreas,
+    *,
+    dedup_threshold: float,
+) -> tuple[uuid.UUID, bool] | None:
+    """One record -> one question for `area` (DEVIATIONS.md #264). Same
+    candidate pick, near-duplicate filter and one-record-one-scenario rule as
+    `_generate_one_ablation_question`; one real pipeline call with the area's
+    `per_guideline_cap`; gold = that answer's cited chunks. Returns
+    (question id, usable) or None when no question was written."""
+    candidate = state.next_candidate()
+    if candidate is None:
+        return None
+    patient_id, record = candidate
+    if is_clinically_near_duplicate(
+        record, state.accepted_records, findings_jaccard_threshold=dedup_threshold
+    ):
+        return None
+    text = build_area_question(record, area)
+    try:
+        out = _INVOKE_PIPELINE_FN(text, per_guideline_cap=area.per_guideline_cap)
+    except (httpx.HTTPError, LLMGatewayError) as exc:
+        logger.warning(
+            "four_area_generation: transient gateway error on area %s for record %r, "
+            "skipping this record: %s",
+            area.name,
+            patient_id,
+            exc,
+        )
+        return None
+
+    state.accepted_records.append(record)
+    state.used_this_run.add(patient_id)
+    question = EvalQuestion(
+        text=text,
+        provenance=Provenance.AUTO_GENERATED,
+        expected_outcome=ExpectedOutcome.WELL_SUPPORTED,
+        source_record_id=patient_id,
+        target_guideline_ref={"topic": area.opening, "area": area.name},
+        generator_meta={
+            "template_version": FOUR_AREA_TEMPLATE,
+            "purpose": "ablation_holdout",
+            "area": area.name,
+            "per_guideline_cap": area.per_guideline_cap,
+            "query_areas_sha256": areas.sha256,
+            "query_areas_attested_by": f"{areas.authored_by} ({areas.authored_role})",
+        },
+        in_fixed_testset=False,
+    )
+    session.add(question)
+    session.flush()
+    _, citations, _ = _extract_answer_parts(out)
+    if citations:
+        question.gold_relevant_chunks = sorted({c["chunk_id"] for c in citations})
+    session.commit()
+    return question.id, bool(citations)
+
+
+def run_four_area_holdout_generation(
+    session: Session,
+    *,
+    per_area_target: int = FOUR_AREA_PER_AREA_TARGET,
+    dataset_id: str | None = None,
+    seed: int | None = None,
+    areas_path: str = _DEFAULT_QUERY_AREAS_PATH,
+) -> list[uuid.UUID]:
+    """Top up the four-area ablation pool until every attested area has
+    exactly `per_area_target` usable (non-empty gold) questions
+    (DEVIATIONS.md #264). Each record is used for one area only, with one
+    real pipeline call; each new record goes to the area with the fewest
+    usable cases, so no area overshoots. A question whose answer cites
+    nothing still uses up its record but doesn't count. Returns the new
+    question ids. Fails closed if `areas_path` isn't attested."""
+    areas = load_query_areas(areas_path)
+    counts = dict(_COUNT_USABLE_FOUR_AREA_FN(session))
+    remaining = sum(max(0, per_area_target - counts.get(a.name, 0)) for a in areas.areas)
+    if remaining == 0:
+        logger.info(
+            "four_area_generation: every area already has %d usable question(s)", per_area_target
+        )
+        return []
+
+    records = _LOAD_RECORDS_FN(session, dataset_id=dataset_id)
+    used_ids = _USED_PATIENT_IDS_FN(session)
+    unused_records = [r for r in records if r[0] not in used_ids]
+    if not unused_records:
+        logger.warning(
+            "four_area_generation: no unused de-identified records (%d loaded, dataset_id=%r); "
+            "ingest more first",
+            len(records),
+            dataset_id,
+        )
+        return []
+
+    settings = get_settings()
+    state = _GenerationState(
+        unused_records, seed=seed, existing_records=_EXISTING_RECORDS_FN(session)
+    )
+    by_name = {a.name: a for a in areas.areas}
+    created: list[uuid.UUID] = []
+    attempts = 0
+    max_attempts = max(_MIN_ATTEMPTS_PER_SLOT, remaining * _ATTEMPTS_PER_SLOT_MULTIPLIER)
+    while (name := _next_area(counts, areas, per_area_target)) and attempts < max_attempts:
+        attempts += 1
+        made = _generate_one_area_question(
+            session, state, by_name[name], areas, dedup_threshold=settings.qgen_dedup_threshold
+        )
+        if made is None:
+            continue
+        question_id, usable = made
+        created.append(question_id)
+        if usable:
+            counts[name] = counts.get(name, 0) + 1
+    short = {a.name: counts.get(a.name, 0) for a in areas.areas}
+    if any(n < per_area_target for n in short.values()):
+        logger.warning(
+            "four_area_generation: stopped after %d attempts below target %d: %s "
+            "(%d unused de-identified record(s) available)",
+            attempts,
+            per_area_target,
+            short,
+            len(unused_records),
+        )
+    logger.info("four_area_generation: %d new question(s); usable per area %s", len(created), short)
     return created

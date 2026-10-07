@@ -73,11 +73,13 @@ from app.eval.unified_ablation.summary import (
     Level1Summary,
     Level2Summary,
     Level3Curve,
+    PopularityBaseline,
     summarize_best_weight_vs_bm25,
     summarize_level1,
     summarize_level2,
     summarize_level3_by_weight_and_k,
     summarize_level3_curve,
+    summarize_popularity_baseline,
 )
 from app.retrieval.vectorstore import QdrantVectorStore
 
@@ -114,6 +116,7 @@ def _report_statistics(
     l3 = summarize_level3_curve(rows, k=k, weight_values=weights)
     l3_grid = summarize_level3_by_weight_and_k(rows, k_values=ks, weight_values=weights)
     best_vs_bm25 = summarize_best_weight_vs_bm25(rows, k=k, weight_values=weights)
+    popularity = summarize_popularity_baseline(rows, k=k, weight_values=weights)
 
     print(
         f"[unified-ablation] Level 1 delta (present-only - all-assessed) Recall@{k}: "
@@ -150,6 +153,8 @@ def _report_statistics(
         f"/ winner's-curse caveat -- see BestWeightVsBM25's own docstring)."
     )
 
+    _print_popularity_baseline(popularity)
+
     statistical_summary = {
         "k": k,
         "level1": asdict(l1),
@@ -157,11 +162,32 @@ def _report_statistics(
         "level3_curve": [asdict(c) for c in l3],
         "level3_by_weight_and_k": [asdict(p) for p in l3_grid],
         "best_weight_vs_bm25": asdict(best_vs_bm25),
+        "popularity_baseline": asdict(popularity),
     }
     summary_path = run_dir / "statistical_summary.json"
     summary_path.write_text(json.dumps(statistical_summary, indent=2), encoding="utf-8")
     print(f"[unified-ablation] wrote {summary_path}")
     return l1, l2, l3
+
+
+def _print_popularity_baseline(popularity: PopularityBaseline) -> None:
+    """One line for the baseline, one per metric for how many arms beat it
+    (DEVIATIONS.md #272)."""
+    k = popularity.k
+    b = popularity.baseline
+    print(
+        f"[unified-ablation] Popularity baseline (query-blind, leave-one-out) @{k}: "
+        f"Recall {b['recall'].mean:.3f}, MRR {b['mrr'].mean:.3f}, Hit {b['hit'].mean:.3f}"
+    )
+    for metric, deltas in popularity.arm_vs_baseline.items():
+        above = sum(d.ci_low > 0 for d in deltas)
+        below = sum(d.ci_high < 0 for d in deltas)
+        best = max(deltas, key=lambda d: d.mean_delta)
+        print(
+            f"[unified-ablation]   {metric}@{k}: {above}/{len(deltas)} arm(s) significantly "
+            f"above the baseline, {below} below; best {best.label_a} "
+            f"{best.mean_delta:+.3f} [{best.ci_low:+.3f}, {best.ci_high:+.3f}]"
+        )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -327,7 +353,7 @@ def main(argv: list[str] | None = None) -> int:
     from scripts.plot_ablation_figures import render_all  # noqa: PLC0415
 
     del rows  # the figures re-read per_query_results.jsonl; free the rows first
-    for path in render_all(run_dir, weights=bm25_weight_values(), mrr_k=k):
+    for path in render_all(run_dir, weights=bm25_weight_values()):
         print(f"[unified-ablation] wrote {path}")
     return 0
 

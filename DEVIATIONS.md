@@ -3283,3 +3283,156 @@ not retroactively. When in doubt, log it.
   - `tests/test_unified_ablation_runner.py`: area rebuild with present-only vs all-assessed, D identical, unknown area skipped.
   - Full suite: 950 passed.
 - **Reversible?:** `--question-mode single` / `--question-set single_topic`.
+
+### 265. Four-area generation: stop after 5 consecutive gateway errors; count-query fixes
+- **Date / phase:** 2026-10-06, Phase 9. Operator: "add the stop after 5 consecutive failures", after the first full four-area run hit a gateway outage: the `qwen-llm-gateway` stack exited and every call got "Connection refused".
+- **Requirement ID(s):** as #264.
+- **What was done:**
+  - **Early stop.** `run_four_area_holdout_generation(max_consecutive_gateway_errors=5)`: a gateway failure returns a `_GATEWAY_ERROR` marker (nothing written, record not used). After `FOUR_AREA_MAX_CONSECUTIVE_GATEWAY_ERRORS` (5) in a row, the run logs an error and stops; any successful pipeline call resets the count. A re-run resumes the top-up.
+  - **Count query, grouping.** Found in the aborted run (unit tests fake this function): `_count_usable_four_area_by_area` built the area expression twice, which Postgres rejected (GroupingError). It now uses one expression object for SELECT and GROUP BY.
+  - **Count query, JSON null.** Some `gold_relevant_chunks` are stored as JSON `null` (a jsonb scalar, not SQL NULL), and Postgres doesn't guarantee AND evaluation order, so `jsonb_array_length` failed. The length is now taken inside `CASE WHEN jsonb_typeof(...) = 'array'`. Verified against the live database.
+- **The aborted run:** stopped by hand. It wrote 0 questions and used no records.
+- **Tests:** `tests/test_four_area_questions.py`: stops after exactly 5 consecutive failures; a success resets the count. Full suite: 952 passed.
+- **Reversible?:** yes (raise `max_consecutive_gateway_errors`).
+
+### 266. Offline holdout generation no longer files HITL escalations; stale review queue archived
+- **Date / phase:** 2026-10-06, Phase 9. Operator: "on the web app, clinician reviewer still sees the now defunct review queue and escalation view."
+- **Requirement ID(s):** ARCH §12–13 (HITL), ARCH §14.2 (review queue), PRD-112 (holdout).
+- **Findings:**
+  - **Review queue.** 17 `eval.result` rows were still `open`, all from 2026-09-22 (before the #241 corpus reset) and all without citations. #241's archive step only archived open results whose citations pointed at deleted chunks, so these citation-less ones stayed visible.
+  - **Escalations.** 2 open HITL escalations (10:27 `grounding_failure`, 11:08 `safety_filter`) had been created by the running four-area generation. The holdout generators ran the real pipeline including the escalation node, which writes `hitl.escalation` and notifies reviewers; the audit purpose was `auto_seed_review_queue`. A full run would have filed dozens of offline-eval escalations into the clinicians' queue.
+- **What was done:**
+  - **Pipeline flag.** `GraphState.record_escalations`: when `False`, `escalation_agent.run` writes no row and sends no notification. It logs `hitl_escalation_not_recorded_offline_run` and leaves the escalation in the output (`escalation_id: None, recorded: False`), so the question still gets no gold set.
+  - **Generators.** `auto_seed._invoke_pipeline(record_escalations=, purpose=)`. Both holdout generators (single-topic and four-area) now pass `record_escalations=False, purpose="ablation_holdout"`. `/query`, the eval harness and the review-queue auto-seed still record escalations.
+  - **Cleanup** (one transaction, `hrag_admin`):
+    - the 17 stale open results were set to `archived` (ids and previous state in `eval.bak_20261006_open_results`);
+    - the 2 generator escalations were copied to `hitl.bak_20261006_generator_escalation` and deleted, after checking no `hitl_decision` referenced them;
+    - the open review queue and the escalation queue are now both empty, and the audit log is untouched.
+  - **Generation run.** Stopped, then restarted on the new image. It resumes the per-area top-up. The first run had already written 58 `four-area-v2` questions. They are kept: their gold sets were produced by the same pipeline, and the only difference is that 2 of their escalations were also filed in HITL.
+- **Checked:** the review-queue auto-seed at API startup tops up only to `QGEN_AUTO_SEED_COUNT` (100) counting every auto-seeded result, archived included (238), so it does not refill the queue.
+- **Tests:**
+  - `tests/test_escalation_agent.py::test_offline_run_does_not_record_an_escalation`;
+  - the `tests/test_four_area_questions.py` fake pipeline asserts the generator passes `record_escalations=False, purpose="ablation_holdout"`.
+  - Full suite: 953 passed.
+- **Reversible?:** yes. Restore the results' `queue_state` from `eval.bak_20261006_open_results`, and the escalations from `hitl.bak_20261006_generator_escalation`.
+
+### 267. Verifier fixes: review status read from the source of truth; dose figures compared spacing-insensitively
+- **Date / phase:** 2026-10-06, Phase 9. Operator: "go ahead with 1 and 2, pause the run and regenerate D", after diagnosing the area-D escalations in the four-area generation run.
+- **Requirement ID(s):** ARCH-044 (review gate; a held chunk can't support a claim), ARCH §8.3 step 4 / PRD-088 / ARCH-037 (dosing-beyond-source filter), CLAUDE.md §3 rule 3.
+- **Diagnosis** (5 empty area-D questions re-run with no HITL rows; only scan reasons, dose tokens and cited sections printed):
+  - 4 were `safety_filter`, each from one claim tripping `dosing_beyond_source` on a figure that IS in its cited quote except for whitespace ("5 mg/kg" ×3 citing NICE Choice and dosage; "7.5 mg/kg" citing MoH Empiric Therapy First line). The source PDFs use non-breaking or thin spaces between number and unit. `find_verbatim_quote` tolerates that, but the dosing check compared raw text.
+  - One of the 4 (question 5) also had "7 mg/kg" that is only in a *different* retrieved chunk, which the rule correctly rejects.
+  - 1 was `grounding_failure` with no segments (synthesis parse failure), not yet diagnosed.
+- **Bug found:** two claims were rejected as `chunk_under_review`.
+  - The Qdrant payload holds `review_status` twice: top level (retrieval filters on it) and inside the `meta` copy. `review_chunk` updated only the top level.
+  - All 14 confirmed active Kenya dose chunks (and 8 in the superseded version) still said `pending` in `meta`, which the verifier reads via the retrieved item.
+  - So every claim citing a Kenya dose row or dose note was rejected, which is why no Kenya dose-table chunk was ever in area-D gold. This affected the operator's own `/corpus-review` confirmations too, not only #255's carry-over.
+- **What was done:**
+  1. **Review status.**
+     - `hybrid._to_retrieval_item` copies the top-level `review_status` into the item's `meta`, so the verifier reads the source of truth.
+     - `review_chunk` (and so the carry-over script) and `exclude_manifest_sections` now update both copies (`review.payload_meta`).
+     - One-off sync over all 298 points: 153 `meta` copies brought in line (Kenya confirmed 22, NICE excluded 127, MoH excluded 4); 0 mismatches remain.
+  2. **Dose figures.** `wording._dosing_beyond_source` compares dose tokens and quotes with ALL whitespace removed, Unicode spaces included. The digits and unit must still match ("75 mg/kg" ≠ "7.5 mg/kg"), and the figure must still be in the claim's own quote.
+- **Generation:**
+  - The run was paused at 128 four-area-v2 questions (D 35, A 32, B 31, C 30).
+  - All 35 D questions are being regenerated under the fixes (one call each, same text and cap, no HITL rows), with `gold_regenerated` noted in their meta. The run then resumes.
+  - A–C questions are not regenerated: the dosing filter rarely fires there, and they rarely cite Kenya dose chunks.
+- **Tests:**
+  - `tests/test_grounding_wording.py`: Unicode-spaced figures match; a figure from another chunk or with different digits still fails.
+  - `tests/test_hybrid_retrieve.py`: a stale `meta` copy is overridden by the top-level status.
+  - `tests/test_corpus_review.py`: review updates both copies.
+  - Full suite: 957 passed.
+- **Reversible?:** yes (code; the payload sync only made `meta.review_status` equal to the existing top-level value).
+
+### 268. Four-area generation target lowered to 100 usable questions per area
+- **Date / phase:** 2026-10-06, Phase 9. Operator: "Change limit to reach 100 per area."
+- **Requirement ID(s):** as #264 (PRD-112 holdout).
+- **What was done:** the running generation (`--per-area 200 --seed 264`, resumed after #267) was stopped with SIGTERM at 14:05 UTC and restarted as `--per-area 100 --seed 264`, logging to the same `four_area_generation_20261006.log`. Each question is committed as soon as it is generated, so the stop lost at most one in-flight pipeline call. At restart there were 147 usable questions: A 37, B 37, C 37, D 36.
+- **Not changed:** the script's default (`--per-area 200`) and the README instructions. Only this run's target changed. The unified ablation will see 100 usable questions per area, and `configuration.json` records how many questions each area had.
+- **Reversible?:** yes. Re-run with `--per-area 200` and it tops up from wherever the run stopped.
+
+### 269. Hit@K plotted alongside Recall@K for the unified ablation
+- **Date / phase:** 2026-10-07, Phase 9. Operator: "add hit@k and plot it alongside recall@k", after asking why `recall_at_k_by_bm25_weight.png` didn't look like Figure S1A of the antibiotic-chatbot supplement (mmc1.pdf).
+- **Requirement ID(s):** PRD-112 / ARCH-043.
+- **Why:** that paper's questions each have one known gold chunk, so its "recall at k" is a hit rate. Our four-area gold sets hold 4–11 cited chunks (median 7), and Recall@K is the fraction retrieved (`metrics.precision_recall_at_k`). A perfect ranker is capped at about 0.34 at K=2 and 0.67 at K=4. That is why our curves rise almost linearly instead of saturating early.
+- **What was done:**
+  - `app.eval.metrics.hit_at_k`: 1.0 if any gold chunk is in the top K.
+  - `PerQueryResult.hit_at_k` (optional, None on older rows), filled by the runner.
+  - `plot_recall_by_bm25_weight` / `plot_recall_vs_bm25_weight_by_k` take `--metric recall|hit` (Makefile `METRIC=`).
+  - `render_all` writes `hit_at_k_by_bm25_weight.png` and `hit_at_k_vs_bm25_weight_by_k.png` next to the Recall@K figures.
+  - Rows without `hit_at_k` derive it from `first_relevant_rank <= k` (the full-ranking rank, so this is exact). The Hit@K figures for the 2026-10-07 four-area runs (`20261007T033754Z-14285065` minmax, `20261007T034213Z-9e6e83b6` rrf) were rendered that way, with no re-run.
+- **Not changed:** Recall@K stays the primary metric (#201). `statistical_summary.json`, its deltas and bootstrap tests are Recall@K only; Hit@K is descriptive.
+- **Reversible?:** yes (additive field and figures).
+
+### 270. `backend/results` bind-mounted into `api`; excluded from the image
+- **Date / phase:** 2026-10-07, Phase 9. Operator: "mount backend/results into the container".
+- **Requirement ID(s):** PRD-112 / ARCH-043 (ablation outputs).
+- **Why:** `/app/results` lived only in the `api` container's writable layer (7.6 GB). Recreating the container after the #269 image rebuild would have deleted that day's two four-area runs (`20261007T033754Z-14285065`, `20261007T034213Z-9e6e83b6`). They were copied to `backend/results/ablation/` first (sha256-verified) and are intact. The older runs were on the host only because the build context happened to copy `backend/results` into the image.
+- **What was done:**
+  - `docker-compose.yml`: `./backend/results:/app/results` on `api` only. That is where `run_unified_ablation` and the other ablation scripts run; `worker` doesn't write results.
+  - `backend/.dockerignore`: `results/` excluded. With it baked in, the api image was 21 GB; without it, 6.7 GB.
+  - Host permissions: `chmod -R a+rwX backend/results`, the same dev-only fix as #95 (container uid 10001, host uid 1000). Still manual, not a setup step.
+- **Reversible?:** yes (remove the mount and the `.dockerignore` line, then rebuild).
+
+### 271. Hit@K by-K figure starts at K=4; the Sep-29 MRR figure is a pool artifact
+- **Date / phase:** 2026-10-07, Phase 9. Operator: the Hit@K by-K figure "should have k start at 4", and today's `mrr_at_k_vs_bm25_weight_by_arm.png` looks much worse than run `20260929T064213Z-6ea6c3b2`'s.
+- **Requirement ID(s):** PRD-112 / ARCH-043.
+- **Figure change (interpretation):** "k start at 4" was read as the K lines of `hit_at_k_vs_bm25_weight_by_k.png`. They are now K = 4, 6, 8, 10, 12, 14 by default (`_HIT_DEFAULT_K_VALUES`), up from 8–14. Recall@K's by-K figure keeps 8–14. The Makefile `K_VALUES` default is now empty, so each metric uses its own default; an explicit `K_VALUES=` still overrides. Both 2026-10-07 runs were re-rendered.
+- **MRR finding (no code change):** the two MRR figures aren't comparable, and the Sep-29 one shouldn't be read as better retrieval.
+  - Sep-29 used the old single-topic pool: 1,419 questions, only 54 distinct gold sets, with one set covering 807 questions and one chunk in 1,319. Pure SapBERT returned the same top-1 chunk for 1,414 of 1,419 queries. A query-blind ranking (chunks ordered by gold frequency) scores MRR@12 0.943, at least as high as any arm. Its high SapBERT MRR, falling as the BM25 weight rises, measures that concentration, not ranking quality.
+  - The 2026-10-07 four-area pool is more varied (400 questions, 131 gold sets, largest covering 32 questions) but still concentrated. Within an area the gold sets are almost the same, built from about six neonatal-sepsis definition and risk-factor chunks (WHO PSBI / suspected-sepsis definitions, Kenya Newborn Protocols p.47, National Antibiotic Guidelines p.33/35). The query-blind ranking scores MRR@12 0.838 (Hit@1 0.71), against 0.35–0.53 for the real retrievers.
+  - **Implication, flagged not fixed:** both pools reward ranking a few popular chunks first. Retrieval quality claims from the unified ablation should be reported against the popularity baseline, or the gold sets made more specific. Which of these to do is the operator's call.
+- **Reversible?:** yes.
+
+### 272. Popularity baseline added to the unified-ablation statistical summary
+- **Date / phase:** 2026-10-07, Phase 9. Operator: "add the popularity baseline to the statistical summary" (follow-up to #271).
+- **Requirement ID(s):** PRD-112 / ARCH-043.
+- **What was done:** `summarize_popularity_baseline` (`app/eval/unified_ablation/summary.py`), written by `run_unified_ablation` as `statistical_summary.json["popularity_baseline"]` and printed with the other statistics.
+  - **Baseline:** for each query, chunks are ranked by how many *other* queries' gold sets contain them, ties broken by chunk id. The query text is never read.
+  - **Metrics:** Recall@k, MRR@k and Hit@k at the run's `mrr_k`, each with a bootstrap CI. `Metric` now also accepts `"hit"`.
+  - **Comparisons:** a paired delta (arm − baseline, CI and p) for every Level 1 × Level 2 × bm25_weight arm, on each metric.
+- **Judgment calls:**
+  - **Leave-one-out, not in-sample.** The in-sample version (#271's 0.838 / 0.943) lets a query's own gold raise its own chunks. Leave-one-out is the honest query-blind bar.
+  - **Global, not per-area.** Ranking by popularity within the question's area would be stronger, but it uses information from the query (its area), so it isn't query-blind. Not added.
+  - **The top-(k + |gold|) shortcut** in `popularity_baseline_scores` is exact: a test checks it against a full re-sort.
+- **Backfilled:** both 2026-10-07 four-area runs (`20261007T033754Z-14285065` minmax, `20261007T034213Z-9e6e83b6` rrf) got `popularity_baseline` from their saved rows via a one-off script; no other key changed. Baseline @12: Recall 0.748, MRR 0.838, Hit 1.000. **All 24 arms are significantly below it on every metric, in both runs.** The closest are all_assessed/raw/w=1.0 on Recall (−0.108 [−0.130, −0.085]), all_assessed/enriched/w=1.0 on MRR (−0.305), and present_only/raw/w=1.0 on Hit (−0.017 [−0.032, −0.005]).
+- **Implication (not acted on):** on the current four-area gold, no retrieval configuration beats a ranker that ignores the question, so the Level 1/2/3 deltas compare arms only against each other. Whether to make the gold sets more specific (#271) is the operator's call.
+- **Reversible?:** yes (additive key and function).
+
+### 273. By-weight figures start the K axis at K=4
+- **Date / phase:** 2026-10-07, Phase 9. Operator: "recall_at_k_by_bm25_weight*.png should have k start at 4."
+- **Requirement ID(s):** PRD-112 / ARCH-043.
+- **What was done:** `plot_recall_by_bm25_weight.plot` drops rows with K < `MIN_PLOT_K` (4) before drawing. The K=2 rows stay in `per_query_results.jsonl` and in `statistical_summary.json`'s full weight × k grid; only the figure leaves them out. `render_all` skips the figure with a message if a run has no K ≥ 4.
+- **Interpretation:** this applies to both by-weight figures, `recall_at_k_by_bm25_weight.png` and its Hit@K twin `hit_at_k_by_bm25_weight.png`. The operator's earlier "k start at 4" request (#271) named a Hit@K by-weight figure, so it likely meant this axis too. #271's change (by-K Hit@K lines from K=4) is kept.
+- **Re-rendered:** both by-weight figures for the two 2026-10-07 runs. Older runs' figures are unchanged until re-rendered.
+- **Reversible?:** yes (`MIN_PLOT_K`).
+
+### 274. Correction of #271/#273: K lines 4–14 on both by-K figures; by-weight K axis back to 2–20
+- **Date / phase:** 2026-10-07, Phase 9. Operator: "You misunderstood my previous request. I wanted recall_at_k_vs_bm25_weight_by_k.png to have line plots for 'Number of context hits, K' start from 4 to 14 with increments of 2 same as hit_at_k_vs_bm25_weight_by_k.png. For recall_at_k_by_bm25_weight.png and hit_at_k_by_bm25_weight.png, x axis … should start from 2 to 20 with increments of 2."
+- **Requirement ID(s):** PRD-112 / ARCH-043.
+- **What went wrong:** #273 read "recall_at_k_by_bm25_weight*.png should have k start at 4" as the by-weight figures' K axis, and cut K=2 from both. The operator meant the by-K Recall@K figure's K lines, to match #271's Hit@K one.
+- **What was done:**
+  - **#273 reverted:** `MIN_PLOT_K` removed. Both by-weight figures plot every K in the run (2, 4, …, 20).
+  - **One by-K default for both metrics:** `_DEFAULT_K_VALUES` = 4,6,8,10,12,14 for Recall@K and Hit@K; `_HIT_DEFAULT_K_VALUES` removed. This replaces #271's per-metric split (Recall@K had kept 8–14).
+  - Makefile help, README and tests updated to match.
+  - All nine runs under `backend/results/ablation/` re-rendered with the corrected figures.
+- **Reversible?:** yes.
+
+### 275. MRR figure: four panels A–D for MRR@8, @10, @12, @14
+- **Date / phase:** 2026-10-07, Phase 9. Operator: "I would like have mrr_at_k_vs_bm25_weight_by_arm.png generate 4 plots (A, B, C, D) in one image … with MRR@8, MRR@10, MRR@12 and MRR@14 for panel A, B, C and D respectively."
+- **Requirement ID(s):** PRD-112 / ARCH-043.
+- **What was done:**
+  - `scripts/plot_mrr_vs_bm25_weight_by_arm.py` draws a 2 × 2 grid, one panel per K (`_DEFAULT_K_VALUES` = 8,10,12,14). Each panel has a bold letter A–D top-left and an "MRR@K" title.
+  - Shared axes and one legend; the arm colours and markers are unchanged.
+  - The CLI's `--k` became `--k-values`.
+  - `render_all` no longer takes `mrr_k`: this figure was its only use, and it now draws whichever of 8/10/12/14 the run has, skipping the figure if none. `ABLATION_MRR_K` still sets the k for `statistical_summary.json`.
+- **Re-rendered:** the MRR figure for all nine runs under `backend/results/ablation/`.
+- **Observation:** on the four-area runs the four panels are nearly identical. MRR barely moves from @8 to @14 because the first gold chunk is almost always ranked within the top 8 (Hit@8 ≈ 0.97, #269).
+- **Reversible?:** yes.
+
+
+### 276. MRR figure: "K=…" panel titles and "Mean Reciprocal Rank (MRR)" y-axis label
+- **Date / phase:** 2026-10-07, Phase 9. Operator: "mrr_at_k_vs_bm25_weight_by_arm.png should have y-axis legend as Mean Reciprocal Rank (MRR) with the panel titles as K=8, K=10, K=12, and K=14."
+- **Requirement ID(s):** PRD-112 / ARCH-043.
+- **What was done:** `scripts/plot_mrr_vs_bm25_weight_by_arm.py` titles each panel `K=<k>` (was `MRR@<k>`, #275) and labels the y axis "Mean Reciprocal Rank (MRR)" (was "Mean reciprocal rank"). Panel letters A–D and K order unchanged. Test updated in `tests/test_ablation_figures.py`.
+- **Reversible?:** yes.

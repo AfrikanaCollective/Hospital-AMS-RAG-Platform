@@ -60,6 +60,11 @@ class PerQueryResult:
     # single-topic pool and for rows written before this field existed.
     question_area: str | None = None
 
+    # Secondary metric for the figures (DEVIATIONS.md #269): 1.0 if any gold
+    # chunk is in the top k. None for rows written before this field existed;
+    # the figures derive it from `first_relevant_rank` there.
+    hit_at_k: float | None = None
+
     def to_json_dict(self) -> dict:
         return asdict(self)
 

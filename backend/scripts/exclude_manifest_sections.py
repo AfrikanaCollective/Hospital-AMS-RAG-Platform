@@ -30,7 +30,7 @@ from app.db.models.corpus import Chunk, Document, DocumentVersion
 from app.db.models.eval import EvalQuestion
 from app.db.session import session_scope
 from app.ingestion.page_provenance import load_manifest_entry
-from app.ingestion.review import EXCLUDED, load_exclude_sections, section_excluded
+from app.ingestion.review import EXCLUDED, load_exclude_sections, payload_meta, section_excluded
 from app.retrieval.hybrid import _default_vectorstore
 
 _BACKUP_DIR = Path("data/ingest_artifacts")
@@ -43,6 +43,7 @@ def _exclude_version(session, store, version, prefixes: list[str], *, apply: boo
     by_rule: Counter[str] = Counter()
     excluded: set[str] = set()
     changed: list[str] = []
+    new_meta: dict[str, dict] = {}
     for chunk in chunks:
         rule = section_excluded(chunk.section_path, prefixes)
         if rule is None:
@@ -55,6 +56,7 @@ def _exclude_version(session, store, version, prefixes: list[str], *, apply: boo
         meta["exclusion"] = {"rule": rule, "previous_status": meta.get("review_status")}
         meta["review_status"] = EXCLUDED
         changed.append(str(chunk.id))
+        new_meta[str(chunk.id)] = meta
         if apply:
             chunk.meta = meta
     print(f"{filename}: {len(excluded)} excluded ({len(changed)} newly)")
@@ -62,7 +64,10 @@ def _exclude_version(session, store, version, prefixes: list[str], *, apply: boo
         print(f"    {n:4d}  {rule}")
     if apply and changed:
         session.flush()
-        store.set_payload(changed, {"review_status": EXCLUDED})
+        for cid in changed:  # both copies of the status (DEVIATIONS.md #267)
+            store.set_payload(
+                [cid], {"review_status": EXCLUDED, "meta": payload_meta(new_meta[cid])}
+            )
         write_event(
             session,
             action="config_change",

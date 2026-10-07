@@ -31,6 +31,14 @@ weight is selected AFTER seeing the data (the max of 11 empirical
 means) — see that function's own docstring for why its CI/p-value must be
 read differently from every other comparison in this module.
 
+**Extended 2026-10-07** (operator request, DEVIATIONS.md #272):
+`summarize_popularity_baseline` — a query-blind leave-one-out "popularity"
+ranking (chunks ordered by how many OTHER queries' gold sets contain them),
+scored on Recall@k/MRR@k/Hit@k and compared, paired, against every
+Level 1 x Level 2 x bm25_weight arm. Both question pools concentrate gold
+on a handful of chunks (#271), so an arm only shows real query-driven
+ranking if it beats this.
+
 Pooling convention (proposal §4 point 4, extended consistently to every
 comparison here — a judgment call, flagged): a comparison names the
 condition(s) it varies; every OTHER free dimension is marginalized by
@@ -42,7 +50,7 @@ always fixed to one caller-supplied value (typically
 
 from __future__ import annotations
 
-from collections import defaultdict
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 from typing import Literal
 
@@ -50,13 +58,22 @@ import numpy as np
 
 from app.eval.ablation_config import Level1Condition, Level2Condition
 from app.eval.bootstrap import DEFAULT_BOOTSTRAP_SEED, bootstrap_ci, paired_bootstrap_test
+from app.eval.metrics import hit_at_k, mrr, precision_recall_at_k
 from app.eval.unified_ablation.per_query import PerQueryResult
 
-Metric = Literal["recall", "mrr"]
+Metric = Literal["recall", "mrr", "hit"]
 
 
 def _metric_value(row: PerQueryResult, metric: Metric) -> float:
-    return row.recall_at_k if metric == "recall" else row.reciprocal_rank_at_k
+    if metric == "recall":
+        return row.recall_at_k
+    if metric == "mrr":
+        return row.reciprocal_rank_at_k
+    if row.hit_at_k is not None:
+        return row.hit_at_k
+    # Rows written before `hit_at_k` existed (DEVIATIONS.md #269).
+    rank = row.first_relevant_rank
+    return 1.0 if rank is not None and rank <= row.k else 0.0
 
 
 @dataclass(frozen=True)
@@ -371,4 +388,81 @@ def summarize_best_weight_vs_bm25(
         delta=_delta_score(
             f"best(w={selected_weight})", "w=1.0(bm25)", selected_scores, bm25_scores, rng=rng
         ),
+    )
+
+
+_POPULARITY_METRICS: tuple[Metric, ...] = ("recall", "mrr", "hit")
+
+
+def popularity_baseline_scores(
+    rows: list[PerQueryResult], *, k: int
+) -> dict[Metric, dict[str, float]]:
+    """Per-query Recall@k / MRR@k / Hit@k of the leave-one-out popularity
+    ranking (DEVIATIONS.md #272): for query q, every chunk is ranked by how
+    many OTHER queries' gold sets contain it (ties by chunk id), ignoring
+    q's text entirely. Leaving q out keeps q's own gold from inflating its
+    score. Gold sets are read from the rows themselves (`relevant_ids` is
+    the same on every row of a query)."""
+    gold: dict[str, set[str]] = {}
+    for row in rows:
+        gold.setdefault(row.query_id, set(row.relevant_ids))
+    counts = Counter(c for g in gold.values() for c in g)
+    order = sorted(counts, key=lambda c: (-counts[c], c))
+    out: dict[Metric, dict[str, float]] = {m: {} for m in _POPULARITY_METRICS}
+    for qid, g in gold.items():
+        # Subtracting q's own contribution only lowers its gold chunks'
+        # counts, so re-sort just enough of the global order to fill top-k.
+        loo = {c: counts[c] - (1 if c in g else 0) for c in order[: k + len(g)]}
+        ranking = sorted((c for c, n in loo.items() if n > 0), key=lambda c: (-loo[c], c))
+        # A chunk below the first k + |g| in the global order can't climb
+        # into the top k, so the cut-off above loses nothing.
+        top_k = ranking[:k]
+        out["recall"][qid] = precision_recall_at_k(top_k, g, k)[1]
+        out["mrr"][qid] = mrr(top_k, g)
+        out["hit"][qid] = hit_at_k(top_k, g, k)
+    return out
+
+
+@dataclass(frozen=True)
+class PopularityBaseline:
+    """The leave-one-out popularity ranking's scores at one `k`, plus a
+    paired delta (arm - baseline) for every Level 1 x Level 2 x
+    bm25_weight arm, per metric. A positive delta means the arm ranks gold
+    higher than a ranker that never reads the query."""
+
+    k: int
+    method: str
+    baseline: dict[str, ArmScore]  # metric -> score
+    arm_vs_baseline: dict[str, list[DeltaScore]]  # metric -> one per arm
+
+
+def summarize_popularity_baseline(
+    rows: list[PerQueryResult],
+    *,
+    k: int,
+    weight_values: tuple[float, ...],
+    seed: int = DEFAULT_BOOTSTRAP_SEED,
+) -> PopularityBaseline:
+    rng = np.random.default_rng(seed)
+    base = popularity_baseline_scores([r for r in rows if r.k == k], k=k)
+    baseline = {m: _arm_score(f"popularity/{m}", base[m], rng=rng) for m in _POPULARITY_METRICS}
+    deltas: dict[str, list[DeltaScore]] = {}
+    for m in _POPULARITY_METRICS:
+        deltas[m] = []
+        for level1 in ("present_only", "all_assessed"):
+            for level2 in ("raw", "enriched"):
+                for w in weight_values:
+                    arm = per_query_scores(
+                        rows, k=k, metric=m, level1=level1, level2=level2, bm25_weight=w
+                    )
+                    deltas[m].append(
+                        _delta_score(
+                            f"{level1}/{level2}/w={w}", "popularity", arm, base[m], rng=rng
+                        )
+                    )
+    return PopularityBaseline(
+        k=k,
+        method="leave-one-out gold-frequency ranking (query-blind; ties by chunk id)",
+        baseline=baseline,
+        arm_vs_baseline=deltas,
     )

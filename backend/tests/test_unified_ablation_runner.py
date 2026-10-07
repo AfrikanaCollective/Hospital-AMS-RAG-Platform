@@ -191,9 +191,11 @@ def test_recall_and_reciprocal_rank_and_first_relevant_rank_are_consistent(
         if rank is not None and rank <= row.k:
             assert row.reciprocal_rank_at_k == pytest.approx(1.0 / rank)
             assert row.recall_at_k == pytest.approx(1.0)  # single gold chunk -> 0.0 or 1.0
+            assert row.hit_at_k == 1.0
         else:
             assert row.reciprocal_rank_at_k == 0.0
             assert row.recall_at_k == pytest.approx(0.0)
+            assert row.hit_at_k == 0.0
         assert row.relevant_ids == ["gold-chunk"]
         assert len(row.retrieved_ids) <= row.k
 

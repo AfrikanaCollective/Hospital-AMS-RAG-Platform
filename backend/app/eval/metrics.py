@@ -1,6 +1,7 @@
 """Eval metrics (ARCH §16.1; PRD-070, PRD-071).
 
-Retrieval: precision@k, recall@k (k in {5,8,24}); MRR, nDCG@k (reported only).
+Retrieval: precision@k, recall@k (k in {5,8,24}); MRR, nDCG@k (reported only);
+  hit@k (any gold chunk in the top k; PRD-112 figures, DEVIATIONS.md #269).
 Citation: citation_resolves_rate, citation_support_rate, citation_locus_accuracy
   (+-1 page, section_number prefix).
 Expected-outcome pass/fail vs label:
@@ -23,6 +24,14 @@ def precision_recall_at_k(retrieved: list[str], gold: set[str], k: int) -> tuple
     precision = hit / len(top)
     recall = hit / len(gold) if gold else 0.0
     return precision, recall
+
+
+def hit_at_k(retrieved: list[str], gold: set[str], k: int) -> float:
+    """1.0 if any gold chunk is in the top k, else 0.0. Unlike recall@k it
+    isn't capped below 1.0 when the gold set is larger than k, so it's the
+    one comparable to single-gold-chunk "recall at k" curves
+    (DEVIATIONS.md #269)."""
+    return 1.0 if any(c in gold for c in retrieved[:k]) else 0.0
 
 
 def mrr(retrieved: list[str], gold: set[str]) -> float:

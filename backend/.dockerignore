@@ -15,3 +15,6 @@ __pycache__/
 .ruff_cache/
 *.egg-info/
 .git/
+# Bind-mounted into `api` at /app/results (DEVIATIONS.md #270); a full
+# ablation run is GBs and doesn't belong in the image.
+results/

@@ -7,6 +7,7 @@ import pytest
 from app.eval.metrics import (
     citation_locus_accuracy,
     expected_outcome_pass,
+    hit_at_k,
     mrr,
     precision_recall_at_k,
 )
@@ -21,6 +22,16 @@ def test_precision_recall_at_k() -> None:
 
 def test_precision_recall_empty_retrieved() -> None:
     assert precision_recall_at_k([], {"a"}, k=5) == (0.0, 0.0)
+
+
+def test_hit_at_k_is_not_capped_by_gold_set_size() -> None:
+    """DEVIATIONS.md #269: one gold chunk in the top 2 of a 7-chunk gold set
+    is recall 1/7 but a hit."""
+    gold = {"a", "b", "c", "d", "e", "f", "g"}
+    assert hit_at_k(["x", "a", "y"], gold, k=2) == 1.0
+    assert precision_recall_at_k(["x", "a", "y"], gold, k=2)[1] == pytest.approx(1 / 7)
+    assert hit_at_k(["x", "y", "a"], gold, k=2) == 0.0
+    assert hit_at_k([], gold, k=5) == 0.0
 
 
 def test_mrr_first_hit() -> None:

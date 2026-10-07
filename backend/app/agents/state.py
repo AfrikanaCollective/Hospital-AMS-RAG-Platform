@@ -48,6 +48,10 @@ class GraphState(TypedDict, total=False):
     # Per-guideline retrieval cap for this query (DEVIATIONS.md #258); the
     # four-area question generator sets it per area, /query leaves it unset.
     per_guideline_cap: int | None
+    # False only for offline question generation (DEVIATIONS.md #266): an
+    # escalated answer is still an escalation in the output, but no HITL row
+    # is created and no reviewer is notified -- nobody is waiting on it.
+    record_escalations: bool
     scope_label: ScopeLabel
 
     # patient path (SCOPE-2.*)

@@ -1,5 +1,5 @@
 """CLI: python -m scripts.plot_recall_by_bm25_weight RUN_DIR
-[--out FILE] [--bm25-weight-values 0.0,0.2,...]
+[--out FILE] [--bm25-weight-values 0.0,0.2,...] [--metric recall|hit]
 (PRD-112 / ARCH-043 — supplementary figure for a unified ablation run).
 
 Reads `RUN_DIR/per_query_results.jsonl` written by
@@ -8,6 +8,12 @@ Recall@K vs K, one line per Level-3 BM25 score weight, faceted 2x2 over the
 Level-1 x Level-2 arms (Present-only/All-assessed x Raw/Enriched). Output is
 an 18 x 18 cm, 300 dpi PNG written next to the input
 (`recall_at_k_by_bm25_weight.png` by default).
+
+`--metric hit` plots Hit@K instead (any gold chunk in the top K;
+`hit_at_k_by_bm25_weight.png`, DEVIATIONS.md #269). Recall@K is the
+fraction of a multi-chunk gold set retrieved, so it's capped below 1.0
+while K < gold-set size; Hit@K is the metric single-gold-chunk "recall at
+k" curves in the literature report.
 
 Only the configured `bm25_weight` grid is plotted
 (`app.eval.ablation_config.bm25_weight_values()`, i.e.
@@ -41,6 +47,9 @@ _CM = 1 / 2.54
 _FIGSIZE_CM = 18.0
 _DPI = 300
 _DEFAULT_OUT_NAME = "recall_at_k_by_bm25_weight.png"
+_HIT_OUT_NAME = "hit_at_k_by_bm25_weight.png"
+# Per-query column -> axis label, for the metrics these figures plot.
+METRIC_LABELS = {"recall_at_k": "Recall@K", "hit_at_k": "Hit@K (any gold chunk in top K)"}
 
 _LEVEL1_LABELS = {"present_only": "Present-only", "all_assessed": "All-assessed"}
 _LEVEL2_LABELS = {"raw": "Raw", "enriched": "Enriched"}
@@ -55,7 +64,7 @@ _FACET_ORDER = [
 def load_mean_recall(
     per_query_path: Path, weights: tuple[float, ...], metric: str = "recall_at_k"
 ) -> pd.DataFrame:
-    """Mean `metric` (a per-query column: `recall_at_k` or
+    """Mean `metric` (a per-query column: `recall_at_k`, `hit_at_k` or
     `reciprocal_rank_at_k`) per (level1, level2, k, bm25_weight) cell,
     restricted to `weights`."""
     return aggregate(read_per_query(per_query_path), weights, metric, source=per_query_path)
@@ -75,7 +84,7 @@ def read_per_query(per_query_path: Path) -> pd.DataFrame:
     )
     # Streamed line by line, keeping only these columns: `pd.read_json`
     # would first materialize every row's query text and id lists.
-    data: dict[str, list] = {c: [] for c in columns}
+    data: dict[str, list] = {c: [] for c in (*columns, "hit_at_k")}
     with per_query_path.open(encoding="utf-8") as fh:
         for line in fh:
             if not line.strip():
@@ -83,9 +92,20 @@ def read_per_query(per_query_path: Path) -> pd.DataFrame:
             row = json.loads(line)
             for c in columns:
                 data[c].append(row[c])
+            data["hit_at_k"].append(_row_hit_at_k(row))
     df = pd.DataFrame(data)
     df["bm25_weight"] = df["bm25_weight"].astype(float)
     return df
+
+
+def _row_hit_at_k(row: dict) -> float:
+    """The row's `hit_at_k`; rows written before that field existed
+    (DEVIATIONS.md #269) derive it from `first_relevant_rank`, the rank of
+    the first gold chunk in the full ranking — a hit at K iff it is <= K."""
+    if row.get("hit_at_k") is not None:
+        return float(row["hit_at_k"])
+    rank = row.get("first_relevant_rank")
+    return 1.0 if rank is not None and rank <= row["k"] else 0.0
 
 
 def aggregate(
@@ -107,7 +127,7 @@ def aggregate(
     return agg
 
 
-def plot(agg: pd.DataFrame, out_path: Path) -> None:
+def plot(agg: pd.DataFrame, out_path: Path, metric: str = "recall_at_k") -> None:
     weights = sorted(agg.bm25_weight.unique())
     hue_order = [f"{w:.1f}" for w in weights]
     k_values = sorted(agg.k.unique())
@@ -116,7 +136,7 @@ def plot(agg: pd.DataFrame, out_path: Path) -> None:
     g = sns.relplot(
         data=agg,
         x="k",
-        y="recall_at_k",
+        y=metric,
         hue="bm25_weight_label",
         hue_order=hue_order,
         palette=sns.color_palette("crest", len(hue_order)),
@@ -136,7 +156,7 @@ def plot(agg: pd.DataFrame, out_path: Path) -> None:
         xticks=k_values,
     )
     g.set_titles("{col_name}")
-    g.set_axis_labels("Number of context hits, K", "Recall@K")
+    g.set_axis_labels("Number of context hits, K", METRIC_LABELS[metric])
     sns.move_legend(
         g,
         "lower center",
@@ -158,15 +178,24 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--bm25-weight-values", type=str, default=None, help="comma-separated, e.g. 0.0,0.5,1.0"
     )
+    parser.add_argument(
+        "--metric",
+        choices=("recall", "hit"),
+        default="recall",
+        help="recall: Recall@K (fraction of gold); hit: Hit@K (any gold in top K)",
+    )
     args = parser.parse_args(argv)
     if args.bm25_weight_values is not None:
         # Same env var `app.config.Settings` reads -- one source of truth,
         # as in `run_unified_ablation._parse_values`.
         os.environ["ABLATION_BM25_WEIGHT_VALUES"] = args.bm25_weight_values
 
-    out_path = args.out or args.run_dir / _DEFAULT_OUT_NAME
+    metric = f"{args.metric}_at_k"
+    out_name = _HIT_OUT_NAME if args.metric == "hit" else _DEFAULT_OUT_NAME
+    out_path = args.out or args.run_dir / out_name
     weights = bm25_weight_values()
-    plot(load_mean_recall(args.run_dir / "per_query_results.jsonl", weights), out_path)
+    agg = load_mean_recall(args.run_dir / "per_query_results.jsonl", weights, metric)
+    plot(agg, out_path, metric)
     print(out_path)
     return 0
 

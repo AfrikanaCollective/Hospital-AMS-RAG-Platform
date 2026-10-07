@@ -1101,7 +1101,11 @@ one area only**, with one real pipeline call and that area's per-guideline
 cap (A 3, B 4, C 3, D 5); each new record goes to the area with the fewest
 usable cases, until every area has exactly `--per-area` (default 200)
 questions with a non-empty gold set (the answer's cited chunks). An answer
-that cites nothing uses up its record but doesn't count:
+that cites nothing uses up its record but doesn't count. The run stops after
+5 gateway failures in a row (an outage ends it cleanly; re-run to resume).
+Holdout generation runs the real pipeline with `record_escalations=False`: an
+escalated answer simply gets no gold set, and nothing is filed in the
+clinicians' HITL escalation queue (DEVIATIONS.md #266):
 
     python -m scripts.generate_ablation_holdout_questions --per-area 200
     python -m scripts.generate_ablation_holdout_questions --question-mode single   # old single topic
@@ -1321,9 +1325,9 @@ backend/
                     facet PNG from an existing results/ablation/<run_id>),
                     plot_recall_vs_bm25_weight_by_k (same, axes swapped:
                     weight on x, one line per K, default K=8,10,12,14),
-                    plot_mrr_vs_bm25_weight_by_arm (single panel, mean
-                    reciprocal rank vs. BM25 weight, one line per Level-1 x
-                    Level-2 arm at one K, default ABLATION_MRR_K)
+                    plot_mrr_vs_bm25_weight_by_arm (2x2 panels A-D = MRR@8,
+                    @10, @12, @14: mean reciprocal rank vs. BM25 weight, one
+                    line per Level-1 x Level-2 arm; --k-values overrides)
   tests/            offline tests + fixtures/guidelines/ (CI-only synthetic set)
   results/ablation/ unified-ablation run output, one dir per <run_id>:
                     configuration.json (reproducibility snapshot) +
@@ -1488,9 +1492,9 @@ cd ../frontend && npm install && npm run dev
 | `make retrieval-tuning-report` | Phase 6 BM25/vector weight × depth sweep → 1 combined 3-panel PNG report, 18cm×21cm @ 600dpi (PRD-109/ARCH-040); needs a real Qdrant + Postgres with an ingested corpus and seeded eval questions, and the `retrieval-tuning` extra (`pip install -e .[retrieval-tuning]`) |
 | `make model-ablation-report` | SapBERT/MedCPT/BM25 embedding ablation → 1 combined 2-panel PNG report (PRD-110/ARCH-041); needs a real Qdrant + Postgres with an ingested corpus and seeded eval questions, the `retrieval-tuning` + `local-models` extras, and `MODEL_ABLATION_BACKEND=local` for real (non-stub) models |
 | `make orchestration-ablation-report` | Phase 7 single-stage/criteria-reuse/operator-vocabulary orchestration ablation → 1 combined 3-panel PNG report (PRD-111); needs a real Qdrant + Postgres with an ingested corpus and seeded eval questions, and the `retrieval-tuning` extra; the operator-vocabulary arm additionally needs an attested `data/clinical_concepts.yaml` |
-| `make unified-ablation-report` | Phase 8 unified Level 1 × 2 × 3 hierarchical ablation (BM25/SapBERT weighted-rank-fusion sweep, 6 weight points {0.0, 0.2, …, 1.0} × K, primary metric Recall@K) → `results/ablation/<run_id>/` + `statistical_summary.json` (deltas w/ bootstrap p-values, full weight×k grid, post-hoc best-weight-vs-BM25 test — DEVIATIONS #202) (PRD-112/ARCH-043; the combined PNG report was dropped in DEVIATIONS #212). Every run also writes `recall_at_k_by_bm25_weight.png`, `recall_at_k_vs_bm25_weight_by_k.png` and `mrr_at_k_vs_bm25_weight_by_arm.png` into its run directory (DEVIATIONS #229; `--no-figures` skips them; `python -m scripts.plot_ablation_figures results/ablation/<run_id>` re-renders); needs a real Qdrant + Postgres with an ingested corpus and seeded eval questions, the `retrieval-tuning` + `local-models` extras, and an attested `data/clinical_concepts.yaml` for Level 2 enrichment. Fusion: `ABLATION_FUSION=minmax` (default, score-level) or `rrf` (weighted reciprocal rank, damping `ABLATION_RRF_K`, default 60; DEVIATIONS #227), also `--fusion`/`--rrf-k` on `scripts.run_unified_ablation` |
-| `make recall-by-bm25-weight-plot [RUN_ID=<run_id>]` | Recall@K vs K, one line per BM25 score weight, faceted 2×2 over Present-only/All-assessed × Raw/Enriched → `results/ablation/<run_id>/recall_at_k_by_bm25_weight.png`, 18cm×18cm @ 300dpi (PRD-112/ARCH-043); reads only an existing run's `per_query_results.jsonl` (no DB/Qdrant/models), defaults to the latest run; needs the `retrieval-tuning` extra |
-| `make recall-vs-bm25-weight-by-k-plot [RUN_ID=<run_id>] [K_VALUES=8,10,12,14]` | Recall@K vs. BM25 score weight, one line per K (default 8, 10, 12, 14), same 2×2 facets → `results/ablation/<run_id>/recall_at_k_vs_bm25_weight_by_k.png`, 18cm×18cm @ 300dpi (PRD-112/ARCH-043); reads only an existing run's `per_query_results.jsonl`, defaults to the latest run; needs pandas + seaborn in the active env |
+| `make unified-ablation-report` | Phase 8 unified Level 1 × 2 × 3 hierarchical ablation (BM25/SapBERT weighted-rank-fusion sweep, 6 weight points {0.0, 0.2, …, 1.0} × K, primary metric Recall@K) → `results/ablation/<run_id>/` + `statistical_summary.json` (deltas w/ bootstrap p-values, full weight×k grid, post-hoc best-weight-vs-BM25 test — DEVIATIONS #202; `popularity_baseline`: a query-blind leave-one-out gold-frequency ranking scored on Recall/MRR/Hit@k, with a paired delta for every arm — DEVIATIONS #272) (PRD-112/ARCH-043; the combined PNG report was dropped in DEVIATIONS #212). Every run also writes `recall_at_k_by_bm25_weight.png`, `recall_at_k_vs_bm25_weight_by_k.png`, the Hit@K versions of both (`hit_at_k_by_bm25_weight.png`, `hit_at_k_vs_bm25_weight_by_k.png`: any gold chunk in the top K, DEVIATIONS #269) and `mrr_at_k_vs_bm25_weight_by_arm.png` (panels A–D: MRR@8, @10, @12, @14, DEVIATIONS #275) into its run directory (DEVIATIONS #229; `backend/results` is bind-mounted into `api` at `/app/results`, so runs survive a container recreate — host dir must be writable by uid 10001, `chmod -R a+rwX backend/results`, dev only, DEVIATIONS #270; `--no-figures` skips them; `python -m scripts.plot_ablation_figures results/ablation/<run_id>` re-renders); needs a real Qdrant + Postgres with an ingested corpus and seeded eval questions, the `retrieval-tuning` + `local-models` extras, and an attested `data/clinical_concepts.yaml` for Level 2 enrichment. Fusion: `ABLATION_FUSION=minmax` (default, score-level) or `rrf` (weighted reciprocal rank, damping `ABLATION_RRF_K`, default 60; DEVIATIONS #227), also `--fusion`/`--rrf-k` on `scripts.run_unified_ablation` |
+| `make recall-by-bm25-weight-plot [RUN_ID=<run_id>] [METRIC=recall\|hit]` | Recall@K vs K (K = 2…20), one line per BM25 score weight, faceted 2×2 over Present-only/All-assessed × Raw/Enriched → `results/ablation/<run_id>/recall_at_k_by_bm25_weight.png`, 18cm×18cm @ 300dpi (PRD-112/ARCH-043); reads only an existing run's `per_query_results.jsonl` (no DB/Qdrant/models), defaults to the latest run; `METRIC=hit` plots Hit@K → `hit_at_k_by_bm25_weight.png` (DEVIATIONS #269); needs the `retrieval-tuning` extra |
+| `make recall-vs-bm25-weight-by-k-plot [RUN_ID=<run_id>] [K_VALUES=4,6,8,10,12,14] [METRIC=recall\|hit]` | Recall@K vs. BM25 score weight, one line per K (default 4, 6, …, 14, DEVIATIONS #274), same 2×2 facets → `results/ablation/<run_id>/recall_at_k_vs_bm25_weight_by_k.png`, 18cm×18cm @ 300dpi (PRD-112/ARCH-043); reads only an existing run's `per_query_results.jsonl`, defaults to the latest run; `METRIC=hit` plots Hit@K → `hit_at_k_vs_bm25_weight_by_k.png`; needs pandas + seaborn in the active env |
 
 ---
 

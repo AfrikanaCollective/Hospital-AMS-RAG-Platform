@@ -223,3 +223,21 @@ def test_reranker_scores_the_heading_path_with_the_chunk_text(
         in seen
     )
     assert "made-up sign alone" in seen  # no heading path: the text alone
+
+
+def test_retrieval_item_meta_carries_the_top_level_review_status(
+    store: QdrantVectorStore,
+) -> None:
+    """The verifier reads `meta.review_status`; the top-level payload field
+    is the source of truth (DEVIATIONS.md #267), so a confirmed chunk whose
+    stale `meta` copy still says pending is reported as confirmed."""
+    _seed_chunk(
+        store,
+        1,
+        chunk_id="c1",
+        text="Blood cultures are recommended before starting antimicrobials.",
+        review_status="confirmed",
+        meta={"review_status": "pending"},
+    )
+    items, _ = retrieve("blood cultures before antimicrobials", vectorstore=store)
+    assert items[0]["meta"]["review_status"] == "confirmed"

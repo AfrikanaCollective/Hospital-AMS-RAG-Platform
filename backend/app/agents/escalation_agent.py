@@ -18,6 +18,12 @@ inspects or changes *why* the escalation happened.
 is unset by default (no dev/CI webhook target), so this call is a documented
 no-op when unset rather than a hard dependency (DEVIATIONS.md #73) — reviewers
 still see the escalation via the open queue (`GET /review-queue`) regardless.
+
+Offline question generation (the ablation holdout, DEVIATIONS.md #266) runs
+the real pipeline with `record_escalations=False`: the escalation stays in the
+graph output (so that question gets no gold set), but no `hitl.escalation`
+row is created and no reviewer is notified, since no clinician is waiting on
+an answer. Every live path leaves the flag unset (recorded).
 """
 
 from __future__ import annotations
@@ -57,6 +63,14 @@ def _notify_reviewers(escalation_id: uuid.UUID, trigger_code: str) -> None:
 def run(state: GraphState) -> GraphState:
     escalation_info = state.get("escalation") or {}
     trigger_code = escalation_info.get("trigger_code") or "unknown"
+    if state.get("record_escalations") is False:
+        logger.info(
+            "hitl_escalation_not_recorded_offline_run",
+            trigger_code=trigger_code,
+            purpose=state.get("purpose"),
+        )
+        state["escalation"] = {**escalation_info, "escalation_id": None, "recorded": False}
+        return state
     candidate_answer = None
     segments = state.get("candidate_segments")
     if segments:

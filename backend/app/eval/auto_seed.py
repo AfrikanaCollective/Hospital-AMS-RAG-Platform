@@ -109,7 +109,7 @@ import uuid
 from typing import TYPE_CHECKING
 
 import httpx
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 
 from app.config import get_settings
 from app.crypto.provider import get_crypto
@@ -265,20 +265,36 @@ _COUNT_EXISTING_ABLATION_HOLDOUT_FN = _count_existing_ablation_holdout
 # never selected by the ablation.
 FOUR_AREA_TEMPLATE = "four-area-v2"
 FOUR_AREA_PER_AREA_TARGET = 200
+# Stop the run after this many gateway failures in a row (DEVIATIONS.md
+# #265): an outage ends the run cleanly instead of spending every remaining
+# attempt; a re-run resumes the top-up.
+FOUR_AREA_MAX_CONSECUTIVE_GATEWAY_ERRORS = 5
+_GATEWAY_ERROR = "gateway_error"
 _DEFAULT_QUERY_AREAS_PATH = "data/query_areas.yaml"
 
 
 def _count_usable_four_area_by_area(session: Session) -> dict[str, int]:
     """Usable (non-empty gold) `four-area-v2` questions per area."""
+    # One expression object for SELECT and GROUP BY, so Postgres sees the
+    # same bound parameter in both (two copies fail with a GroupingError).
+    area = EvalQuestion.generator_meta["area"].astext
     rows = session.execute(
-        select(EvalQuestion.generator_meta["area"].astext, func.count())
+        select(area, func.count())
         .where(
             EvalQuestion.provenance == Provenance.AUTO_GENERATED.value,
             EvalQuestion.generator_meta["template_version"].astext == FOUR_AREA_TEMPLATE,
-            EvalQuestion.gold_relevant_chunks.is_not(None),
-            func.jsonb_array_length(EvalQuestion.gold_relevant_chunks) > 0,
+            # JSON null is a jsonb scalar, not SQL NULL, and Postgres doesn't
+            # guarantee AND order: take the length only inside a CASE.
+            case(
+                (
+                    func.jsonb_typeof(EvalQuestion.gold_relevant_chunks) == "array",
+                    func.jsonb_array_length(EvalQuestion.gold_relevant_chunks),
+                ),
+                else_=0,
+            )
+            > 0,
         )
-        .group_by(EvalQuestion.generator_meta["area"].astext)
+        .group_by(area)
     ).all()
     return {area: n for area, n in rows}
 
@@ -592,7 +608,7 @@ def _generate_one_ablation_question(
         return None
 
     try:
-        out = _INVOKE_PIPELINE_FN(text)
+        out = _INVOKE_PIPELINE_FN(text, record_escalations=False, purpose="ablation_holdout")
     except (httpx.HTTPError, LLMGatewayError) as exc:
         logger.warning(
             "ablation_holdout_generation: transient gateway error running the pipeline for "
@@ -628,7 +644,13 @@ def _generate_one_ablation_question(
     return question.id
 
 
-def _invoke_pipeline(question_text: str, *, per_guideline_cap: int | None = None) -> dict:
+def _invoke_pipeline(
+    question_text: str,
+    *,
+    per_guideline_cap: int | None = None,
+    record_escalations: bool = True,
+    purpose: str = "auto_seed_review_queue",
+) -> dict:
     # Lazy import: app.agents.graph_runtime pulls in every agent module at
     # import time — a real cost worth avoiding for callers (most tests) that
     # never invoke the real pipeline (same rationale as app.eval.harness's
@@ -640,7 +662,7 @@ def _invoke_pipeline(question_text: str, *, per_guideline_cap: int | None = None
         "conversation_id": conversation_id,
         "user_id": str(uuid.uuid4()),
         "roles": ["clinician"],
-        "purpose": "auto_seed_review_queue",
+        "purpose": purpose,
         # No patient_id: these narratives are deliberately framed generically
         # ("a newborn presenting with...", never "this patient" — ARCH
         # §15.1 step 4) and route as plain SCOPE-1, never touching
@@ -651,6 +673,8 @@ def _invoke_pipeline(question_text: str, *, per_guideline_cap: int | None = None
         # Four-area questions retrieve with their area's cap (#258); None
         # keeps RETRIEVAL_PER_GUIDELINE_CAP.
         "per_guideline_cap": per_guideline_cap,
+        # Offline holdout generation files no HITL escalations (#266).
+        "record_escalations": record_escalations,
     }
     return invoke_graph(initial_state, conversation_id)
 
@@ -956,12 +980,14 @@ def _generate_one_area_question(
     areas: QueryAreas,
     *,
     dedup_threshold: float,
-) -> tuple[uuid.UUID, bool] | None:
+) -> tuple[uuid.UUID, bool] | str | None:
     """One record -> one question for `area` (DEVIATIONS.md #264). Same
     candidate pick, near-duplicate filter and one-record-one-scenario rule as
     `_generate_one_ablation_question`; one real pipeline call with the area's
     `per_guideline_cap`; gold = that answer's cited chunks. Returns
-    (question id, usable) or None when no question was written."""
+    (question id, usable), `_GATEWAY_ERROR` when the pipeline call failed on a
+    gateway error (nothing written, record not used), or None when the
+    record was skipped for another reason."""
     candidate = state.next_candidate()
     if candidate is None:
         return None
@@ -972,7 +998,12 @@ def _generate_one_area_question(
         return None
     text = build_area_question(record, area)
     try:
-        out = _INVOKE_PIPELINE_FN(text, per_guideline_cap=area.per_guideline_cap)
+        out = _INVOKE_PIPELINE_FN(
+            text,
+            per_guideline_cap=area.per_guideline_cap,
+            record_escalations=False,
+            purpose="ablation_holdout",
+        )
     except (httpx.HTTPError, LLMGatewayError) as exc:
         logger.warning(
             "four_area_generation: transient gateway error on area %s for record %r, "
@@ -981,7 +1012,7 @@ def _generate_one_area_question(
             patient_id,
             exc,
         )
-        return None
+        return _GATEWAY_ERROR
 
     state.accepted_records.append(record)
     state.used_this_run.add(patient_id)
@@ -1017,14 +1048,17 @@ def run_four_area_holdout_generation(
     dataset_id: str | None = None,
     seed: int | None = None,
     areas_path: str = _DEFAULT_QUERY_AREAS_PATH,
+    max_consecutive_gateway_errors: int = FOUR_AREA_MAX_CONSECUTIVE_GATEWAY_ERRORS,
 ) -> list[uuid.UUID]:
     """Top up the four-area ablation pool until every attested area has
     exactly `per_area_target` usable (non-empty gold) questions
     (DEVIATIONS.md #264). Each record is used for one area only, with one
     real pipeline call; each new record goes to the area with the fewest
     usable cases, so no area overshoots. A question whose answer cites
-    nothing still uses up its record but doesn't count. Returns the new
-    question ids. Fails closed if `areas_path` isn't attested."""
+    nothing still uses up its record but doesn't count. Stops early after
+    `max_consecutive_gateway_errors` gateway failures in a row (DEVIATIONS.md
+    #265). Returns the new question ids. Fails closed if `areas_path` isn't
+    attested."""
     areas = load_query_areas(areas_path)
     counts = dict(_COUNT_USABLE_FOUR_AREA_FN(session))
     remaining = sum(max(0, per_area_target - counts.get(a.name, 0)) for a in areas.areas)
@@ -1052,15 +1086,27 @@ def run_four_area_holdout_generation(
     )
     by_name = {a.name: a for a in areas.areas}
     created: list[uuid.UUID] = []
-    attempts = 0
+    attempts = gateway_errors_in_a_row = 0
     max_attempts = max(_MIN_ATTEMPTS_PER_SLOT, remaining * _ATTEMPTS_PER_SLOT_MULTIPLIER)
     while (name := _next_area(counts, areas, per_area_target)) and attempts < max_attempts:
         attempts += 1
         made = _generate_one_area_question(
             session, state, by_name[name], areas, dedup_threshold=settings.qgen_dedup_threshold
         )
+        if made == _GATEWAY_ERROR:
+            gateway_errors_in_a_row += 1
+            if gateway_errors_in_a_row >= max_consecutive_gateway_errors:
+                logger.error(
+                    "four_area_generation: stopping after %d consecutive gateway errors "
+                    "(gateway down?); re-run to resume",
+                    gateway_errors_in_a_row,
+                )
+                break
+            continue
         if made is None:
             continue
+        gateway_errors_in_a_row = 0
+        assert isinstance(made, tuple)
         question_id, usable = made
         created.append(question_id)
         if usable:

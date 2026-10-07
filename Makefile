@@ -89,9 +89,10 @@ orchestration-ablation-report: ## Phase 7 single-stage/criteria-reuse/vocabulary
 unified-ablation-report: ## Unified Level 1/2/3 hierarchical ablation (16 arms x alpha x K) -> results/ablation/<run_id>/ (per-query rows, configuration.json, statistical_summary.json; the three recall/MRR-by-weight PNGs since DEVIATIONS #229; no combined report since #212) (PRD-112/ARCH-043); needs real Qdrant+Postgres+seeded eval questions; Level 2 enrichment needs an attested data/clinical_concepts.yaml; set MODEL_ABLATION_BACKEND=local for real (non-stub) models
 	$(BE) pip install -q -e ".[retrieval-tuning,local-models]" && python -m scripts.run_unified_ablation
 
-recall-by-bm25-weight-plot: ## Recall@K x BM25-weight 2x2 facet PNG (18x18cm @ 300dpi) from an existing unified-ablation run's per_query_results.jsonl; RUN_ID=<run_id> (default: latest under backend/results/ablation/); no pip install — needs pandas+seaborn in the active env (the `retrieval-tuning` extra)
-	$(BE) $(RESOLVE_ABLATION_RUN) python -m scripts.plot_recall_by_bm25_weight "results/ablation/$$run_id"
+METRIC ?= recall
+recall-by-bm25-weight-plot: ## Recall@K x BM25-weight 2x2 facet PNG (18x18cm @ 300dpi) from an existing unified-ablation run's per_query_results.jsonl; RUN_ID=<run_id> (default: latest under backend/results/ablation/); METRIC=hit plots Hit@K instead; no pip install — needs pandas+seaborn in the active env (the `retrieval-tuning` extra)
+	$(BE) $(RESOLVE_ABLATION_RUN) python -m scripts.plot_recall_by_bm25_weight "results/ablation/$$run_id" --metric "$(METRIC)"
 
-K_VALUES ?= 8,10,12,14
-recall-vs-bm25-weight-by-k-plot: ## Recall@K vs BM25-weight, one line per K, 2x2 facet PNG (18x18cm @ 300dpi) from an existing unified-ablation run; RUN_ID=<run_id> (default: latest), K_VALUES=8,10,12,14 (default); no pip install — needs pandas+seaborn in the active env
-	$(BE) $(RESOLVE_ABLATION_RUN) python -m scripts.plot_recall_vs_bm25_weight_by_k "results/ablation/$$run_id" --k-values "$(K_VALUES)"
+K_VALUES ?=
+recall-vs-bm25-weight-by-k-plot: ## Recall@K vs BM25-weight, one line per K, 2x2 facet PNG (18x18cm @ 300dpi) from an existing unified-ablation run; RUN_ID=<run_id> (default: latest), K_VALUES=4,6,8,10,12,14 (default), METRIC=hit plots Hit@K instead; no pip install — needs pandas+seaborn in the active env
+	$(BE) $(RESOLVE_ABLATION_RUN) python -m scripts.plot_recall_vs_bm25_weight_by_k "results/ablation/$$run_id" --k-values "$(K_VALUES)" --metric "$(METRIC)"

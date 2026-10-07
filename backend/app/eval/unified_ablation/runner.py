@@ -15,7 +15,7 @@ Reuses, unchanged: `model_ablation.ablation.fetch_corpus`/`Corpus`,
 .load_attested_vocabulary`, `orchestration_ablation.augment
 .build_arm_c_query`/`load_synthetic_record_index`/`resolve_source_record`
 (Level 2), `unified_ablation.blend` (Level 3), `app.eval.metrics.mrr`/
-`precision_recall_at_k`.
+`precision_recall_at_k`/`hit_at_k`.
 
 One real BM25 query + one SapBERT encode per (query, Level-1, Level-2)
 combination — 4 combinations per query — shared across every
@@ -36,7 +36,7 @@ from app.eval.ablation_config import ALL_ARMS as _ALL_ARMS
 from app.eval.ablation_config import bm25_weight_values, fusion, k_values, rrf_k
 from app.eval.auto_seed import _TOPIC, FOUR_AREA_TEMPLATE
 from app.eval.deidentified_source import load_deidentified_records
-from app.eval.metrics import mrr, precision_recall_at_k
+from app.eval.metrics import hit_at_k, mrr, precision_recall_at_k
 from app.eval.model_ablation.ablation import Corpus, _l2_normalize_rows, fetch_corpus
 from app.eval.model_ablation.encoders import Encoder, get_sapbert_encoder
 from app.eval.orchestration_ablation.augment import (
@@ -261,6 +261,7 @@ def sweep_questions(
                             recall_at_k=precision_recall_at_k(top_k, gold, k)[1],
                             reciprocal_rank_at_k=mrr(top_k, gold),
                             question_area=question.area,
+                            hit_at_k=hit_at_k(top_k, gold, k),
                         )
 
 

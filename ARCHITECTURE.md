@@ -862,7 +862,10 @@ For each **claim segment**:
 6. **Held chunks never support a claim** (ARCH-044). A chunk with
    `review_status` `pending` or `rejected` is excluded from retrieval. If one
    reaches the verifier anyway, the segment is `unsupported`
-   (`chunk_under_review`). So is a chunk with `review_status` `excluded`:
+   (`chunk_under_review`). The status read is the top-level `review_status`
+   payload field (the one retrieval filters on), copied into the retrieved
+   item's `meta`; review decisions update both copies (DEVIATIONS.md #267).
+   So is a chunk with `review_status` `excluded`:
    one in a section the document's manifest lists under `exclude_sections`
    (navigation, front matter, committee rationale, research
    recommendations). Such text is kept for provenance but is not a

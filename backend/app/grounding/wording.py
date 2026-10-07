@@ -45,11 +45,19 @@ def _dosing_beyond_source(text: str, cited_quotes: list[str]) -> bool:
     any cited quote is a fabricated specific — even if it happens to be
     clinically plausible, it isn't in the retrieved source (ARCH §8.3 step 4).
     """
-    tokens = {m.group(0).strip().lower() for m in _DOSING_TOKEN_RE.finditer(text)}
+    tokens = {_squash(m.group(0)) for m in _DOSING_TOKEN_RE.finditer(text)}
     if not tokens:
         return False
-    quote_text = " ".join(cited_quotes).lower()
+    quote_text = _squash(" ".join(cited_quotes))
     return any(token not in quote_text for token in tokens)
+
+
+def _squash(text: str) -> str:
+    """Lower-case with ALL whitespace removed -- including the non-breaking
+    and thin spaces guideline PDFs put between a number and its unit -- so
+    "5 mg/kg" in an answer matches "5\u00a0mg/kg" in the source. The digits
+    and unit must still match exactly (DEVIATIONS.md #267)."""
+    return re.sub(r"\s+", "", text).lower()
 
 
 def scan_segment(text: str, *, cited_quotes: list[str]) -> list[str]:

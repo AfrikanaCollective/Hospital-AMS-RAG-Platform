@@ -11,11 +11,13 @@ import pytest
 from app.eval.unified_ablation.per_query import PerQueryResult
 from app.eval.unified_ablation.summary import (
     per_query_scores,
+    popularity_baseline_scores,
     summarize_best_weight_vs_bm25,
     summarize_level1,
     summarize_level2,
     summarize_level3_by_weight_and_k,
     summarize_level3_curve,
+    summarize_popularity_baseline,
 )
 
 _K = 4
@@ -285,3 +287,70 @@ def test_summarize_best_weight_vs_bm25_zero_delta_when_bm25_is_already_best() ->
     result = summarize_best_weight_vs_bm25(rows, k=4, weight_values=(0.0, 1.0))
     assert result.selected_weight == pytest.approx(1.0)
     assert result.delta.mean_delta == pytest.approx(0.0)
+
+
+def _gold_row(query_id: str, gold: list[str], *, weight: float = 1.0, recall: float = 0.0):  # noqa: ANN202
+    row = _row(
+        query_id=query_id, level1="all_assessed", level2="raw", bm25_weight=weight, recall=recall
+    )
+    return PerQueryResult(**{**row.to_json_dict(), "relevant_ids": gold})
+
+
+def test_popularity_baseline_is_leave_one_out() -> None:
+    """DEVIATIONS.md #272: q1's own gold never counts toward its ranking. "a"
+    is in all three gold sets, "b" only in q1's, so for q1 the ranking is
+    a (2 others), c (1 other); b drops out (0 others)."""
+    rows = [
+        _gold_row("q1", ["a", "b"]),
+        _gold_row("q2", ["a", "c"]),
+        _gold_row("q3", ["a", "c"]),
+    ]
+    scores = popularity_baseline_scores(rows, k=1)
+    assert scores["hit"] == {"q1": 1.0, "q2": 1.0, "q3": 1.0}  # "a" first for all
+    assert scores["recall"]["q1"] == pytest.approx(0.5)
+    assert scores["mrr"]["q2"] == pytest.approx(1.0)
+
+
+def test_popularity_baseline_misses_a_query_whose_gold_nobody_else_cites() -> None:
+    rows = [_gold_row("q1", ["x"]), _gold_row("q2", ["a"]), _gold_row("q3", ["a"])]
+    scores = popularity_baseline_scores(rows, k=1)
+    assert scores["hit"]["q1"] == 0.0
+    assert scores["mrr"]["q1"] == 0.0
+
+
+def test_popularity_cutoff_matches_a_full_resort() -> None:
+    """The top-(k + |gold|) shortcut gives the same scores as re-sorting
+    every chunk."""
+    import random  # noqa: PLC0415
+
+    from app.eval.metrics import mrr  # noqa: PLC0415
+
+    rnd = random.Random(7)
+    chunks = [f"c{i:02d}" for i in range(30)]
+    gold = {f"q{i}": rnd.sample(chunks, rnd.randint(1, 6)) for i in range(40)}
+    rows = [_gold_row(q, g) for q, g in gold.items()]
+    for k in (1, 3, 8):
+        got = popularity_baseline_scores(rows, k=k)["mrr"]
+        for q, g in gold.items():
+            others = [c for q2, g2 in gold.items() if q2 != q for c in g2]
+            counts = {c: others.count(c) for c in set(others)}
+            full = sorted(counts, key=lambda c: (-counts[c], c))
+            assert got[q] == pytest.approx(mrr(full[:k], set(g)))
+
+
+def test_summarize_popularity_baseline_compares_every_arm() -> None:
+    rows = []
+    for q, gold in (("q1", ["a"]), ("q2", ["a"]), ("q3", ["a"])):
+        for level1 in ("present_only", "all_assessed"):
+            for level2 in ("raw", "enriched"):
+                for w in _WEIGHTS:
+                    row = _row(query_id=q, level1=level1, level2=level2, bm25_weight=w, recall=0.25)
+                    rows.append(PerQueryResult(**{**row.to_json_dict(), "relevant_ids": gold}))
+    summary = summarize_popularity_baseline(rows, k=_K, weight_values=_WEIGHTS)
+    assert summary.baseline["recall"].mean == pytest.approx(1.0)  # "a" ranked first
+    assert set(summary.arm_vs_baseline) == {"recall", "mrr", "hit"}
+    assert len(summary.arm_vs_baseline["recall"]) == 4 * len(_WEIGHTS)
+    assert all(
+        d.mean_delta == pytest.approx(-0.75) and d.label_b == "popularity"
+        for d in summary.arm_vs_baseline["recall"]
+    )

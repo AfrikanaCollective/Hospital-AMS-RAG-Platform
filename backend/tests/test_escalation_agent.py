@@ -44,3 +44,21 @@ def test_run_persists_escalation_and_sets_escalation_id(monkeypatch) -> None:  #
 def test_notify_reviewers_is_a_noop_without_webhook_configured() -> None:
     # No REVIEW_WEBHOOK_URL in the test env -> must not raise or try a real HTTP call.
     ea._notify_reviewers(uuid.uuid4(), "low_confidence")
+
+
+def test_offline_run_does_not_record_an_escalation(monkeypatch) -> None:  # noqa: ANN001
+    """Offline question generation (DEVIATIONS.md #266): the escalation stays
+    in the output, but no HITL row is written and no reviewer is notified."""
+    calls: list = []
+    monkeypatch.setattr(ea, "_CREATE_ESCALATION_FN", lambda *a, **k: calls.append("create"))
+    monkeypatch.setattr(ea, "_notify_reviewers", lambda *a, **k: calls.append("notify"))
+    state = {
+        "conversation_id": str(uuid.uuid4()),
+        "purpose": "ablation_holdout",
+        "record_escalations": False,
+        "escalation": {"trigger_code": EscalationTrigger.GROUNDING_FAILURE, "message": "m"},
+    }
+    out = ea.run(state)  # type: ignore[arg-type]
+    assert calls == []
+    assert out["escalation"]["trigger_code"] == EscalationTrigger.GROUNDING_FAILURE
+    assert out["escalation"]["escalation_id"] is None and out["escalation"]["recorded"] is False

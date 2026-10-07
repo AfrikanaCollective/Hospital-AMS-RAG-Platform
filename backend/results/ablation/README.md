@@ -32,9 +32,9 @@ Level-1 x Level-2 arms.
 [RUN_ID=<run_id>] [K_VALUES=8,10,12,14]` from the repo root) writes `recall_at_k_vs_bm25_weight_by_k.png` (same
 size/dpi/facets): Recall@K vs. BM25 weight, one line per K.
 `python -m scripts.plot_mrr_vs_bm25_weight_by_arm results/ablation/<run_id>
-[--k 12]` writes `mrr_at_k_vs_bm25_weight_by_arm.png` (18 x 18 cm,
-300 dpi, single panel): mean reciprocal rank at K vs. BM25 weight, one line
-per Level-1 x Level-2 arm, K defaulting to `ABLATION_MRR_K`.
+[--k-values 8,10,12,14]` writes `mrr_at_k_vs_bm25_weight_by_arm.png`
+(18 x 18 cm, 300 dpi, panels A-D = MRR@8, @10, @12, @14): mean reciprocal
+rank vs. BM25 weight, one line per Level-1 x Level-2 arm (DEVIATIONS.md #275).
 
 **Never committed** — `per_query_results.jsonl` can run into the hundreds
 of MB per run (a single 238-question run against this deployment's real

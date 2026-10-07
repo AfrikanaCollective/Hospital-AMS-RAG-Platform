@@ -137,7 +137,9 @@ def test_confirming_a_held_chunk_updates_db_qdrant_and_audit(
     )
     assert chunk.meta["review_status"] == "confirmed"
     assert chunk.meta["review"]["reasons"] == ["ocr_numeric"]
-    assert store.calls == [([str(chunk.id)], {"review_status": "confirmed"})]
+    ((ids, payload),) = store.calls
+    assert ids == [str(chunk.id)] and payload["review_status"] == "confirmed"
+    assert payload["meta"]["review_status"] == "confirmed"  # both copies (#267)
     assert events and events[0]["outcome"] == "chunk_review_confirmed"
 
 
@@ -267,3 +269,22 @@ def test_identical_text_finds_its_confirmed_source() -> None:
 )
 def test_any_difference_leaves_the_chunk_held(text: str, source: str | None) -> None:
     assert identical_confirmed_source(text, source, [("old-1", _OLD_TABLE, "ocr")]) is None
+
+
+def test_review_updates_both_copies_of_the_status(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("app.ingestion.review.write_event", lambda session, **kw: None)
+    chunk = _Chunk({"review_status": "pending", "embedding_text": "x", "ocr": {"has_digits": True}})
+    store = _Store()
+    review_chunk(
+        _Session(chunk),
+        store,
+        chunk.id,
+        decision="confirmed",
+        note=None,
+        actor_id=None,
+        actor_role="admin",
+    )
+    ((_ids, payload),) = store.calls
+    assert payload["review_status"] == "confirmed"
+    assert payload["meta"]["review_status"] == "confirmed"  # #267
+    assert "embedding_text" not in payload["meta"]

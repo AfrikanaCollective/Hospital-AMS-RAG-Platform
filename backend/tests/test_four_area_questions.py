@@ -206,7 +206,8 @@ def _records(n: int) -> list[tuple[uuid.UUID, dict]]:
 def seams(monkeypatch: pytest.MonkeyPatch):
     calls: list[tuple[str, int | None]] = []
 
-    def pipeline(text: str, *, per_guideline_cap: int | None = None) -> dict:
+    def pipeline(text: str, *, per_guideline_cap: int | None = None, **kw: object) -> dict:
+        assert kw == {"record_escalations": False, "purpose": "ablation_holdout"}  # #266
         calls.append((text, per_guideline_cap))
         return _citing(f"chunk-{len(calls)}")
 
@@ -248,7 +249,7 @@ def test_an_answer_without_citations_uses_its_record_but_does_not_count(
 ) -> None:  # noqa: ANN001
     n = {"calls": 0}
 
-    def pipeline(text: str, *, per_guideline_cap: int | None = None) -> dict:  # noqa: ARG001
+    def pipeline(text: str, *, per_guideline_cap: int | None = None, **kw: object) -> dict:  # noqa: ARG001
         n["calls"] += 1
         if n["calls"] == 1:  # the first (assessment) answer escalates
             return {"observed_outcome": "escalated", "escalation": {"trigger_code": "x"}}
@@ -284,7 +285,7 @@ def test_areas_already_at_target_get_no_more(seams, monkeypatch: pytest.MonkeyPa
 def test_a_gateway_error_writes_nothing_for_that_record(
     seams, monkeypatch: pytest.MonkeyPatch
 ) -> None:  # noqa: ANN001
-    def flaky(text: str, *, per_guideline_cap: int | None = None) -> dict:  # noqa: ARG001
+    def flaky(text: str, *, per_guideline_cap: int | None = None, **kw: object) -> dict:  # noqa: ARG001
         raise httpx.ConnectTimeout("gateway timeout")
 
     monkeypatch.setattr(auto_seed, "_INVOKE_PIPELINE_FN", flaky)
@@ -305,3 +306,36 @@ def test_generation_refuses_an_unattested_areas_file(seams, tmp_path: Path) -> N
         auto_seed.run_four_area_holdout_generation(
             _FakeSession(), per_area_target=1, areas_path=str(_write(tmp_path, data))
         )
+
+
+def test_run_stops_after_consecutive_gateway_errors(seams, monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: ANN001
+    n = {"calls": 0}
+
+    def down(text: str, *, per_guideline_cap: int | None = None, **kw: object) -> dict:  # noqa: ARG001
+        n["calls"] += 1
+        raise httpx.ConnectError("connection refused")
+
+    monkeypatch.setattr(auto_seed, "_INVOKE_PIPELINE_FN", down)
+    auto_seed.run_four_area_holdout_generation(
+        _FakeSession(), per_area_target=200, areas_path=str(REAL_AREAS)
+    )
+    assert n["calls"] == auto_seed.FOUR_AREA_MAX_CONSECUTIVE_GATEWAY_ERRORS
+
+
+def test_a_success_resets_the_consecutive_error_count(
+    seams, monkeypatch: pytest.MonkeyPatch
+) -> None:  # noqa: ANN001
+    n = {"calls": 0}
+
+    def flaky(text: str, *, per_guideline_cap: int | None = None, **kw: object) -> dict:  # noqa: ARG001
+        n["calls"] += 1
+        if n["calls"] % 4 == 0:  # 3 failures, then a success, repeatedly
+            return _citing(f"chunk-{n['calls']}")
+        raise httpx.ConnectError("connection refused")
+
+    monkeypatch.setattr(auto_seed, "_INVOKE_PIPELINE_FN", flaky)
+    session = _FakeSession()
+    auto_seed.run_four_area_holdout_generation(
+        session, per_area_target=1, areas_path=str(REAL_AREAS)
+    )
+    assert len(session.questions) == len(AREA_ORDER)  # never 5 in a row, so it finished

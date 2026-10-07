@@ -144,6 +144,12 @@ def _blocks(text: str) -> list[str]:
     return [b.strip() for b in text.split("\n\n") if b.strip()]
 
 
+def payload_meta(meta: dict) -> dict:
+    """A chunk's `meta` as stored in its Qdrant payload (`embedding_text`
+    omitted, as at persistence)."""
+    return {k: v for k, v in meta.items() if k != "embedding_text"}
+
+
 def review_reasons(meta: dict) -> list[str]:
     reasons = list(dict.fromkeys(meta.get("review_reasons", [])))
     if meta.get("ocr", {}).get("has_digits") and "ocr_numeric" not in reasons:
@@ -200,7 +206,9 @@ def review_chunk(
     }
     chunk.meta = meta
     session.flush()
-    store.set_payload([str(chunk.id)], {"review_status": decision})
+    # Both copies: the top-level field retrieval filters on and the `meta`
+    # copy stored beside it (DEVIATIONS.md #267).
+    store.set_payload([str(chunk.id)], {"review_status": decision, "meta": payload_meta(meta)})
     write_event(
         session,
         action="config_change",

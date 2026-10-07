@@ -102,7 +102,14 @@ def _to_retrieval_item(candidate: dict, score: float) -> RetrievalItem:
         chunk_type=candidate.get("chunk_type", "prose"),
         text=candidate["text"],
         heading=candidate.get("heading"),
-        meta=candidate.get("meta") or {},
+        # The top-level `review_status` payload is the source of truth
+        # (retrieval filters on it); the copy inside `meta` was not updated
+        # by review decisions, so it is overwritten here for the verifier
+        # (DEVIATIONS.md #267).
+        meta={
+            **(candidate.get("meta") or {}),
+            "review_status": candidate.get("review_status"),
+        },
     )
 
 

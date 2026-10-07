@@ -80,6 +80,11 @@ services:
       # Figure/table crops written at ingestion for the reviewer UI
       # (ARCH-044, INGEST_CROP_DIR); shared so `worker` writes what `api` serves.
       - ./data/ingest_artifacts:/app/data/ingest_artifacts
+      # Ablation/eval outputs (results/ablation/<run_id>/, DEVIATIONS.md #270).
+      # Without this mount they live only in the container's writable layer
+      # and are lost on every recreate. Host dir needs `chmod -R a+rwX` (uid
+      # 10001 here vs. 1000 on the host), as for ingest_artifacts (#95).
+      - ./backend/results:/app/results
       # Read-only: archival full-publication originals a source_pages excerpt
       # was pulled from (DEVIATIONS.md #167/#173). Never scanned by
       # scripts/prepare_sample_guidelines.py (which only walks

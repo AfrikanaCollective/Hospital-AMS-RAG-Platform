@@ -1,13 +1,13 @@
 """CLI: python -m scripts.plot_mrr_vs_bm25_weight_by_arm RUN_DIR
-[--out FILE] [--k-values 8,10,12,14] [--bm25-weight-values 0.0,0.2,...]
+[--out FILE] [--k-values 2,4,6,8] [--bm25-weight-values 0.0,0.2,...]
 (PRD-112 / ARCH-043 — supplementary figure for a unified ablation run).
 
 Companion to `scripts/plot_recall_by_bm25_weight.py`: mean reciprocal rank
 (MRR@K, the per-query `reciprocal_rank_at_k` — the ablation's secondary
 metric) vs. BM25 score weight, one line per Level-1 x Level-2 arm
 (Present-only/All-assessed x Raw/Enriched). One panel per K, lettered A, B,
-C, D in K order — MRR@8, @10, @12, @14 by default (operator request,
-DEVIATIONS.md #275; it was a single panel at `ABLATION_MRR_K` before).
+C, D in K order, titled K=2, K=4, K=6, K=8 by default (operator request,
+DEVIATIONS.md #275/#277; it was a single panel at `ABLATION_MRR_K` before).
 Output is an 18 x 18 cm, 300 dpi PNG written next to the input
 (`mrr_at_k_vs_bm25_weight_by_arm.png` by default).
 
@@ -47,7 +47,7 @@ from scripts.plot_recall_by_bm25_weight import (  # noqa: E402
 
 _DEFAULT_OUT_NAME = "mrr_at_k_vs_bm25_weight_by_arm.png"
 # One panel per K, lettered A, B, C, D in this order (DEVIATIONS.md #275).
-_DEFAULT_K_VALUES = "8,10,12,14"
+_DEFAULT_K_VALUES = "2,4,6,8"
 _PANEL_LETTERS = "ABCD"
 # Categorical slots 1-4 (blue, orange, aqua, yellow), validated as a set.
 _ARM_PALETTE = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100"]
@@ -111,7 +111,7 @@ def main(argv: list[str] | None = None) -> int:
         "--k-values",
         type=str,
         default=_DEFAULT_K_VALUES,
-        help="one panel per K, lettered A-D in this order (default: 8,10,12,14)",
+        help="one panel per K, lettered A-D in this order (default: 2,4,6,8)",
     )
     parser.add_argument(
         "--bm25-weight-values", type=str, default=None, help="comma-separated, e.g. 0.0,0.5,1.0"

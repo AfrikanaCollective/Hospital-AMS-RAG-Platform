@@ -3436,3 +3436,34 @@ not retroactively. When in doubt, log it.
 - **Requirement ID(s):** PRD-112 / ARCH-043.
 - **What was done:** `scripts/plot_mrr_vs_bm25_weight_by_arm.py` titles each panel `K=<k>` (was `MRR@<k>`, #275) and labels the y axis "Mean Reciprocal Rank (MRR)" (was "Mean reciprocal rank"). Panel letters A–D and K order unchanged. Test updated in `tests/test_ablation_figures.py`.
 - **Reversible?:** yes.
+
+### 277. MRR figure: panels A–D are K=2, 4, 6, 8
+- **Date / phase:** 2026-10-07, Phase 9. Operator: "mrr_at_k_vs_bm25_weight_by_arm.png should have y-axis legend as Mean Reciprocal Rank (MRR) with the panel titles as K=2, K=4, K=6, and K=8." Follows the observation that the K=8/10/12/14 panels were visually identical (MRR moved only +0.005 from K=8 to K=14 on run `20261007T034213Z-9e6e83b6`, since ~90% of first gold chunks rank within the top 8).
+- **Requirement ID(s):** PRD-112 / ARCH-043.
+- **What was done:** `scripts/plot_mrr_vs_bm25_weight_by_arm.py::_DEFAULT_K_VALUES` 8,10,12,14 → 2,4,6,8; this replaces the K set of #275. The y-axis label and `K=` titles from #276 are unchanged. `render_all` still draws whichever of these K the run has. `tests/test_ablation_figures.py` updated; the skip test now uses K=1,3, because K=2 is an MRR panel now.
+- **Re-rendered:** the MRR figure for every run under `backend/results/ablation/`.
+- **Reversible?:** yes (`--k-values`).
+
+### 278. Every arm reported against the question-blind baseline at every K
+- **Date / phase:** 2026-10-07, Phase 9. Operator: "Report every arm against the question-blind baseline" (option 1 of the follow-up to #271/#272).
+- **Requirement ID(s):** PRD-112 / ARCH-043.
+- **What was done:**
+  - `app/eval/unified_ablation/summary.py`: `summarize_popularity_baseline_by_k` (the #272 comparison at every K, not only `ABLATION_MRR_K`), `popularity_report_rows` (one flat record per K × metric × arm), and `popularity_scores_from_gold` (the leave-one-out ranking on bare gold sets; `popularity_baseline_scores` now delegates to it). `summarize_popularity_baseline` filters rows to its K once, not once per arm; results unchanged.
+  - New `scripts/report_popularity_baseline.py`: writes `arm_vs_popularity_baseline.csv` into the run directory (k, metric, level1, level2, bm25_weight, n, arm_mean, baseline_mean, delta, 95% CI, p, `vs_baseline`) and adds `statistical_summary.json["popularity_baseline_by_k"]`. No other key changes; the K=12 `popularity_baseline` key stays. `run_unified_ablation` calls it after the statistics; the CLI backfills older runs.
+  - `mrr_at_k_vs_bm25_weight_by_arm.png`: a dashed grey "Question-blind baseline" line on each panel at that panel's K, with its own legend entry. Computed from the rows' `relevant_ids`, which `read_per_query` now collects (one set per query) into `df.attrs["gold_sets"]`. The line is omitted when the rows carry no gold.
+- **Judgment calls:**
+  - **Where "report" lands:** a CSV per run (readable, one row per arm), the JSON key (machine-readable), and the line on the MRR figure only. The Recall/Hit by-K figures already draw one line per K; a per-K baseline there would double the lines, so it was left out. It can be added if wanted.
+  - **`vs_baseline` verdict** uses the 95% CI excluding zero, the same rule `_print_popularity_baseline` already uses. Not multiplicity-corrected across the 720 comparisons per run; with every arm far below the baseline, a correction would not change any verdict on the current runs.
+  - **`arm_mean` = baseline mean + paired delta.** This equals the arm's own mean because every arm scores every query in this runner.
+- **Backfilled:** all nine runs under `backend/results/ablation/` (CSV, JSON key, MRR figure). Check: at K=12 the new path reproduces #272's figures for `20261007T034213Z-9e6e83b6` (Recall 0.748, MRR 0.838, Hit 1.000).
+- **Finding (four-area run `20261007T034213Z-9e6e83b6`):** at every K from 2 to 20, no arm is significantly above the baseline on Recall, MRR or Hit. All 24 are significantly below it, except at K=4 on Hit, where 3 arms are not significantly different.
+- **Reversible?:** yes (additive key, file, line).
+
+### 279. Question-blind baseline line removed from the MRR figure
+- **Date / phase:** 2026-10-07, Phase 9. Operator: "Remove the question-blind baseline for mrr_at_k_vs_bm25_weight_by_arm.png."
+- **Requirement ID(s):** PRD-112 / ARCH-043.
+- **What was done:** reverts #278's figure part only. `scripts/plot_mrr_vs_bm25_weight_by_arm.py` no longer takes or draws a baseline; `baseline_mrr_by_k` removed; `read_per_query` no longer collects gold sets; the figure tests for the line removed. The figure is as #277 left it.
+- **Kept:** `arm_vs_popularity_baseline.csv`, `statistical_summary.json["popularity_baseline_by_k"]`, `scripts/report_popularity_baseline.py`, and `summary.popularity_scores_from_gold` (still used by `popularity_baseline_scores`).
+- **Interpretation:** "remove the baseline for" the figure was read as the figure only, not the report.
+- **Re-rendered:** the MRR figure for all nine runs under `backend/results/ablation/`.
+- **Reversible?:** yes.

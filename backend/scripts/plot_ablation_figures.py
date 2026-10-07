@@ -7,7 +7,7 @@
   same two figures for Hit@K (any gold chunk in the top K), drawn alongside
   Recall@K because Recall@K is capped below 1.0 while K < gold-set size
 - `mrr_at_k_vs_bm25_weight_by_arm.png` (`scripts.plot_mrr_vs_bm25_weight_by_arm`):
-  panels A-D for MRR@8, @10, @12, @14 (DEVIATIONS.md #275)
+  panels A-D for K=2, 4, 6, 8 (DEVIATIONS.md #275/#277)
 
 `scripts.run_unified_ablation` calls `render_all` after writing a run's
 results, so every run gets its figures. `per_query_results.jsonl` (~1 GB for

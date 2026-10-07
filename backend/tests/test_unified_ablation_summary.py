@@ -12,12 +12,15 @@ from app.eval.unified_ablation.per_query import PerQueryResult
 from app.eval.unified_ablation.summary import (
     per_query_scores,
     popularity_baseline_scores,
+    popularity_report_rows,
+    popularity_scores_from_gold,
     summarize_best_weight_vs_bm25,
     summarize_level1,
     summarize_level2,
     summarize_level3_by_weight_and_k,
     summarize_level3_curve,
     summarize_popularity_baseline,
+    summarize_popularity_baseline_by_k,
 )
 
 _K = 4
@@ -354,3 +357,48 @@ def test_summarize_popularity_baseline_compares_every_arm() -> None:
         d.mean_delta == pytest.approx(-0.75) and d.label_b == "popularity"
         for d in summary.arm_vs_baseline["recall"]
     )
+
+
+def _all_arm_rows(gold_by_query: dict[str, list[str]], ks: tuple[int, ...]) -> list:  # noqa: ANN401
+    rows = []
+    for q, gold in gold_by_query.items():
+        for k in ks:
+            for level1 in ("present_only", "all_assessed"):
+                for level2 in ("raw", "enriched"):
+                    for w in _WEIGHTS:
+                        row = _row(
+                            query_id=q, level1=level1, level2=level2, bm25_weight=w, recall=0.25
+                        )
+                        rows.append(
+                            PerQueryResult(**{**row.to_json_dict(), "k": k, "relevant_ids": gold})
+                        )
+    return rows
+
+
+def test_popularity_baseline_by_k_reports_each_k_separately() -> None:
+    """DEVIATIONS.md #278: one PopularityBaseline per K, each scored at its own K."""
+    rows = _all_arm_rows({"q1": ["a"], "q2": ["a"], "q3": ["a"]}, ks=(2, 4))
+    out = summarize_popularity_baseline_by_k(rows, k_values=(2, 4), weight_values=_WEIGHTS)
+    assert [pb.k for pb in out] == [2, 4]
+    assert all(len(pb.arm_vs_baseline["mrr"]) == 4 * len(_WEIGHTS) for pb in out)
+
+
+def test_popularity_report_rows_flattens_every_k_metric_and_arm() -> None:
+    rows = _all_arm_rows({"q1": ["a"], "q2": ["a"], "q3": ["a"]}, ks=(2, 4))
+    records = popularity_report_rows(
+        summarize_popularity_baseline_by_k(rows, k_values=(2, 4), weight_values=_WEIGHTS)
+    )
+    assert len(records) == 2 * 3 * 4 * len(_WEIGHTS)
+    first = next(r for r in records if r["metric"] == "recall")
+    assert first["level1"] == "present_only" and first["level2"] == "raw"
+    assert first["bm25_weight"] == pytest.approx(_WEIGHTS[0])
+    assert first["baseline_mean"] == pytest.approx(1.0)
+    assert first["arm_mean"] == pytest.approx(0.25)
+    assert first["delta"] == pytest.approx(-0.75)
+    assert first["vs_baseline"] in {"below", "not significant"}
+
+
+def test_popularity_scores_from_gold_matches_the_row_based_version() -> None:
+    rows = [_gold_row("q1", ["a", "b"]), _gold_row("q2", ["a", "c"]), _gold_row("q3", ["a", "c"])]
+    gold = {"q1": {"a", "b"}, "q2": {"a", "c"}, "q3": {"a", "c"}}
+    assert popularity_scores_from_gold(gold, k=2) == popularity_baseline_scores(rows, k=2)

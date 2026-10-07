@@ -398,14 +398,20 @@ def popularity_baseline_scores(
     rows: list[PerQueryResult], *, k: int
 ) -> dict[Metric, dict[str, float]]:
     """Per-query Recall@k / MRR@k / Hit@k of the leave-one-out popularity
-    ranking (DEVIATIONS.md #272): for query q, every chunk is ranked by how
-    many OTHER queries' gold sets contain it (ties by chunk id), ignoring
-    q's text entirely. Leaving q out keeps q's own gold from inflating its
-    score. Gold sets are read from the rows themselves (`relevant_ids` is
-    the same on every row of a query)."""
+    ranking (DEVIATIONS.md #272), from the gold sets on `rows`
+    (`relevant_ids` is the same on every row of a query)."""
     gold: dict[str, set[str]] = {}
     for row in rows:
         gold.setdefault(row.query_id, set(row.relevant_ids))
+    return popularity_scores_from_gold(gold, k=k)
+
+
+def popularity_scores_from_gold(
+    gold: dict[str, set[str]], *, k: int
+) -> dict[Metric, dict[str, float]]:
+    """For query q, every chunk is ranked by how many OTHER queries' gold
+    sets contain it (ties by chunk id), ignoring q's text entirely. Leaving
+    q out keeps q's own gold from inflating its score."""
     counts = Counter(c for g in gold.values() for c in g)
     order = sorted(counts, key=lambda c: (-counts[c], c))
     out: dict[Metric, dict[str, float]] = {m: {} for m in _POPULARITY_METRICS}
@@ -444,7 +450,8 @@ def summarize_popularity_baseline(
     seed: int = DEFAULT_BOOTSTRAP_SEED,
 ) -> PopularityBaseline:
     rng = np.random.default_rng(seed)
-    base = popularity_baseline_scores([r for r in rows if r.k == k], k=k)
+    rows = [r for r in rows if r.k == k]  # once, not once per arm below
+    base = popularity_baseline_scores(rows, k=k)
     baseline = {m: _arm_score(f"popularity/{m}", base[m], rng=rng) for m in _POPULARITY_METRICS}
     deltas: dict[str, list[DeltaScore]] = {}
     for m in _POPULARITY_METRICS:
@@ -466,3 +473,55 @@ def summarize_popularity_baseline(
         baseline=baseline,
         arm_vs_baseline=deltas,
     )
+
+
+def summarize_popularity_baseline_by_k(
+    rows: list[PerQueryResult],
+    *,
+    k_values: tuple[int, ...],
+    weight_values: tuple[float, ...],
+    seed: int = DEFAULT_BOOTSTRAP_SEED,
+) -> list[PopularityBaseline]:
+    """`summarize_popularity_baseline` at every K, so each arm is reported
+    against the baseline at the same K it is plotted at (DEVIATIONS.md
+    #278). Each K gets its own seeded generator, so a K's numbers don't
+    depend on which other K's were asked for."""
+    return [
+        summarize_popularity_baseline(rows, k=k, weight_values=weight_values, seed=seed)
+        for k in k_values
+    ]
+
+
+def popularity_report_rows(baselines: list[PopularityBaseline]) -> list[dict[str, object]]:
+    """One flat record per K x metric x arm, for `arm_vs_popularity_baseline.csv`
+    (DEVIATIONS.md #278). `arm_mean` is baseline mean + paired delta: every
+    arm scores every query, so the paired and unpaired means coincide.
+    `vs_baseline` is "above"/"below" when the 95% CI excludes zero, else
+    "not significant"."""
+    out: list[dict[str, object]] = []
+    for pb in baselines:
+        for metric, deltas in pb.arm_vs_baseline.items():
+            base = pb.baseline[metric].mean
+            for d in deltas:
+                level1, level2, weight = d.label_a.split("/")
+                verdict = (
+                    "above" if d.ci_low > 0 else "below" if d.ci_high < 0 else "not significant"
+                )
+                out.append(
+                    {
+                        "k": pb.k,
+                        "metric": metric,
+                        "level1": level1,
+                        "level2": level2,
+                        "bm25_weight": float(weight.removeprefix("w=")),
+                        "n": d.n,
+                        "arm_mean": base + d.mean_delta,
+                        "baseline_mean": base,
+                        "delta": d.mean_delta,
+                        "ci_low": d.ci_low,
+                        "ci_high": d.ci_high,
+                        "p_value": d.p_value,
+                        "vs_baseline": verdict,
+                    }
+                )
+    return out

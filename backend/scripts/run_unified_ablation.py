@@ -19,6 +19,9 @@ operator request, DEVIATIONS.md #212). The three `scripts/plot_*` figures
 (Recall@K by weight, Recall vs weight by K, MRR vs weight by arm) are
 rendered into the run directory at the end of every run
 (`scripts.plot_ablation_figures`, DEVIATIONS.md #229) unless `--no-figures`.
+Every arm is also reported against the question-blind popularity baseline
+at every K (`arm_vs_popularity_baseline.csv`, `scripts.report_popularity_baseline`,
+DEVIATIONS.md #278).
 
 Needs a real Postgres + Qdrant with an already-ingested guideline corpus and
 an already-seeded auto-generated question set — not runnable against
@@ -82,6 +85,7 @@ from app.eval.unified_ablation.summary import (
     summarize_popularity_baseline,
 )
 from app.retrieval.vectorstore import QdrantVectorStore
+from scripts.report_popularity_baseline import write_popularity_report
 
 _DEFAULT_CONCEPTS_PATH = Path(
     os.environ.get("CLINICAL_CONCEPTS_PATH", "data/clinical_concepts.yaml")
@@ -344,6 +348,11 @@ def main(argv: list[str] | None = None) -> int:
 
     k = mrr_k()
     _report_statistics(rows, k=k, weights=bm25_weight_values(), ks=k_values(), run_dir=run_dir)
+    # Every arm vs. the question-blind baseline at every K (DEVIATIONS.md #278).
+    report = write_popularity_report(
+        run_dir, rows, k_values=k_values(), weights=bm25_weight_values()
+    )
+    print(f"[unified-ablation] wrote {report}")
 
     if args.no_figures:
         return 0

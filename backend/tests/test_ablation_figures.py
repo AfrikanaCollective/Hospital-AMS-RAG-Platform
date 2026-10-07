@@ -13,7 +13,7 @@ import pytest
 pytest.importorskip("seaborn")
 
 from scripts.plot_ablation_figures import render_all  # noqa: E402
-from scripts.plot_recall_by_bm25_weight import read_per_query  # noqa: E402
+from scripts.plot_recall_by_bm25_weight import load_mean_recall, read_per_query  # noqa: E402
 
 _WEIGHTS = (0.0, 0.5, 1.0)
 
@@ -59,7 +59,7 @@ def test_render_all_writes_recall_and_hit_figures(tmp_path: Path) -> None:
 
 def test_figures_needing_missing_k_values_are_skipped_not_fatal(tmp_path: Path) -> None:
     run_dir = tmp_path / "run"
-    _write_run(run_dir, ks=(2, 3))  # none of the by-K lines or MRR panels
+    _write_run(run_dir, ks=(1, 3))  # none of the by-K lines or MRR panels
     written = render_all(run_dir, weights=_WEIGHTS)
     assert [p.name for p in written] == [
         "recall_at_k_by_bm25_weight.png",
@@ -128,7 +128,7 @@ def test_by_weight_figures_plot_every_k(tmp_path: Path, monkeypatch) -> None:  #
 
 
 def test_mrr_figure_has_panels_a_to_d_for_k_8_to_14(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
-    """DEVIATIONS.md #275: one MRR figure, panels A-D = MRR@8/10/12/14."""
+    """DEVIATIONS.md #275/#277: one MRR figure, panels A-D = K=2/4/6/8."""
     import matplotlib.pyplot as plt  # noqa: PLC0415
 
     from scripts import plot_mrr_vs_bm25_weight_by_arm as mrr_by_arm  # noqa: PLC0415
@@ -142,13 +142,13 @@ def test_mrr_figure_has_panels_a_to_d_for_k_8_to_14(tmp_path: Path, monkeypatch)
 
     monkeypatch.setattr(plt.Figure, "savefig", _keep)
     run_dir = tmp_path / "run"
-    _write_run(run_dir, ks=(2, 8, 10, 12, 14, 16))
-    agg = mrr_by_arm.load_mean_recall(
+    _write_run(run_dir, ks=(2, 4, 6, 8, 10))
+    agg = load_mean_recall(
         run_dir / "per_query_results.jsonl", _WEIGHTS, metric="reciprocal_rank_at_k"
     )
-    mrr_by_arm.plot(agg, (8, 10, 12, 14), tmp_path / "mrr.png")
+    mrr_by_arm.plot(agg, (2, 4, 6, 8), tmp_path / "mrr.png")
     axes = figures[-1].axes
-    assert [ax.get_title() for ax in axes] == ["K=8", "K=10", "K=12", "K=14"]
+    assert [ax.get_title() for ax in axes] == ["K=2", "K=4", "K=6", "K=8"]
     letters = [t.get_text() for ax in axes for t in ax.texts]
     assert letters == ["A", "B", "C", "D"]
     assert axes[0].get_ylabel() == "Mean Reciprocal Rank (MRR)"

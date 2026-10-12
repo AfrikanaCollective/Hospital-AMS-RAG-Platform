@@ -276,6 +276,9 @@ class Settings(BaseSettings):
     # Resubmissions allowed after rejections (DEVIATIONS.md #286); 2 means up
     # to three submissions in all.
     reviewer_max_resubmissions: int = 2
+    # Fresh results given to a reviewer at a time once no items started by
+    # other reviewers are left for them (DEVIATIONS.md #294).
+    review_batch_size: int = 12
     # Failed password / admin sign-ins (DEVIATIONS.md #283): this many failures
     # within the window lock the account (or, per IP, the address) until the
     # window ends.

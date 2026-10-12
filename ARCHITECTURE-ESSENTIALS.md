@@ -295,6 +295,9 @@ compute IRR **per domain** → **archive** with full rating history + IRR
 snapshot. `<3` raters ⇒ stays visible in the open queue to any clinician.
 Distinctness enforced by `rating_round` UNIQUE `(result_id, rater_id)` +
 duplicate-account detection. Hard/adversarial cases go in the **same** queue.
+Per reviewer (DEVIATIONS.md #294): items others started come first; then a
+batch of up to 12 fresh items, kept until done; one half-finished rating
+at most, which must be submitted before any other item.
 
 **IRR metric: Krippendorff's alpha, ordinal difference function, per domain.**
 Why: any number of raters + *variable* raters per item + ordinal 5-pt scale +

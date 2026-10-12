@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { Link, Navigate, Route, Routes } from "react-router-dom";
 import QueryPage from "./pages/QueryPage";
 import ReviewPage from "./pages/ReviewPage";
+import RatePage from "./pages/RatePage";
 import EscalationsPage from "./pages/EscalationsPage";
 import CorpusReviewPage from "./pages/CorpusReviewPage";
 import LoginPage from "./pages/LoginPage";
@@ -147,6 +148,14 @@ function Shell() {
           element={
             <RequireAuth>
               <ReviewPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/review/:resultId"
+          element={
+            <RequireAuth>
+              <RatePage />
             </RequireAuth>
           }
         />

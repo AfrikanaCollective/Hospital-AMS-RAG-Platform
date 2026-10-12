@@ -26,12 +26,30 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import Principal, get_db, principal_uuid, require_role
+from app.config import get_settings
 from app.db.models.eval import IRRScore, RatingRound, Result, RubricRating
+from app.rubric.assignment import (
+    QueueRuleError,
+    QueueStore,
+    SqlQueueStore,
+    check_may_rate,
+    clear_draft_after_submit,
+)
 from app.rubric.domains import RUBRIC_DOMAINS
-from app.rubric.workflow import DuplicateRaterError, ResultNotFoundError, submit_rating
+from app.rubric.workflow import (
+    DuplicateRaterError,
+    ResultArchivedError,
+    ResultNotFoundError,
+    submit_rating,
+)
 from app.schemas.rubric import RatingRoundRequest
 
 router = APIRouter()
+
+
+def get_queue_store(session: Session = Depends(get_db)) -> QueueStore:
+    """Overridden in tests with an in-memory store."""
+    return SqlQueueStore(session)
 
 
 @router.get("/domains")
@@ -45,12 +63,21 @@ async def submit_rating_route(
     body: RatingRoundRequest,
     session: Session = Depends(get_db),
     principal: Principal = Depends(require_role("reviewer")),
+    store: QueueStore = Depends(get_queue_store),
 ) -> dict:
+    rater_id = principal_uuid(principal)
+    rid = uuid.UUID(result_id)
+    # Only an item the reviewer's queue offers now; with a draft, only the
+    # draft's item (DEVIATIONS.md #294).
+    try:
+        check_may_rate(store, rater_id, rid, batch_size=get_settings().review_batch_size)
+    except QueueRuleError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
     try:
         round_row = submit_rating(
             session,
-            result_id=uuid.UUID(result_id),
-            rater_id=principal_uuid(principal),
+            result_id=rid,
+            rater_id=rater_id,
             scores=body.scores,
             accept_action=body.accept_action,
             comment=body.comment,
@@ -59,8 +86,9 @@ async def submit_rating_route(
         )
     except ResultNotFoundError as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
-    except DuplicateRaterError as exc:
+    except (DuplicateRaterError, ResultArchivedError) as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    clear_draft_after_submit(store, rater_id, rid)
     return {
         "rating_round_id": str(round_row.id),
         "accept_action_id": str(round_row.accept_action_id),

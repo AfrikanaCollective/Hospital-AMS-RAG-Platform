@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import * as RadioGroup from "@radix-ui/react-radio-group";
 import * as Collapsible from "@radix-ui/react-collapsible";
-import type { AcceptAxisValue, RatingSubmission, RubricDomain } from "../types";
+import type { AcceptAxisValue, RatingDraftState, RatingSubmission, RubricDomain } from "../types";
 import { api } from "../api/client";
 import AcceptAxisControls from "./AcceptAxisControls";
 import Button from "./ui/Button";
@@ -28,25 +28,49 @@ const ANCHOR_KEYS = ["anchor_1", "anchor_2", "anchor_3", "anchor_4", "anchor_5"]
 // carries Back/Next + an "N/11 rated" count. The accept axis is its own
 // final, larger-format step (AcceptAxisControls), not folded into the
 // per-domain flow.
+//
+// `initial` restores a saved half-finished rating and `onChange` reports
+// every change so the page can save it (DEVIATIONS.md #294).
 export default function RubricForm({
   candidateAnswer,
   onSubmit,
   busy,
+  initial,
+  onChange,
+  submitLabel = "Submit rating",
 }: {
   candidateAnswer?: string | null;
   onSubmit: (submission: RatingSubmission) => void;
   busy?: boolean;
+  initial?: Partial<RatingDraftState>;
+  onChange?: (state: RatingDraftState) => void;
+  submitLabel?: string;
 }) {
   const [domains, setDomains] = useState<RubricDomain[]>([]);
-  const [scores, setScores] = useState<Record<string, number>>({});
-  const [comment, setComment] = useState("");
-  const [accept, setAccept] = useState<AcceptAxisValue>(defaultAcceptAxisValue(candidateAnswer));
-  const [step, setStep] = useState(0);
+  const [scores, setScores] = useState<Record<string, number>>(initial?.scores ?? {});
+  const [comment, setComment] = useState(initial?.comment ?? "");
+  const [accept, setAccept] = useState<AcceptAxisValue>(
+    initial?.accept ?? defaultAcceptAxisValue(candidateAnswer),
+  );
+  const [step, setStep] = useState(initial?.step ?? 0);
+
+  // Latest callback in a ref, so a new function identity each render does
+  // not itself count as a change.
+  const onChangeRef = useRef(onChange);
+  useEffect(() => {
+    onChangeRef.current = onChange;
+  });
+  useEffect(() => {
+    onChangeRef.current?.({ scores, comment, accept, step });
+  }, [scores, comment, accept, step]);
   const [defOpen, setDefOpen] = useState(false);
   const [answerOpen, setAnswerOpen] = useState(false);
 
   useEffect(() => {
-    api.getRubricDomains().then(setDomains).catch(() => setDomains([]));
+    api
+      .getRubricDomains()
+      .then(setDomains)
+      .catch(() => setDomains([]));
   }, []);
 
   const totalSteps = domains.length + 1; // + the accept-axis step
@@ -74,9 +98,7 @@ export default function RubricForm({
       {/* Progress (DEVIATIONS #133) — numeral + label, never a bare color bar. */}
       <div>
         <div className="mb-2 flex items-center justify-between text-[13px] text-ink-muted">
-          <span>
-            {onAcceptStep ? "Final step" : `Domain ${step + 1} of ${domains.length}`}
-          </span>
+          <span>{onAcceptStep ? "Final step" : `Domain ${step + 1} of ${domains.length}`}</span>
           <span>{onAcceptStep ? "Accept axis" : domain?.name}</span>
         </div>
         <div className="h-1 overflow-hidden rounded-full bg-surface-alt">
@@ -103,7 +125,8 @@ export default function RubricForm({
       {onAcceptStep && (
         <div className="grid gap-4">
           <h4 className="text-[15px] font-semibold text-ink">
-            Accept axis <span className="font-normal text-ink-muted">(required for every case)</span>
+            Accept axis{" "}
+            <span className="font-normal text-ink-muted">(required for every case)</span>
           </h4>
           <AcceptAxisControls value={accept} onChange={setAccept} requireReason={false} />
           <label className="grid gap-1 text-[13px] text-ink-muted">
@@ -152,7 +175,7 @@ export default function RubricForm({
             disabled={!complete || busy}
             className="flex-1"
           >
-            {busy ? "Submitting…" : "Submit rating"}
+            {busy ? "Submitting…" : submitLabel}
           </Button>
         ) : (
           <Button

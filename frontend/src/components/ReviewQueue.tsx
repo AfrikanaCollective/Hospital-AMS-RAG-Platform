@@ -3,13 +3,13 @@ import { queryAreaLabel, queryAreaStyle } from "../queryArea";
 import Button from "./ui/Button";
 
 // Open review queue (PRD-042, PRD-047; rank mode). Lists results with < 3
-// distinct raters, visible to any reviewer. Shows provenance (auto_generated /
-// clinician_submitted) and, for auto-generated items, the expected-outcome
-// label. Hard/adversarial cases appear in this same list. Rows and cards are
+// distinct raters, visible to any reviewer. Shows the query area and, for
+// auto-generated items, the expected-outcome label; provenance is not shown
+// (operator, DEVIATIONS.md #293). Hard/adversarial cases appear in this same list. Rows and cards are
 // colour-coded by query area (DEVIATIONS.md #292); colour is never the only
 // cue, the area is also written in the badge.
 
-function AreaBadge({ area }: { area: string | null }) {
+export function AreaBadge({ area }: { area: string | null }) {
   return (
     <span
       className={`inline-block rounded-full border px-2 py-0.5 text-[12px] font-medium ${queryAreaStyle(area).badge}`}
@@ -49,9 +49,8 @@ export default function ReviewQueue({
               style={{ borderLeftColor: style.stripe }}
               className={`rounded-lg border border-l-4 border-border p-3 ${selected ? "bg-accent/10 ring-2 ring-accent-strong" : style.tint}`}
             >
-              <div className="flex items-center justify-between gap-2 text-xs text-ink-muted">
+              <div className="text-xs text-ink-muted">
                 <code>{r.result_id.slice(0, 8)}</code>
-                <span>{r.provenance}</span>
               </div>
               <div className="mt-2">
                 <AreaBadge area={r.query_area} />
@@ -73,7 +72,6 @@ export default function ReviewQueue({
           <tr>
             <th className="text-left">Result</th>
             <th className="text-left">Query area</th>
-            <th className="text-left">Provenance</th>
             <th className="text-left">Expected outcome</th>
             <th className="text-left">Observed outcome</th>
             <th />
@@ -94,7 +92,6 @@ export default function ReviewQueue({
                 <td>
                   <AreaBadge area={r.query_area} />
                 </td>
-                <td>{r.provenance}</td>
                 <td>{r.expected_outcome ?? "—"}</td>
                 <td>{r.observed_outcome ?? "—"}</td>
                 <td className="py-1">

@@ -14,6 +14,13 @@ GET  /review-queue                 (reviewer) -> results this reviewer may curre
                                                  DB read).
 GET  /review-queue/{result_id}     (reviewer) -> result + citations for rating (no other raters'
                                                  scores)
+GET  /review-queue/draft           (reviewer) -> the reviewer's one half-finished rating, or 404
+PUT  /review-queue/draft           (reviewer) -> save it (only for an item the queue offers)
+
+**Since DEVIATIONS.md #294** the list is `app.rubric.assignment`'s: items
+other reviewers started first, then the reviewer's own batch of fresh
+items, and while a draft exists only the draft's item. The response is an
+object (`mode`, `items`, `draft_result_id`, `draft_dropped`, `batch`).
 Hard/adversarial cases are in the SAME queue (PRD-047).
 
 **`eval.result` row creation** (DEVIATIONS.md #79, #113): this router only
@@ -30,10 +37,13 @@ import json
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import Principal, get_db, principal_uuid, require_role
+from app.api.routes.rubric import get_queue_store
+from app.config import get_settings
 from app.crypto.provider import get_crypto
 from app.db.models.eval import (
     EvalQuestion,
@@ -43,7 +53,13 @@ from app.db.models.eval import (
     result_segments_aad,
 )
 from app.eval.question_gen.areas import reviewer_question_text
-from app.rubric.workflow import list_queue_candidates, select_queue_items
+from app.rubric.assignment import (
+    QueueRuleError,
+    QueueStore,
+    build_queue_view,
+    load_draft,
+    save_draft,
+)
 
 router = APIRouter()
 
@@ -59,34 +75,78 @@ def _query_area(session: Session, result: Result) -> str | None:
     return area if isinstance(area, str) else None
 
 
-_LIST_QUEUE_CANDIDATES_FN = list_queue_candidates
-
-
 @router.get("")
 async def list_queue(
     session: Session = Depends(get_db),
     principal: Principal = Depends(require_role("reviewer")),
-) -> list[dict]:
-    rater_id = principal_uuid(principal)
-    selected = select_queue_items(_LIST_QUEUE_CANDIDATES_FN(session, rater_id))
-    if not selected:
-        return []
-    result_ids = [c.result_id for c in selected]
+    store: QueueStore = Depends(get_queue_store),
+) -> dict:
+    view = build_queue_view(
+        store, principal_uuid(principal), batch_size=get_settings().review_batch_size
+    )
     results = {
         r.id: r
-        for r in session.execute(select(Result).where(Result.id.in_(result_ids))).scalars().all()
+        for r in session.execute(select(Result).where(Result.id.in_(view.result_ids)))
+        .scalars()
+        .all()
     }
-    return [
+    items = [
         {
-            "result_id": str(candidate.result_id),
-            "provenance": results[candidate.result_id].provenance,
-            "expected_outcome": results[candidate.result_id].expected_outcome,
-            "observed_outcome": results[candidate.result_id].observed_outcome,
-            "query_area": _query_area(session, results[candidate.result_id]),
-            "distinct_rater_count": candidate.distinct_rater_count,
+            "result_id": str(rid),
+            "provenance": results[rid].provenance,
+            "expected_outcome": results[rid].expected_outcome,
+            "observed_outcome": results[rid].observed_outcome,
+            "query_area": _query_area(session, results[rid]),
         }
-        for candidate in selected
+        for rid in view.result_ids
+        if rid in results
     ]
+    return {
+        "mode": view.mode,
+        "items": items,
+        "draft_result_id": str(view.draft_result_id) if view.draft_result_id else None,
+        "draft_dropped": view.draft_dropped,
+        "batch": (
+            {"done": view.batch_done, "total": view.batch_total} if view.mode == "batch" else None
+        ),
+    }
+
+
+class DraftIn(BaseModel):
+    result_id: uuid.UUID
+    # The rubric form's own state (scores, comment, accept, step).
+    payload: dict = Field(default_factory=dict)
+
+
+@router.get("/draft")
+async def get_draft(
+    principal: Principal = Depends(require_role("reviewer")),
+    store: QueueStore = Depends(get_queue_store),
+) -> dict:
+    found = load_draft(store, principal_uuid(principal))
+    if found is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no saved rating")
+    result_id, payload = found
+    return {"result_id": str(result_id), "payload": payload}
+
+
+@router.put("/draft")
+async def put_draft(
+    body: DraftIn,
+    principal: Principal = Depends(require_role("reviewer")),
+    store: QueueStore = Depends(get_queue_store),
+) -> dict:
+    try:
+        save_draft(
+            store,
+            principal_uuid(principal),
+            body.result_id,
+            body.payload,
+            batch_size=get_settings().review_batch_size,
+        )
+    except QueueRuleError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    return {"result_id": str(body.result_id)}
 
 
 @router.get("/{result_id}")

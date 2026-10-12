@@ -1,131 +1,106 @@
 import { useEffect, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import ReviewQueue from "../components/ReviewQueue";
-import { queryAreaLabel } from "../queryArea";
-import RubricForm from "../components/RubricForm";
-import AnswerSegments from "../components/AnswerSegments";
-import CitationList from "../components/CitationList";
-import type { QueueResult, QueueResultDetail } from "../types";
+import Button from "../components/ui/Button";
+import type { ReviewQueueView } from "../types";
 import { api, ApiError } from "../api/client";
 
-// Reviewer rank-mode workflow (ARCH §13): for each case a ranker reviews (an
-// open `eval.result`), they complete the 11-domain rubric AND pick an
-// accept-axis option, TOGETHER, in one submission (ARCH §13.2 "Both axes
-// together", DEVIATIONS.md #99) — `RubricForm` embeds `AcceptAxisControls`
-// for exactly this reason. Standalone escalation resolution (a different
-// workflow, on a different backend entity, `hitl.escalation`) lives on its
-// own page (`EscalationsPage.tsx`) — moved out of here so it no longer
-// appears stacked under a rank-mode task with a confusingly identical
-// "Accept axis" heading (DEVIATIONS.md #120).
+// Reviewer rank-mode queue (ARCH §13, §14.2). Each case is rated on its own
+// page (`RatePage`, /review/:resultId) — the panel used to open at the foot
+// of this list, far from the row tapped, on a phone (DEVIATIONS.md #294).
+//
+// What is listed is the server's rule (`app.rubric.assignment`): items other
+// reviewers have started come first, then the reviewer's own batch of fresh
+// items, kept until all are rated; while a half-finished rating exists only
+// its item is offered and it must be submitted before any other.
+//
+// Standalone escalation resolution lives on its own page
+// (`EscalationsPage.tsx`, DEVIATIONS.md #120).
 export default function ReviewPage() {
+  const navigate = useNavigate();
+  const notice = (useLocation().state as { notice?: string } | null)?.notice ?? null;
+  const [view, setView] = useState<ReviewQueueView | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api
+      .getReviewQueue()
+      .then(setView)
+      .catch((e) => setError(e instanceof ApiError ? e.message : String(e)));
+  }, []);
+
+  const open = (resultId: string) => navigate(`/review/${resultId}`);
+
   return (
     <section>
       <h2 className="text-base font-semibold text-ink">Review queue</h2>
+      <p className="text-[13px] text-ink-muted">
+        For each case: the 11-domain rubric and an accept-axis decision, submitted together. A case
+        stays in the queue until 3 reviewers have rated it.
+      </p>
 
-      <RankModeSection />
+      {notice && <p className="mt-2 text-[13px] text-accent-strong">{notice}</p>}
+      {view?.draft_dropped && (
+        <p role="status" className="mt-2 text-[13px] text-ink">
+          Your half-finished rating was removed: three other reviewers completed that case first, so
+          it can no longer be rated.
+        </p>
+      )}
+      {error && <p className="mt-2 text-[13px] text-danger">{error}</p>}
+      {!view && !error && <p className="mt-3 text-[13px] text-ink-muted">Loading…</p>}
+
+      {view && <QueueHeading view={view} onContinue={open} />}
+      {view && view.mode !== "empty" && (
+        <div className="mt-3">
+          <ReviewQueue items={view.items} selectedId={null} onSelect={open} />
+        </div>
+      )}
     </section>
   );
 }
 
-function RankModeSection() {
-  const [items, setItems] = useState<QueueResult[]>([]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [detail, setDetail] = useState<QueueResultDetail | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
-
-  const refreshQueue = () => {
-    api
-      .getReviewQueue()
-      .then(setItems)
-      .catch((e) => setError(e instanceof ApiError ? e.message : String(e)));
-  };
-
-  useEffect(refreshQueue, []);
-
-  useEffect(() => {
-    if (!selectedId) return;
-    api
-      .getReviewQueueItem(selectedId)
-      .then((d) => {
-        setDetail(d);
-        setError(null);
-      })
-      .catch((e) => setError(e instanceof ApiError ? e.message : String(e)));
-  }, [selectedId]);
-
-  const select = (resultId: string | null) => {
-    setSelectedId(resultId);
-    if (!resultId) setDetail(null);
-  };
-
-  return (
-    <div>
-      <h3 className="text-[15px] font-semibold text-ink">Rank mode</h3>
-      <p className="text-[13px] text-ink-muted">
-        For each case: the 11-domain rubric AND an accept-axis decision, submitted
-        together. Results stay in this queue until 3 distinct reviewers have rated
-        them, then are archived with a per-domain IRR score.
-      </p>
-      <ReviewQueue items={items} selectedId={selectedId} onSelect={select} />
-
-      {error && <p className="text-[13px] text-danger">{error}</p>}
-      {notice && <p className="text-[13px] text-accent-strong">{notice}</p>}
-
-      {detail && (
-        <div className="mt-4 space-y-4 rounded-md border border-border p-3">
-          <h4 className="text-sm font-semibold text-ink">
-            Result {detail.result_id.slice(0, 8)} · {queryAreaLabel(detail.query_area)}
-          </h4>
-          {detail.question && (
-            <p className="italic text-ink-muted">
-              <strong className="not-italic text-ink">Generated query:</strong> {detail.question}
-            </p>
-          )}
-          <div>
-            {/* Same tag shape/classes as "Generated query:" above (plain
-                <strong>, no size override) so the two labels render at
-                identical font size/face — operator request. */}
-            <p className="mb-2 text-ink">
-              <strong>Generated AI LLM response:</strong>
-            </p>
-            {detail.segments ? (
-              <AnswerSegments segments={detail.segments} citations={detail.citations} />
-            ) : detail.answer ? (
-              // A result written before segments were persisted (DEVIATIONS.md
-              // #120) — no per-segment citation_ids to link inline, only the
-              // flat answer text plus the same citation list, unlinked.
-              <>
-                <p className="whitespace-pre-wrap text-ink">{detail.answer}</p>
-                <CitationList citations={detail.citations} />
-              </>
-            ) : (
-              <p className="text-ink-muted">No answer text recorded for this result.</p>
-            )}
-          </div>
-
-          <RubricForm
-            key={detail.result_id}
-            candidateAnswer={detail.answer}
-            busy={busy}
-            onSubmit={async (submission) => {
-              setBusy(true);
-              setError(null);
-              setNotice(null);
-              try {
-                await api.submitRating(detail.result_id, submission);
-                setNotice(`Rating submitted (accept axis: ${submission.accept.action}).`);
-                select(null);
-                refreshQueue();
-              } catch (e) {
-                setError(e instanceof ApiError ? e.message : String(e));
-              } finally {
-                setBusy(false);
-              }
-            }}
-          />
-        </div>
-      )}
-    </div>
-  );
+function QueueHeading({
+  view,
+  onContinue,
+}: {
+  view: ReviewQueueView;
+  onContinue: (resultId: string) => void;
+}) {
+  if (view.mode === "draft" && view.draft_result_id) {
+    const id = view.draft_result_id;
+    return (
+      <div className="mt-3 rounded-lg border border-accent-strong bg-accent/10 p-3">
+        <p className="text-[14px] text-ink">
+          You have a half-finished rating. Finish and submit it before choosing another case.
+        </p>
+        <Button
+          type="button"
+          variant="primary"
+          onClick={() => onContinue(id)}
+          className="mt-2 w-full sm:w-auto"
+        >
+          Continue rating
+        </Button>
+      </div>
+    );
+  }
+  if (view.mode === "in_progress")
+    return (
+      <div className="mt-3">
+        <h3 className="text-[15px] font-semibold text-ink">Started by other reviewers</h3>
+        <p className="text-[13px] text-ink-muted">
+          Please rate these first. Your own batch continues after them.
+        </p>
+      </div>
+    );
+  if (view.mode === "batch" && view.batch)
+    return (
+      <div className="mt-3">
+        <h3 className="text-[15px] font-semibold text-ink">Your batch</h3>
+        <p className="text-[13px] text-ink-muted">
+          {view.batch.done} of {view.batch.total} rated
+        </p>
+      </div>
+    );
+  return <p className="mt-3 text-[14px] text-ink">Nothing to review right now.</p>;
 }

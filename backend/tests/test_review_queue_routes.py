@@ -10,8 +10,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.api.deps import Principal, current_principal, get_db
+from app.api.routes.rubric import get_queue_store
 from app.db.models.eval import EvalQuestion, RatingRound, Result
 from app.main import app as fastapi_app
+from tests.review_queue_fakes import FakeStore
 
 RATER_ID = uuid.uuid4()
 
@@ -85,39 +87,57 @@ def client() -> TestClient:
     return TestClient(fastapi_app)
 
 
-def test_queue_excludes_already_rated_and_not_open(client: TestClient) -> None:
-    open_result = Result(
+def _store_for(results: list[Result]) -> FakeStore:
+    """A queue store whose results are exactly `results` (all open, unrated)."""
+    store = FakeStore(0)
+    for i, r in enumerate(results):
+        store.results.append(r.id)
+        store.created[r.id] = datetime(2026, 10, 1, 0, i, tzinfo=UTC)
+        store.ratings[r.id] = set()
+    return store
+
+
+def test_queue_lists_the_reviewers_batch(client: TestClient) -> None:
+    """DEVIATIONS.md #294: the list is `app.rubric.assignment`'s view."""
+    a = Result(
         id=uuid.uuid4(),
         provenance="auto_generated",
         expected_outcome="well_supported",
         queue_state="open",
         created_at=datetime.now(UTC),
     )
-    rated_result = Result(
-        id=uuid.uuid4(),
-        provenance="clinician_submitted",
-        queue_state="open",
-        created_at=datetime.now(UTC),
-    )
-    archived_result = Result(
-        id=uuid.uuid4(),
-        provenance="clinician_submitted",
-        queue_state="archived",
-        created_at=datetime.now(UTC),
-    )
-    already_rated_round = RatingRound(
-        id=uuid.uuid4(),
-        result_id=rated_result.id,
-        rater_id=RATER_ID,
-        submitted_at=datetime.now(UTC),
-    )
-    session = _FakeSession([open_result, rated_result, archived_result], [already_rated_round])
-    fastapi_app.dependency_overrides[get_db] = lambda: session
+    b = Result(id=uuid.uuid4(), provenance="auto_generated", queue_state="open")
+    store = _store_for([a, b])
+    fastapi_app.dependency_overrides[get_db] = lambda: _FakeSession([a, b], [])
+    fastapi_app.dependency_overrides[get_queue_store] = lambda: store
 
-    resp = client.get("/api/review-queue")
-    assert resp.status_code == 200
-    ids = {row["result_id"] for row in resp.json()}
-    assert ids == {str(open_result.id)}
+    body = client.get("/api/review-queue").json()
+    assert body["mode"] == "batch" and body["batch"] == {"done": 0, "total": 2}
+    assert [i["result_id"] for i in body["items"]] == [str(a.id), str(b.id)]
+    assert body["items"][0]["expected_outcome"] == "well_supported"
+    assert body["draft_result_id"] is None and body["draft_dropped"] is False
+
+
+def test_draft_routes_save_load_and_lock(client: TestClient) -> None:
+    a = Result(id=uuid.uuid4(), provenance="auto_generated", queue_state="open")
+    b = Result(id=uuid.uuid4(), provenance="auto_generated", queue_state="open")
+    store = _store_for([a, b])
+    fastapi_app.dependency_overrides[get_db] = lambda: _FakeSession([a, b], [])
+    fastapi_app.dependency_overrides[get_queue_store] = lambda: store
+
+    assert client.get("/api/review-queue/draft").status_code == 404
+    payload = {"scores": {"medical_consensus_alignment": 4}, "step": 1}
+    ok = client.put("/api/review-queue/draft", json={"result_id": str(a.id), "payload": payload})
+    assert ok.status_code == 200
+    assert client.get("/api/review-queue/draft").json() == {
+        "result_id": str(a.id),
+        "payload": payload,
+    }
+    body = client.get("/api/review-queue").json()
+    assert body["mode"] == "draft" and body["draft_result_id"] == str(a.id)
+    assert [i["result_id"] for i in body["items"]] == [str(a.id)]
+    other = client.put("/api/review-queue/draft", json={"result_id": str(b.id), "payload": {}})
+    assert other.status_code == 409
 
 
 def test_get_queue_item_hides_other_raters_scores(client: TestClient) -> None:
@@ -307,8 +327,9 @@ def test_queue_and_item_show_the_query_area(client: TestClient) -> None:
     )
     session = _FakeSession([with_area, no_question], [], questions=[question])
     fastapi_app.dependency_overrides[get_db] = lambda: session
+    fastapi_app.dependency_overrides[get_queue_store] = lambda: _store_for([with_area, no_question])
 
-    rows = {row["result_id"]: row for row in client.get("/api/review-queue").json()}
+    rows = {row["result_id"]: row for row in client.get("/api/review-queue").json()["items"]}
     assert rows[str(with_area.id)]["query_area"] == "antibiotic_course"
     assert rows[str(no_question.id)]["query_area"] is None
     item = client.get(f"/api/review-queue/{with_area.id}").json()

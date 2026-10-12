@@ -3663,3 +3663,33 @@ not retroactively. When in doubt, log it.
   - **Stripe set inline** (`style`), not as a border-colour utility, so the card's border colour class cannot override it.
 - **Tests:** no frontend test suite; `tsc` and ESLint clean; the built CSS contains every area utility. Not viewed in a browser (the Chrome extension was not connected).
 - **Reversible?:** yes.
+
+### 293. Provenance column removed from the review queue view
+- **Date / phase:** 2026-10-12, Phase 9. Operator: "Remove 'provenance' column from the view."
+- **Requirement ID(s):** PRD-042.
+- **What was done:** the "Provenance" column (table) and the provenance label (phone-width card) are gone from `frontend/src/components/ReviewQueue.tsx`.
+- **Judgment calls:** **view only.** `GET /review-queue` still returns `provenance`, and it is still stored on every result, so analysis and the API are unchanged; PRD-042's provenance tracking is unaffected.
+- **Tests:** no frontend test suite; `tsc` and ESLint clean.
+- **Reversible?:** yes.
+
+### 294. Reviewer queue: started-by-others first, batches of 12, one draft; each case on its own page
+- **Date / phase:** 2026-10-12, Phase 9. Operator, after discussing the rating panel opening at the foot of the list ("poor user experience, considering the amount of scrolling"): reviewers mainly use phones; reviewers may rate in order or pick from the list; the list holds only results with fewer than 3 ratings from others and none from the reviewer; only once that list is done is the reviewer given "another list of 12 items without any reviews", kept until finished; items others start mid-batch appear in the list and hide the batch until rated; batches may overlap "provided they are listing a fresh item"; a batch item archived by others first is dropped "with replacement"; fewer than 12 fresh items gives a smaller batch, none gives "Nothing to review right now"; a half-finished rating survives leaving the page, at most one per reviewer, and cannot be discarded, only submitted.
+- **Requirement ID(s):** PRD-042, PRD-047; ARCH §14.2. Replaces the reviewer-facing part of #113's queue rule (its in-progress-first priority is kept as rule 1).
+- **What was done:**
+  - `app/rubric/assignment.py`: `plan_queue` (the pure rule) and `build_queue_view` (applies it through a `QueueStore`; `SqlQueueStore` in production, an in-memory fake in tests). A Postgres advisory lock per reviewer stops two tabs creating two batches at once.
+  - New tables (migration `b6d2f9e04a17`): `eval.review_batch_item` (rater, batch number, result, assigned/dropped times; UNIQUE (rater, result), so a result is assigned to a reviewer at most once) and `eval.rating_draft` (one row per reviewer, payload encrypted with `rating_draft_aad`, ≤ 20 kB).
+  - `GET /review-queue` now returns `{mode, items, draft_result_id, draft_dropped, batch}`; new `GET`/`PUT /review-queue/draft`. `POST /rubric/results/{id}/ratings` refuses (409) another item while a draft exists, and an open item the queue does not offer; it clears the draft on success. A result not yet queued keeps its first-rating path.
+  - `submit_rating` refuses an archived result (`ResultArchivedError`, 409): a late draft can no longer add a 4th rating.
+  - Setting `REVIEW_BATCH_SIZE` (default 12).
+  - Frontend: the queue page lists cases with a heading for the mode ("Started by other reviewers" / "Your batch: N of M rated" / "Nothing to review right now"), or, with a draft, a "Continue rating" banner. Each case opens full screen at `/review/:resultId` (`RatePage`): "← Queue", area badge, position, query, answer, the rubric wizard, "Submit & next" (opens the next case the queue offers). The rubric autosaves (0.8 s after the last change, plus on leaving the page) with a "Progress saved" status, and is restored on return.
+- **Judgment calls:**
+  - **A draft starts with the first score or comment**, not on opening a case (operator did not say; recommended and not contradicted).
+  - **A draft whose case is archived by others first is removed, with a notice** on the queue page. The operator ruled out discarding by the reviewer; the alternative, letting a draft reserve a rating slot, would allow 4 ratings.
+  - **"Fresh" = rated by nobody and never in this reviewer's batches.** Overlap with other reviewers' batches is allowed; items in the fewest batches are picked first, then oldest. Batch items are shown oldest first.
+  - **A batch item someone else starts (1–2 ratings) moves to the started-by-others list** (rule 1 applies to it like any other) and still counts toward the batch once rated.
+  - **Replacement for an archived batch item** is another fresh item, if any; otherwise the batch shrinks. When every unrated item is gone, the batch counts as finished.
+  - **Batches are created on reading the queue** (`GET /review-queue`), not by a separate call, so the list a reviewer sees is always the stored one.
+  - **Viewing a case's detail (`GET /review-queue/{id}`) is not restricted** to offered items; drafting and submitting are.
+- **Tests:** `tests/test_review_assignment.py` (13: each rule, overlap, replacement, shrink, empty, draft lock, encryption, size cap, archived draft), `tests/test_review_queue_routes.py` (new list shape, draft routes), `tests/test_rubric_routes.py` (submit refused while a draft for another case exists), `tests/test_rubric_workflow.py` (archived result refuses a 4th rating; the escalation test now uses a result per action). Shared fake: `tests/review_queue_fakes.py`. Suite 1078 passed; `tsc`/ESLint clean.
+- **Live check:** migration applied; the SQL store run against the real database inside a rolled-back transaction: two reviewers get disjoint 12-item batches (overlap only once fresh items run out), the batch is stable across reads (an ordering bug found here and fixed: items assigned together were returned in random-id order), a draft locks the queue, and nothing persisted. The new pages were not walked through in a browser (Chrome extension not connected).
+- **Reversible?:** yes (downgrade the migration; restore the list route).

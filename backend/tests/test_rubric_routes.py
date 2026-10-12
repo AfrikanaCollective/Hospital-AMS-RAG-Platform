@@ -10,9 +10,11 @@ from fastapi.testclient import TestClient
 
 import app.audit.log as audit_log
 from app.api.deps import Principal, current_principal, get_db
+from app.api.routes.rubric import get_queue_store
 from app.db.models.eval import IRRScore, RatingRound, Result, RubricRating
 from app.main import app as fastapi_app
 from app.rubric.domains import RUBRIC_DOMAIN_CODES
+from tests.review_queue_fakes import FakeStore
 
 RESULT_ID = uuid.uuid4()
 
@@ -77,6 +79,9 @@ def _overrides(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(audit_log, "_fetch_last_row_hash", lambda session: None)  # noqa: ARG005
     session = _FakeSession()
     fastapi_app.dependency_overrides[get_db] = lambda: session
+    # The queue check (DEVIATIONS.md #294) sees no draft and no open items:
+    # RESULT_ID is not yet queued, so a first rating may open it.
+    fastapi_app.dependency_overrides[get_queue_store] = lambda: FakeStore(0)
     fastapi_app.dependency_overrides[current_principal] = lambda: Principal(
         user_id=str(uuid.uuid4()), roles=frozenset({"reviewer"}), is_clinician=True
     )
@@ -165,3 +170,22 @@ def test_get_result_ratings_shape(client: TestClient, monkeypatch: pytest.Monkey
     assert body["result_id"] == str(RESULT_ID)
     assert body["distinct_rater_count"] == 0
     assert body["archived"] is False
+
+
+def test_submit_rating_refused_while_a_draft_for_another_item_exists(client: TestClient) -> None:
+    """DEVIATIONS.md #294: a half-finished rating must be submitted first."""
+    store = FakeStore(1)
+    rater = uuid.uuid4()
+    fastapi_app.dependency_overrides[get_queue_store] = lambda: store
+    fastapi_app.dependency_overrides[current_principal] = lambda: Principal(
+        user_id=str(rater), roles=frozenset({"reviewer"}), is_clinician=True
+    )
+    from app.rubric.assignment import save_draft
+
+    save_draft(store, rater, store.results[0], {"scores": {}}, batch_size=12)
+    scores = [{"domain_code": c, "score": 4} for c in RUBRIC_DOMAIN_CODES]
+    resp = client.post(
+        f"/api/rubric/results/{RESULT_ID}/ratings",
+        json={"scores": scores, "accept_action": "full_accept"},
+    )
+    assert resp.status_code == 409 and "saved rating first" in resp.json()["detail"]

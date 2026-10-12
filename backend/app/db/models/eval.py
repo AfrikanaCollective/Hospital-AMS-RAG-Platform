@@ -242,3 +242,46 @@ class EvalRun(UUIDPk, TimestampMixin, Base):
         JSONB, default=dict
     )  # metrics by expected_outcome + by provenance
     passed: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class ReviewBatchItem(UUIDPk, Base):
+    """One fresh result assigned to a reviewer's batch (DEVIATIONS.md #294).
+
+    A reviewer works through items other reviewers have started first; only
+    when none are left are they given a batch of up to `REVIEW_BATCH_SIZE`
+    fresh (unrated) results, kept until every item in it is rated by them.
+    `batch_no` counts a reviewer's batches; the current batch is their
+    highest. An item archived by others before this reviewer rates it is
+    `dropped_at` and replaced. UNIQUE (rater_id, result_id): a result is
+    assigned to a reviewer at most once, ever."""
+
+    __tablename__ = "review_batch_item"
+    __table_args__ = (
+        UniqueConstraint("rater_id", "result_id", name="review_batch_item_once_per_rater"),
+        {"schema": SCHEMA},
+    )
+
+    rater_id: Mapped[uuid.UUID] = mapped_column(index=True)
+    batch_no: Mapped[int] = mapped_column(Integer)
+    result_id: Mapped[uuid.UUID] = mapped_column(ForeignKey(f"{SCHEMA}.result.id"), index=True)
+    assigned_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    dropped_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class RatingDraft(Base):
+    """A reviewer's one half-finished rating (DEVIATIONS.md #294): at most one
+    per reviewer (the primary key), kept until they submit it. The rubric
+    state is encrypted with `rating_draft_aad`."""
+
+    __tablename__ = "rating_draft"
+    __table_args__ = {"schema": SCHEMA}
+
+    rater_id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
+    result_id: Mapped[uuid.UUID] = mapped_column(ForeignKey(f"{SCHEMA}.result.id"))
+    payload_enc: Mapped[bytes] = mapped_column(LargeBinary)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+def rating_draft_aad(rater_id: uuid.UUID, result_id: uuid.UUID) -> bytes:
+    """AAD for `RatingDraft.payload_enc`, shared by writer and reader."""
+    return f"eval.rating_draft:{rater_id}:{result_id}".encode()

@@ -139,6 +139,20 @@ def test_third_distinct_rater_triggers_archive(monkeypatch: pytest.MonkeyPatch) 
     get_settings.cache_clear()
 
 
+def test_an_archived_result_refuses_a_fourth_rating(monkeypatch: pytest.MonkeyPatch) -> None:
+    """DEVIATIONS.md #294: e.g. a draft submitted after others finished it."""
+    monkeypatch.setenv("IRR_MIN_RATERS", "3")
+    get_settings.cache_clear()
+    result = _result()
+    session = _FakeSession(result)
+    for _ in range(3):
+        _submit(session, result_id=RESULT_ID, rater_id=uuid.uuid4(), scores=_full_scores(4))
+    assert result.queue_state == "archived"
+    with pytest.raises(wf.ResultArchivedError):
+        _submit(session, result_id=RESULT_ID, rater_id=uuid.uuid4(), scores=_full_scores(4))
+    get_settings.cache_clear()
+
+
 def test_accept_action_is_required() -> None:
     """ARCH §13.2 "Both axes together": every rating submission records an
     accept-axis decision too — `submit_rating` has no default for it."""
@@ -179,9 +193,10 @@ def test_submit_rating_never_creates_an_escalation() -> None:
     would fail a test, not just a code review. Also exercises every action,
     including `partial_accept`, with no `accept_edited_answer` at all
     (DEVIATIONS.md #101: a ranker is never required to write anything)."""
-    result = _result()
-    session = _FakeSession(result)
+    # A fresh result per action: a result is archived at its third rating
+    # and then refuses more (DEVIATIONS.md #294).
     for action in HitlAcceptAction:
+        session = _FakeSession(_result())
         _submit(
             session,
             result_id=RESULT_ID,
@@ -189,7 +204,7 @@ def test_submit_rating_never_creates_an_escalation() -> None:
             scores=_full_scores(),
             accept_action=action,
         )
-    assert not any(type(o).__name__ == "Escalation" for o in session.added)
+        assert not any(type(o).__name__ == "Escalation" for o in session.added)
 
 
 def test_submit_rating_trusts_already_validated_accept_fields() -> None:

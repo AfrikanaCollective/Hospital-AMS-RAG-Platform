@@ -1493,7 +1493,12 @@ the admin set a new password for an email + password reviewer. A rejected
 reviewer sees the admin's reason (required when rejecting, 5–500 characters;
 DEVIATIONS.md #285) and can correct their details and resubmit (the form opens prefilled),
 up to `REVIEWER_MAX_RESUBMISSIONS` times (DEVIATIONS.md #286);
-the admin sees it marked as a resubmission (DEVIATIONS.md #284). Five wrong
+the admin sees it marked as a resubmission (DEVIATIONS.md #284).
+On **Review** a reviewer is offered cases other reviewers have started
+first, then their own batch of `REVIEW_BATCH_SIZE` (12) fresh cases, kept
+until all are rated; each case opens on its own page (`/review/<id>`) with
+"Submit & next". A half-finished rating is saved as they go and must be
+submitted before another case (DEVIATIONS.md #294). Five wrong
 passwords within 15 minutes lock an account for the rest of that window
 (DEVIATIONS.md #283). Before
 reviewers can use it:
@@ -1582,6 +1587,7 @@ All config is via environment variables / `.env` (secrets via
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD` | empty | the single admin login (plaintext in the gitignored `.env`); either empty disables admin sign-in |
 | `REVIEWER_COMPLETION_THRESHOLD` | `5` | completed review cases at which the admin page marks a reviewer's target as reached |
 | `REVIEWER_CONSENT_PATH` | `data/reviewer_consent.yaml` | operator-attested consent text; registration stays closed until it is attested |
+| `REVIEW_BATCH_SIZE` | `12` | fresh review cases given to a reviewer at a time, once no cases started by other reviewers are left for them (DEVIATIONS.md #294) |
 | `REVIEWER_MAX_RESUBMISSIONS` | `2` | resubmissions a rejected reviewer may make (2 = up to three submissions in all; 0 = the first rejection is final) (DEVIATIONS.md #286) |
 | `SIGNIN_MAX_FAILURES_PER_ACCOUNT` / `SIGNIN_MAX_FAILURES_PER_IP` / `SIGNIN_WINDOW_SECONDS` | `5` / `20` / `900` | failed email + password and admin sign-ins: reaching the limit within the window locks that account (or IP address) until the window ends; sign-in then returns 429 with `Retry-After`. Counters are in Redis (falls back to in-process if Redis is down) (DEVIATIONS.md #283) |
 | `PATIENT_RECORD_VECTORS_ENABLED` | `false` | keep off unless deliberately enabling record vectorization |

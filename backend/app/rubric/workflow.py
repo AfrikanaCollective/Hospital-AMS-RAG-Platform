@@ -78,6 +78,12 @@ class DuplicateRaterError(ValueError):
     pass
 
 
+class ResultArchivedError(ValueError):
+    """The result already has its ratings and was archived; a late
+    submission (e.g. a draft finished after others) must not add a 4th
+    (DEVIATIONS.md #294)."""
+
+
 def is_eligible_rater(
     *, rater_id: object, result_producer_id: object, already_rated_by: Collection[object]
 ) -> bool:
@@ -184,6 +190,8 @@ def submit_rating(
     result = _fetch_result(session, result_id)
     if result is None:
         raise ResultNotFoundError(f"no result {result_id}")
+    if result.queue_state == QueueState.ARCHIVED:
+        raise ResultArchivedError(f"result {result_id} is already archived")
 
     already_rated_by = {r.rater_id for r in _fetch_rating_rounds(session, result_id)}
     eligible = is_eligible_rater(

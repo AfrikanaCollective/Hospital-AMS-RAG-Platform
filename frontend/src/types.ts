@@ -137,6 +137,26 @@ export interface QueueResult {
   query_area: string | null;
 }
 
+// GET /review-queue (DEVIATIONS.md #294): items started by other reviewers
+// first ("in_progress"), then the reviewer's own batch ("batch"); while a
+// half-finished rating exists, only its item ("draft").
+export interface ReviewQueueView {
+  mode: "draft" | "in_progress" | "batch" | "empty";
+  items: QueueResult[];
+  draft_result_id: string | null;
+  /** The draft's item was archived by others before it was submitted. */
+  draft_dropped: boolean;
+  batch: { done: number; total: number } | null;
+}
+
+// The rubric form's own state, saved as the reviewer's one draft (#294).
+export interface RatingDraftState {
+  scores: Record<string, number>;
+  comment: string;
+  accept: AcceptAxisValue;
+  step: number;
+}
+
 // GET /review-queue/{id} detail.
 export interface QueueResultDetail {
   result_id: string;

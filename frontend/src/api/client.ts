@@ -19,7 +19,8 @@ import type {
   QueryJobAccepted,
   QueryJobStatus,
   QueryResponse,
-  QueueResult,
+  RatingDraftState,
+  ReviewQueueView,
   QueueResultDetail,
   RatingRoundSubmitResponse,
   RatingSubmission,
@@ -163,7 +164,16 @@ export const api = {
 
   getRubricDomains: () => req<RubricDomain[]>("/rubric/domains"),
 
-  getReviewQueue: () => req<QueueResult[]>("/review-queue"),
+  getReviewQueue: () => req<ReviewQueueView>("/review-queue"),
+
+  // The reviewer's one half-finished rating (DEVIATIONS.md #294).
+  getRatingDraft: () =>
+    req<{ result_id: string; payload: Partial<RatingDraftState> }>("/review-queue/draft"),
+  saveRatingDraft: (resultId: string, payload: RatingDraftState) =>
+    req<{ result_id: string }>("/review-queue/draft", {
+      method: "PUT",
+      body: JSON.stringify({ result_id: resultId, payload }),
+    }),
 
   getReviewQueueItem: (resultId: string) =>
     req<QueueResultDetail>(`/review-queue/${resultId}`),

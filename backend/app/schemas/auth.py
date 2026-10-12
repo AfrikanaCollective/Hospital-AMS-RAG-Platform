@@ -3,11 +3,13 @@ consent, registration and admin review (DEVIATIONS.md #282)."""
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator, model_validator
 
 from app.auth.passwords import MAX_PASSWORD_LENGTH
 from app.auth.registration_options import (
     CADRE_OPTIONS,
+    CADRE_OTHER,
+    EXPERTISE_CADRES,
     EXPERTISE_OPTIONS,
     PHONE_PATTERN,
     SEX_OPTIONS,
@@ -88,6 +90,8 @@ class ConsentDecision(BaseModel):
 class RegistrationOption(BaseModel):
     value: str
     label: str
+    # Expertise levels only: the cadres it is shown for; None means all (#288).
+    cadres: list[str] | None = None
 
 
 class RegistrationOptions(BaseModel):
@@ -109,6 +113,8 @@ class RegistrationIn(BaseModel):
 
     sex: str
     cadre: str
+    # Required when cadre is "other", dropped otherwise (DEVIATIONS.md #289).
+    cadre_other: str | None = Field(default=None, max_length=TEXT_MAX)
     expertise_level: str
     years_post_internship: StrictInt = Field(ge=YEARS_MIN, le=YEARS_MAX)
     organisation: str = Field(min_length=TEXT_MIN, max_length=TEXT_MAX)
@@ -136,6 +142,23 @@ class RegistrationIn(BaseModel):
     def _expertise(cls, v: str) -> str:
         return _one_of(v, EXPERTISE_OPTIONS, "expertise_level")
 
+    @model_validator(mode="after")
+    def _cadre_other(self) -> RegistrationIn:
+        if self.cadre != CADRE_OTHER:
+            self.cadre_other = None
+        elif not self.cadre_other or len(self.cadre_other) < TEXT_MIN:
+            raise ValueError(
+                f"cadre_other: specify your cadre ({TEXT_MIN} to {TEXT_MAX} characters)"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _expertise_fits_cadre(self) -> RegistrationIn:
+        allowed = EXPERTISE_CADRES.get(self.expertise_level)
+        if allowed is not None and self.cadre not in allowed:
+            raise ValueError(f"expertise_level {self.expertise_level!r} is not open to this cadre")
+        return self
+
 
 def _one_of(value: str, options: dict[str, str], name: str) -> str:
     if value not in options:
@@ -152,6 +175,7 @@ class ReviewerRow(BaseModel):
     status: str
     sex: str | None
     cadre: str | None
+    cadre_other: str | None
     expertise_level: str | None
     years_post_internship: int | None
     organisation: str | None
@@ -179,6 +203,7 @@ class OwnRegistration(BaseModel):
 
     sex: str | None
     cadre: str | None
+    cadre_other: str | None
     expertise_level: str | None
     years_post_internship: int | None
     organisation: str | None

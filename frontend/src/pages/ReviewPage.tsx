@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import ReviewQueue from "../components/ReviewQueue";
+import { queryAreaLabel } from "../queryArea";
 import RubricForm from "../components/RubricForm";
 import AnswerSegments from "../components/AnswerSegments";
 import CitationList from "../components/CitationList";
@@ -74,7 +75,7 @@ function RankModeSection() {
       {detail && (
         <div className="mt-4 space-y-4 rounded-md border border-border p-3">
           <h4 className="text-sm font-semibold text-ink">
-            Result {detail.result_id.slice(0, 8)}
+            Result {detail.result_id.slice(0, 8)} · {queryAreaLabel(detail.query_area)}
           </h4>
           {detail.question && (
             <p className="italic text-ink-muted">

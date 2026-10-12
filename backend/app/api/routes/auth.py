@@ -45,6 +45,7 @@ from app.auth.google import GoogleTokenError, verify_google_id_token
 from app.auth.rate_limit import SignInLimiter, account_key, get_signin_limiter
 from app.auth.registration_options import (
     CADRE_OPTIONS,
+    EXPERTISE_CADRES,
     EXPERTISE_OPTIONS,
     SEX_OPTIONS,
     TEXT_MAX,
@@ -347,7 +348,14 @@ async def registration_options() -> RegistrationOptions:
     return RegistrationOptions(
         sex=opts(SEX_OPTIONS),
         cadre=opts(CADRE_OPTIONS),
-        expertise_level=opts(EXPERTISE_OPTIONS),
+        expertise_level=[
+            RegistrationOption(
+                value=k,
+                label=v,
+                cadres=sorted(EXPERTISE_CADRES[k]) if k in EXPERTISE_CADRES else None,
+            )
+            for k, v in EXPERTISE_OPTIONS.items()
+        ],
         years_min=YEARS_MIN,
         years_max=YEARS_MAX,
         text_min=TEXT_MIN,

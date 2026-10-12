@@ -3594,3 +3594,57 @@ not retroactively. When in doubt, log it.
   - **No network check.** Safaricom and Airtel both issue 07xx and 01xx numbers, and numbers port between networks, so the pattern checks the Kenyan mobile format only.
 - **Tests:** `tests/test_reviewer_accounts.py`: phone missing/blank/null accepted as `None`, 01xx accepted, 08xx rejected; a registration without a phone stores `phone_enc = None`; the "every field mandatory" test now excludes the phone.
 - **Reversible?:** yes (make the field required again; restore the pattern).
+
+### 288. Operator's clinical cadre list; "General practitioner" level only for Medical Officer or Other
+- **Date / phase:** 2026-10-12, Phase 9. Operator: cadre options are Neonatologist, Paediatrician, Clinical Pharmacist, Medical Officer, Other; expertise levels unchanged; "General practitioner (post-internship) is only shown for 'Medical Officer' or 'Other'".
+- **Requirement ID(s):** ARCH-045.
+- **What was done:**
+  - `CADRE_OPTIONS` replaced with the operator's five (keys `neonatologist`, `paediatrician`, `clinical_pharmacist`, `medical_officer`, `other`). Clinical officer, nurse and the old "pharmacist" key are gone.
+  - New `EXPERTISE_CADRES` (`registration_options.py`): `general_practitioner` → {`medical_officer`, `other`}; levels not listed are open to every cadre. `RegistrationIn` rejects a mismatched pair (422, "not open to this cadre"), so the rule holds even without the form.
+  - `GET /auth/registration/options` gives each expertise level a `cadres` list (null = all). The form shows only the levels that fit the chosen cadre, and clears the expertise choice when a cadre change makes it invalid.
+- **Judgment calls:**
+  - **The rule is enforced on the server too**, not only hidden in the form, so stored registrations always satisfy it.
+  - **Before a cadre is chosen**, the GP level is hidden (no cadre fits it yet); registrar and specialist show.
+  - **No free-text "please specify" for Other**: not asked for. Role/title already captures it.
+  - **No migration**: no reviewer had registered, so no stored rows hold the removed cadre keys.
+- **Tests:** `tests/test_reviewer_accounts.py`: GP accepted for medical_officer/other and rejected for the other three, registrar/specialist accepted for every cadre; `nurse` now rejected; the options route returns the five labels in order and each level's `cadres`. Suite 1056 passed.
+- **Reversible?:** yes (edit `CADRE_OPTIONS` / `EXPERTISE_CADRES`).
+
+### 289. "Please specify" box for cadre "Other"
+- **Date / phase:** 2026-10-12, Phase 9. Operator: "yes, add a specify box for Other" (gap flagged with #288).
+- **Requirement ID(s):** ARCH-045.
+- **What was done:**
+  - New nullable column `iam.reviewer_profile.cadre_other` (`String(30)`, migration `a4c8e1f27d93`).
+  - `RegistrationIn.cadre_other`: required when `cadre` is `other` (4–30 characters after trimming, the same limits as organisation and role/title); set to `None` for any other cadre, so text left over from switching away from Other is never stored.
+  - Stored on submission, returned in the reviewer's own prefilled answers (`GET /auth/registration`) and in the admin's reviewer list. The admin card shows "Other: <text>".
+  - Form: "Please specify your cadre" text box shown under the cadre choices only while Other is selected; validated like the other text fields.
+- **Judgment calls:**
+  - **Same 4–30 character limits as the other text fields**, for consistency. A short abbreviation such as "CO" is refused; the reviewer writes "Clinical officer".
+  - **Plain text, not encrypted:** like organisation and role/title, it describes the reviewer's work, not a contact detail.
+- **Tests:** `tests/test_reviewer_accounts.py`: Other without text, blank, or under 4 characters refused; over 30 refused; trimmed text accepted; text dropped for a listed cadre; stored and returned in own answers; existing own-answers and GP-by-cadre tests updated. Suite 1059 passed.
+- **Reversible?:** yes (downgrade the migration; drop the field).
+
+### 290. Query-area column in the review queue
+- **Date / phase:** 2026-10-12, Phase 9. Operator: "add a column for which query area that the query belongs to".
+- **Requirement ID(s):** PRD-042, PRD-047.
+- **What was done:**
+  - `GET /review-queue` rows and `GET /review-queue/{id}` gain `query_area`, read from the linked `eval_question.generator_meta.area` (`assessment`, `investigations`, `severity_classification`, `antibiotic_course`); `null` for a result with no generated question or no area (e.g. older results).
+  - Queue table: new "Query area" column (first after Result); the phone-width card shows "Query area: …"; the selected item's heading shows it too. Labels come from the key ("Severity classification"), via `frontend/src/queryArea.ts`.
+- **Judgment calls:**
+  - **Label derived from the key**, not from `data/query_areas.yaml`, which holds no display names; avoids reading the attested file on every queue request.
+  - **One `session.get` per row** for the question: the queue holds at most a few dozen rows.
+- **Tests:** `tests/test_review_queue_routes.py::test_queue_and_item_show_the_query_area` (area in list and detail; `null` without a question). Suite 1060 passed.
+- **Reversible?:** yes.
+
+### 291. Review queue shows the generated query without the clinical-concept expansions
+- **Date / phase:** 2026-10-12, Phase 9. Operator: "In the review queue, for the generated query, do not include the generated clinical concepts", pointing at an antibiotic-course item ("aged 1 days (Newborns aged 0-6days; aged <7 days; 0-6 days)", "Weight (kg): 3.9, 4.00, 4.0, 4.00, 4.00, 4.0 (…)").
+- **Requirement ID(s):** PRD-042, PRD-047.
+- **What was done:**
+  - New `app.eval.question_gen.areas.reviewer_question_text`: removes the age-band label after "is aged N days" and every weight rendering after the first (as-provided) one. Only the antibiotic-course area adds these (`age_days_with_band`, `weight_kg`); other areas' text passes through unchanged.
+  - `GET /review-queue/{id}` returns `question` through it. A reviewer now sees e.g. "The newborn patient is aged 1 days, born at 39.0 weeks gestation, currently in NBU." and "Weight (kg): 3.9 (current weight; birth weight 3.9 kg)".
+- **Judgment calls:**
+  - **Display only.** The stored `eval_question.text`, the query the pipeline answered, the retrieval, and the 40 existing answers are unchanged: the expansions are dose-table wording for retrieval (DEVIATIONS.md #256, #248/#249), and regenerating would change the answers already queued. If the operator wants the pipeline query itself without them, that is a change to the attested `data/query_areas.yaml` and a regeneration, not done here.
+  - **Stripped from the stored text** with patterns tied to the renderer's own output (tests build a question and strip it), rather than storing a second text, so it applies to the 40 existing items without a migration.
+  - The multi-stage audit query (`multi_stage.query`, concept-augmented) is still returned by the API for traceability but was never shown on the review page; left as is.
+- **Tests:** `tests/test_four_area_questions.py`: expansions removed for current and birth-weight-only records, opening line unchanged, other three areas untouched, and a stored-question example from the live queue. Suite 1063 passed.
+- **Reversible?:** yes (return `eval_question.text` directly).

@@ -133,6 +133,8 @@ export interface QueueResult {
   provenance: string;
   expected_outcome: string | null;
   observed_outcome: string | null;
+  /** Four-area query area, e.g. "antibiotic_course"; null if none (#290). */
+  query_area: string | null;
 }
 
 // GET /review-queue/{id} detail.
@@ -140,6 +142,7 @@ export interface QueueResultDetail {
   result_id: string;
   provenance: string;
   expected_outcome: string | null;
+  query_area: string | null;
   // The auto-generated (or clinician-submitted) question this result
   // answers; null for a result with no linked `eval_question` row
   // (DEVIATIONS.md #120).
@@ -238,6 +241,8 @@ export interface ConsentText {
 export interface RegistrationOption {
   value: string;
   label: string;
+  // Expertise levels only: the cadres it is shown for; null means all.
+  cadres?: string[] | null;
 }
 
 export interface RegistrationOptions {
@@ -253,6 +258,8 @@ export interface RegistrationOptions {
 export interface RegistrationForm {
   sex: string;
   cadre: string;
+  /** Required when cadre is "other"; null otherwise (#289). */
+  cadre_other: string | null;
   expertise_level: string;
   years_post_internship: number;
   organisation: string;
@@ -267,6 +274,7 @@ export interface ReviewerRow {
   status: string;
   sex: string | null;
   cadre: string | null;
+  cadre_other: string | null;
   expertise_level: string | null;
   years_post_internship: number | null;
   organisation: string | null;

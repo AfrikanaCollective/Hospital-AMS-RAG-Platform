@@ -1482,7 +1482,8 @@ Sign in with a seeded demo user's email, no password (`make seed`):
 **Clinician reviewer sign-in (ARCH-045, DEVIATIONS.md #282).** Reviewers sign
 in with Google, or with an email address and password if they have no Google
 account. A first sign-in leads to the informed consent text (declining
-returns to the sign-in page), then a registration form (sex, clinical cadre,
+returns to the sign-in page), then a registration form (sex, clinical cadre
+(with a "please specify" box for Other),
 expertise level, years post-internship, organisation, role/title, all
 required; and a Kenyan Safaricom or Airtel number, optional because only
 participants in Kenya are reimbursed, DEVIATIONS.md #287). The account has no access until an administrator

@@ -1,4 +1,5 @@
 import type { QueueResult } from "../types";
+import { queryAreaLabel } from "../queryArea";
 import Button from "./ui/Button";
 
 // Open review queue (PRD-042, PRD-047; rank mode). Lists results with < 3
@@ -36,6 +37,7 @@ export default function ReviewQueue({
               <span>{r.provenance}</span>
             </div>
             <div className="mt-1 text-[13px] text-ink">
+              <div>Query area: {queryAreaLabel(r.query_area)}</div>
               <div>Expected: {r.expected_outcome ?? "—"}</div>
               <div>Observed: {r.observed_outcome ?? "—"}</div>
             </div>
@@ -50,6 +52,7 @@ export default function ReviewQueue({
         <thead>
           <tr>
             <th className="text-left">Result</th>
+            <th className="text-left">Query area</th>
             <th className="text-left">Provenance</th>
             <th className="text-left">Expected outcome</th>
             <th className="text-left">Observed outcome</th>
@@ -65,6 +68,7 @@ export default function ReviewQueue({
               <td>
                 <code>{r.result_id.slice(0, 8)}</code>
               </td>
+              <td>{queryAreaLabel(r.query_area)}</td>
               <td>{r.provenance}</td>
               <td>{r.expected_outcome ?? "—"}</td>
               <td>{r.observed_outcome ?? "—"}</td>

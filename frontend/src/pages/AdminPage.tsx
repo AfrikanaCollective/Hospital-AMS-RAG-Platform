@@ -88,7 +88,10 @@ function PendingRegistrations({ options }: { options: RegistrationOptions | null
             {(
               [
                 ["Sex", sex(r.sex)],
-                ["Clinical cadre", cadre(r.cadre)],
+                [
+                  "Clinical cadre",
+                  r.cadre_other ? `${cadre(r.cadre)}: ${r.cadre_other}` : cadre(r.cadre),
+                ],
                 ["Expertise level", expertise(r.expertise_level)],
                 ["Years post-internship", r.years_post_internship ?? "—"],
                 ["Organisation", r.organisation ?? "—"],

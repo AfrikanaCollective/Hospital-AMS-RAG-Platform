@@ -28,6 +28,7 @@ attestation field, unknown record fact, or malformed spec.
 from __future__ import annotations
 
 import hashlib
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -245,6 +246,22 @@ def _patient_sentence(record: dict, area: QueryArea) -> str | None:
     if "presenting_complaint" in area.record_facts and complaint:
         parts.append(f"presenting with {complaint}")
     return "The newborn patient " + ", ".join(parts) + "." if parts else None
+
+
+# The retrieval-only expansions `_patient_sentence` and `_weight_line` add:
+# the age band after "is aged N days", and every weight rendering after the
+# first (as-provided) one.
+_AGE_BAND_RE = re.compile(r"(is aged \d+ days) \([^()\n]*\)")
+_WEIGHT_RENDERINGS_RE = re.compile(r"^(Weight \(kg\): [^,\n]+?)(?:, [^,\n]+?)+( \()", re.MULTILINE)
+
+
+def reviewer_question_text(text: str) -> str:
+    """The question as a reviewer sees it (DEVIATIONS.md #291): the age-band
+    labels and extra weight renderings are dose-table wording added for
+    retrieval only, so they are removed; the recorded age and weight stay.
+    The text sent to the pipeline is unchanged. Other text passes through."""
+    text = _AGE_BAND_RE.sub(r"\1", text)
+    return _WEIGHT_RENDERINGS_RE.sub(r"\1\2", text)
 
 
 def build_area_question(record: dict, area: QueryArea, *, include_absent: bool = True) -> str:

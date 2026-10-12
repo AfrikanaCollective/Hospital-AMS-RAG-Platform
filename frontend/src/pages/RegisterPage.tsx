@@ -12,11 +12,17 @@ import Button from "../components/ui/Button";
 type Field =
   | "sex"
   | "cadre"
+  | "cadre_other"
   | "expertise_level"
   | "years_post_internship"
   | "organisation"
   | "role_title"
   | "safaricom_phone";
+
+// An expertise level with `cadres` is shown only for those cadres (#288).
+const fitsCadre = (o: RegistrationOption, cadre: string) => !o.cadres || o.cadres.includes(cadre);
+
+type TextField = "organisation" | "role_title" | "cadre_other";
 
 const inputClass = "w-full rounded-lg border border-border bg-surface p-2 text-[15px] text-ink";
 
@@ -64,6 +70,7 @@ export default function RegisterPage() {
   const [values, setValues] = useState<Record<Field, string>>({
     sex: "",
     cadre: "",
+    cadre_other: "",
     expertise_level: "",
     years_post_internship: "",
     organisation: "",
@@ -97,6 +104,7 @@ export default function RegisterPage() {
         setValues({
           sex: prev.sex ?? "",
           cadre: prev.cadre ?? "",
+          cadre_other: prev.cadre_other ?? "",
           expertise_level: prev.expertise_level ?? "",
           years_post_internship:
             prev.years_post_internship == null ? "" : String(prev.years_post_internship),
@@ -110,6 +118,14 @@ export default function RegisterPage() {
 
   const set = (field: Field) => (v: string) => setValues((prev) => ({ ...prev, [field]: v }));
 
+  // Changing cadre drops an expertise level the new cadre cannot have.
+  const setCadre = (cadre: string) =>
+    setValues((prev) => {
+      const level = options?.expertise_level.find((o) => o.value === prev.expertise_level);
+      const keep = !level || fitsCadre(level, cadre);
+      return { ...prev, cadre, expertise_level: keep ? prev.expertise_level : "" };
+    });
+
   const validate = (o: RegistrationOptions): Partial<Record<Field, string>> => {
     const e: Partial<Record<Field, string>> = {};
     if (!values.sex) e.sex = "Select one.";
@@ -119,7 +135,9 @@ export default function RegisterPage() {
     if (!/^[0-9]+$/.test(years)) e.years_post_internship = "Enter a whole number.";
     else if (Number(years) < o.years_min || Number(years) > o.years_max)
       e.years_post_internship = `Enter a number from ${o.years_min} to ${o.years_max}.`;
-    for (const f of ["organisation", "role_title"] as const) {
+    const textFields: TextField[] = ["organisation", "role_title"];
+    if (values.cadre === "other") textFields.push("cadre_other");
+    for (const f of textFields) {
       const n = values[f].trim().length;
       if (n < o.text_min || n > o.text_max)
         e[f] = `Enter ${o.text_min} to ${o.text_max} characters (now ${n}).`;
@@ -142,6 +160,7 @@ export default function RegisterPage() {
       const me = await api.submitRegistration({
         sex: values.sex,
         cadre: values.cadre,
+        cadre_other: values.cadre === "other" ? values.cadre_other.trim() : null,
         expertise_level: values.expertise_level,
         years_post_internship: Number(values.years_post_internship.trim()),
         organisation: values.organisation.trim(),
@@ -175,7 +194,7 @@ export default function RegisterPage() {
       <p className="mt-10 text-[13px] text-ink-muted">{serverError ?? "Loading…"}</p>
     );
 
-  const textField = (field: "organisation" | "role_title", label: string) => (
+  const textField = (field: TextField, label: string) => (
     <label className="grid gap-1 text-[14px] font-medium text-ink">
       {label}
       <input
@@ -226,13 +245,14 @@ export default function RegisterPage() {
           name="cadre"
           options={options.cadre}
           value={values.cadre}
-          onChange={set("cadre")}
+          onChange={setCadre}
           error={errors.cadre}
         />
+        {values.cadre === "other" && textField("cadre_other", "Please specify your cadre")}
         <RadioField
           legend="Expertise level"
           name="expertise_level"
-          options={options.expertise_level}
+          options={options.expertise_level.filter((o) => fitsCadre(o, values.cadre))}
           value={values.expertise_level}
           onChange={set("expertise_level")}
           error={errors.expertise_level}

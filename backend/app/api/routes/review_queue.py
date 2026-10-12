@@ -42,9 +42,22 @@ from app.db.models.eval import (
     result_multi_stage_answer_aad,
     result_segments_aad,
 )
+from app.eval.question_gen.areas import reviewer_question_text
 from app.rubric.workflow import list_queue_candidates, select_queue_items
 
 router = APIRouter()
+
+
+def _query_area(session: Session, result: Result) -> str | None:
+    """The four-area query area (`generator_meta.area`) of the question this
+    result answers, shown as a queue column (DEVIATIONS.md #290); None when
+    the result has no generated question or the question has no area."""
+    if result.eval_question_id is None:
+        return None
+    question = session.get(EvalQuestion, result.eval_question_id)
+    area = (question.generator_meta or {}).get("area") if question is not None else None
+    return area if isinstance(area, str) else None
+
 
 _LIST_QUEUE_CANDIDATES_FN = list_queue_candidates
 
@@ -69,6 +82,7 @@ async def list_queue(
             "provenance": results[candidate.result_id].provenance,
             "expected_outcome": results[candidate.result_id].expected_outcome,
             "observed_outcome": results[candidate.result_id].observed_outcome,
+            "query_area": _query_area(session, results[candidate.result_id]),
             "distinct_rater_count": candidate.distinct_rater_count,
         }
         for candidate in selected
@@ -110,7 +124,8 @@ async def get_queue_item(
     question = None
     if result.eval_question_id is not None:
         eval_question = session.get(EvalQuestion, result.eval_question_id)
-        question = eval_question.text if eval_question is not None else None
+        # Without the antibiotic-course retrieval expansions (#291).
+        question = reviewer_question_text(eval_question.text) if eval_question is not None else None
 
     # Multi-stage (Phase 7 vocabulary-augmented, PRD-111 Arm C) audit-only
     # counterpart (DEVIATIONS.md #186) — read-only, for traceability/
@@ -133,6 +148,7 @@ async def get_queue_item(
         "result_id": result_id,
         "provenance": result.provenance,
         "expected_outcome": result.expected_outcome,
+        "query_area": _query_area(session, result),
         "question": question,
         "answer": answer,
         "segments": segments,

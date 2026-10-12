@@ -282,3 +282,34 @@ def test_get_queue_item_not_queued_is_404(client: TestClient) -> None:
 
     resp = client.get(f"/api/review-queue/{result.id}")
     assert resp.status_code == 404
+
+
+def test_queue_and_item_show_the_query_area(client: TestClient) -> None:
+    """DEVIATIONS.md #290: the four-area query area from generator_meta."""
+    question = EvalQuestion(
+        id=uuid.uuid4(),
+        text="What does the guideline recommend about ...",
+        provenance="auto_generated",
+        generator_meta={"area": "antibiotic_course", "purpose": "review_queue"},
+    )
+    with_area = Result(
+        id=uuid.uuid4(),
+        provenance="auto_generated",
+        queue_state="open",
+        eval_question_id=question.id,
+        created_at=datetime.now(UTC),
+    )
+    no_question = Result(
+        id=uuid.uuid4(),
+        provenance="clinician_submitted",
+        queue_state="open",
+        created_at=datetime.now(UTC),
+    )
+    session = _FakeSession([with_area, no_question], [], questions=[question])
+    fastapi_app.dependency_overrides[get_db] = lambda: session
+
+    rows = {row["result_id"]: row for row in client.get("/api/review-queue").json()}
+    assert rows[str(with_area.id)]["query_area"] == "antibiotic_course"
+    assert rows[str(no_question.id)]["query_area"] is None
+    item = client.get(f"/api/review-queue/{with_area.id}").json()
+    assert item["query_area"] == "antibiotic_course"

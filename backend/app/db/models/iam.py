@@ -88,6 +88,8 @@ class ReviewerProfile(TimestampMixin, Base):
     consented_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     sex: Mapped[str | None] = mapped_column(String(32))
     cadre: Mapped[str | None] = mapped_column(String(32))
+    # The reviewer's own cadre when `cadre` is "other"; else NULL (#289).
+    cadre_other: Mapped[str | None] = mapped_column(String(30))
     expertise_level: Mapped[str | None] = mapped_column(String(32))
     years_post_internship: Mapped[int | None] = mapped_column(SmallInteger)
     organisation: Mapped[str | None] = mapped_column(String(30))

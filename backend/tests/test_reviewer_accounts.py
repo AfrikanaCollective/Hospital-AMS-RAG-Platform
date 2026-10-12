@@ -225,6 +225,7 @@ def test_google_sign_in_needs_a_client_id(google_key) -> None:  # noqa: ANN001
         ("organisation", "KNH"),  # 3 characters
         ("role_title", "x" * 31),
         ("cadre", "surgeon"),
+        ("cadre", "nurse"),  # dropped from the list (#288)
         ("sex", "other"),
         ("expertise_level", ""),
     ],
@@ -245,6 +246,59 @@ def test_every_registration_field_but_the_phone_is_mandatory() -> None:
             continue
         with pytest.raises(ValidationError):
             RegistrationIn(**{k: v for k, v in FORM.items() if k != field})
+
+
+@pytest.mark.parametrize(
+    ("cadre", "ok"),
+    [
+        ("medical_officer", True),
+        ("other", True),
+        ("neonatologist", False),
+        ("paediatrician", False),
+        ("clinical_pharmacist", False),
+    ],
+)
+def test_general_practitioner_only_for_medical_officer_or_other(cadre: str, ok: bool) -> None:
+    """DEVIATIONS.md #288."""
+    specify = {"cadre_other": "Clinical officer"} if cadre == "other" else {}
+    form = {**FORM, **specify, "cadre": cadre, "expertise_level": "general_practitioner"}
+    if ok:
+        assert RegistrationIn(**form).cadre == cadre
+    else:
+        with pytest.raises(ValidationError, match="not open to this cadre"):
+            RegistrationIn(**form)
+    for level in ("registrar", "specialist"):
+        assert RegistrationIn(**{**FORM, **specify, "cadre": cadre, "expertise_level": level})
+
+
+def test_other_cadre_must_be_specified() -> None:
+    """DEVIATIONS.md #289."""
+    other = {**FORM, "cadre": "other"}
+    for missing in ({}, {"cadre_other": None}, {"cadre_other": "   "}, {"cadre_other": "CO"}):
+        with pytest.raises(ValidationError, match="specify your cadre"):
+            RegistrationIn(**other, **missing)
+    with pytest.raises(ValidationError):
+        RegistrationIn(**other, cadre_other="x" * 31)
+    assert RegistrationIn(**other, cadre_other="  Nurse  ").cadre_other == "Nurse"
+
+
+def test_cadre_other_is_dropped_for_a_listed_cadre() -> None:
+    form = RegistrationIn(**{**FORM, "cadre_other": "left over from Other"})
+    assert form.cadre == "medical_officer" and form.cadre_other is None
+
+
+def test_cadre_other_is_stored_and_returned(tmp_path: Path) -> None:
+    store = FakeStore()
+    consent = load_consent(_attested_consent(tmp_path))
+    user = accounts.register_password(store, "other@example.org", "long-enough-pw")
+    accounts.record_consent(
+        store, user, consent, agree=True, version=consent.version, sha256=consent.sha256
+    )
+    form = RegistrationIn(**{**FORM, "cadre": "other", "cadre_other": "Clinical officer"})
+    accounts.submit_registration(store, user, form, max_resubmissions=2)
+    assert store.get_profile(user.id).cadre_other == "Clinical officer"
+    own = accounts.own_registration(store, user)
+    assert own is not None and own["cadre_other"] == "Clinical officer"
 
 
 def test_phone_is_optional_for_participants_outside_kenya() -> None:
@@ -532,7 +586,19 @@ def test_route_registration_options(api) -> None:  # noqa: ANN001
     client, _ = api
     opts = client.get("/api/auth/registration/options").json()
     assert [o["value"] for o in opts["sex"]] == ["female", "male"]
-    assert len(opts["cadre"]) == 5 and len(opts["expertise_level"]) == 3
+    assert [o["label"] for o in opts["cadre"]] == [
+        "Neonatologist",
+        "Paediatrician",
+        "Clinical Pharmacist",
+        "Medical Officer",
+        "Other",
+    ]
+    cadres = {o["value"]: o["cadres"] for o in opts["expertise_level"]}
+    assert cadres == {
+        "general_practitioner": ["medical_officer", "other"],
+        "registrar": None,
+        "specialist": None,
+    }
     assert (opts["text_min"], opts["text_max"]) == (4, 30)
 
 
@@ -700,7 +766,7 @@ def test_own_registration_returns_the_last_answers(tmp_path: Path) -> None:
     fresh = accounts.register_password(store, "new@example.org", "long-enough-pw")
     assert accounts.own_registration(store, fresh) is None
     user = _rejected_reviewer(store, tmp_path)
-    assert accounts.own_registration(store, user) == FORM
+    assert accounts.own_registration(store, user) == {**FORM, "cadre_other": None}
 
 
 def test_route_resubmission(api, tmp_path: Path) -> None:  # noqa: ANN001
@@ -709,7 +775,7 @@ def test_route_resubmission(api, tmp_path: Path) -> None:  # noqa: ANN001
     # the api fixture's consent file has the same content, so the hash matches
     _as(str(user.id))
     assert client.get("/api/auth/me").json()["registration_status"] == "rejected"
-    assert client.get("/api/auth/registration").json() == FORM
+    assert client.get("/api/auth/registration").json() == {**FORM, "cadre_other": None}
     r = client.post("/api/auth/registration", json={**FORM, "role_title": "Senior MO"})
     assert r.json()["registration_status"] == "pending"
 

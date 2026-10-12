@@ -279,6 +279,7 @@ def submit_registration(
     profile.submission_count = (profile.submission_count or 0) + 1
     profile.sex = form.sex
     profile.cadre = form.cadre
+    profile.cadre_other = form.cadre_other
     profile.expertise_level = form.expertise_level
     profile.years_post_internship = form.years_post_internship
     profile.organisation = form.organisation
@@ -319,6 +320,7 @@ def own_registration(store: AccountStore, user: User) -> dict[str, object] | Non
     return {
         "sex": profile.sex,
         "cadre": profile.cadre,
+        "cadre_other": profile.cadre_other,
         "expertise_level": profile.expertise_level,
         "years_post_internship": profile.years_post_internship,
         "organisation": profile.organisation,

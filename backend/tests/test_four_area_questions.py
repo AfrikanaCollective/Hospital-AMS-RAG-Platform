@@ -19,6 +19,7 @@ from app.eval.question_gen.areas import (
     QueryAreasNotAttested,
     build_area_question,
     load_query_areas,
+    reviewer_question_text,
 )
 from app.eval.question_gen.deterministic import extract_topic
 from app.schemas.enums import ScopeLabel
@@ -127,6 +128,38 @@ def test_antibiotic_course_has_age_band_and_weight_renderings() -> None:
     # current weight preferred (2845 g), birth weight noted
     assert "Weight (kg): 2.845, 2.75, 3.0, 3.00" in text  # as provided, 0.25, whole, ...
     assert "(current weight; birth weight 2.35 kg)" in text
+
+
+def test_reviewer_text_drops_the_retrieval_expansions() -> None:
+    """DEVIATIONS.md #291: reviewers see the recorded age and weight only."""
+    area = next(a for a in load_query_areas(REAL_AREAS).areas if a.name == "antibiotic_course")
+    full = build_area_question(RECORD, area)
+    shown = reviewer_question_text(full)
+    assert "is aged 12 days, " in shown
+    assert "Weight (kg): 2.845 (current weight; birth weight 2.35 kg)" in shown
+    assert all(b.text not in shown for b in area.age_bands)
+    assert shown.splitlines()[0] == full.splitlines()[0]  # opening unchanged
+    birth_only = reviewer_question_text(build_area_question({**RECORD, "vitals": []}, area))
+    assert "Weight (kg): 2.35 (birth weight)" in birth_only
+
+
+def test_reviewer_text_leaves_other_areas_unchanged() -> None:
+    for area in load_query_areas(REAL_AREAS).areas:
+        if area.name != "antibiotic_course":
+            text = build_area_question(RECORD, area)
+            assert reviewer_question_text(text) == text
+
+
+def test_reviewer_text_on_a_stored_question() -> None:
+    stored = (
+        "The newborn patient is aged 1 days (Newborns aged 0-6days; aged <7 days; 0-6 days), "
+        "born at 39.0 weeks gestation, currently in NBU.\n"
+        "Weight (kg): 3.9, 4.00, 4.0, 4.00, 4.00, 4.0 (current weight; birth weight 3.9 kg)"
+    )
+    assert reviewer_question_text(stored) == (
+        "The newborn patient is aged 1 days, born at 39.0 weeks gestation, currently in NBU.\n"
+        "Weight (kg): 3.9 (current weight; birth weight 3.9 kg)"
+    )
 
 
 def test_weight_falls_back_to_birth_weight() -> None:

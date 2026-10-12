@@ -126,6 +126,7 @@ def _reviewer_row(user: User, profile: ReviewerProfile) -> ReviewerRow:
         status=profile.status,
         sex=profile.sex,
         cadre=profile.cadre,
+        cadre_other=profile.cadre_other,
         expertise_level=profile.expertise_level,
         years_post_internship=profile.years_post_internship,
         organisation=profile.organisation,

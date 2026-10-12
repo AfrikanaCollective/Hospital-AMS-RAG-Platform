@@ -107,6 +107,9 @@ services:
       # Operator-attested four-area question openings (DEVIATIONS.md #258);
       # read by the four-area question generator.
       - ./data/query_areas.yaml:/app/data/query_areas.yaml:ro
+      # Operator-attested reviewer consent text (DEVIATIONS.md #282); the
+      # consent step and registration stay closed until it is attested.
+      - ./data/reviewer_consent.yaml:/app/data/reviewer_consent.yaml:ro
       # Read-only: an optional extra CA cert for LLM_GATEWAY_CA_BUNDLE /
       # EMBEDDING_GATEWAY_CA_BUNDLE, e.g. a self-signed cert on an operator's
       # own gateway (DEVIATIONS.md #103). Gitignored (deploy/tls/*.pem); the

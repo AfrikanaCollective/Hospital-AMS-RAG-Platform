@@ -3467,3 +3467,130 @@ not retroactively. When in doubt, log it.
 - **Interpretation:** "remove the baseline for" the figure was read as the figure only, not the report.
 - **Re-rendered:** the MRR figure for all nine runs under `backend/results/ablation/`.
 - **Reversible?:** yes.
+
+### 280. Four-area review-queue items from fresh records
+- **Date / phase:** 2026-10-07, Phase 9. Operator: "I want to generate the responses for review for each of the four areas." Operator choices (asked): fresh records per area, not the 400 holdout questions; 10 per area; multi-stage answer kept alongside; escalations stay on the item, not filed in HITL.
+- **Requirement ID(s):** PRD-066 (auto Q/A seeds the queue, kept separable), PRD-047, ARCH §14.2 (review queue); ARCH §12–13 (HITL).
+- **What was done:**
+  - `app/eval/auto_seed.py::run_four_area_review_queue`: tops up until every attested area has `per_area_target` items. Each item uses one fresh de-identified record (`_used_patient_ids`, so never a holdout or earlier review record); each new record goes to the area with the fewest items (`_next_area`). It reuses the holdout's question builder (`build_area_question`), near-duplicate filter and per-area cap, and stores an `EvalQuestion` (`template_version: four-area-v2`, `purpose: review_queue`, `area`, `query_areas_sha256`) plus an open `Result`. It stops after 5 gateway failures in a row, commits per item, and resumes on re-run.
+  - **Shared helpers:** `_run_multi_stage` and `_persist_review_result` were extracted unchanged from `_generate_one_scenario`, which now calls them, so both review generators encrypt and store the same way. The multi-stage call now gets the same cap and escalation setting as the primary call (unchanged for the single-topic queue: cap None, escalations recorded).
+  - `scripts/seed_four_area_review_queue.py` (`--per-area`, default 10).
+- **Pool separation (bug prevented, not yet hit):** the unified ablation's `fetch_four_area_questions` and the holdout's `_count_usable_four_area_by_area` selected on `template_version == four-area-v2` only. Review items share that template, so they would have entered the ablation pool and counted toward the holdout target. Both now also require `purpose == ablation_holdout`, and the review count requires `purpose == review_queue`. The single-topic pool already excludes every `four-area-*` row.
+- **Judgment calls:**
+  - **Escalated items count toward the target.** An escalation ("no guideline found", grounding failure) is itself something clinicians can review, unlike the holdout, where an answer without citations has no gold set and does not count.
+  - **`expected_outcome = well_supported`** for every item, as in the four-area holdout. There is no 60/20/20 composition: the areas are guideline lookups, not designed corpus gaps.
+  - **Audit purpose** stays `auto_seed_review_queue` (the review-queue default), not `ablation_holdout`.
+- **Tests:** `tests/test_four_area_questions.py` (top-up per area with open results; area cap on both calls and `record_escalations=False`; multi-stage answer stored; escalated item counts; areas at target get no more; stop after consecutive gateway errors; unattested areas file refused; the holdout count, ablation pool and review count each filter on their own purpose). `tests/test_eval_auto_seed.py` fakes now accept keyword args. Full suite in the container: 980 passed. mypy: no new errors (the 9 at HEAD remain).
+- **Reversible?:** yes (additive; the purpose filters only narrow selections that until now matched holdout rows alone).
+
+### 281. Four-area review-queue run: 40 items; escalation reasons not stored
+- **Date / phase:** 2026-10-07, Phase 9. Run of #280 (`python -m scripts.seed_four_area_review_queue --per-area 10 --seed 280`, in the `api` container after a rebuild; log `backend/results/four_area_review_20261007.log`).
+- **Result:** 40 open review items, 10 per area, each from a distinct fresh record, 08:19–09:41 UTC; exit 0, no gateway errors. HITL escalations created during the run: 0. Holdout per-area usable counts unchanged at 100 each.
+  | area | primary well_supported | primary escalated | multi-stage answer stored |
+  |---|---|---|---|
+  | assessment | 10 | 0 | 9 / 10 |
+  | investigations | 10 | 0 | 10 / 10 |
+  | severity_classification | 10 | 0 | 10 / 10 |
+  | antibiotic_course | 8 | 2 | 5 / 10 |
+- **Gap found (correction to #280's operator question):** the question said an escalation "stays visible on the review item". Only `observed_outcome = escalated` does. `eval.Result` has no field for the escalation's trigger code; with `record_escalations=False` it is written nowhere, so reviewers and analysis cannot see *why* the 2 primary and 5 multi-stage antibiotic-course answers escalated. Not fixed; a fix would store the escalation's `trigger_code`/reason on the result (e.g., in `grounding_report`). Operator's call.
+- **First run aborted, no effect:** the first launch was a foreground `docker compose exec` that the tool would time out; it was stopped and its in-container process killed while still loading models (0 items written, checked), then relaunched detached.
+- **Reversible?:** yes. The 40 results can be archived (`queue_state = archived`); their records stay spent.
+
+### 282. Clinician reviewer sign-in, informed consent, registration and admin approval (ARCH-045)
+- **Date / phase:** 2026-10-07, Phase 9. Operator: reviewer UI with Google sign-in plus "alternative email as a backup" (clarified: an email + password sign-in for reviewers without Google); informed consent before first registration, declining returns to the sign-in page; a mandatory registration form (sex, clinical cadre, expertise level as radio buttons; whole-number years post-internship; organisation and role/title 4–30 characters; 10-digit Safaricom number, leading 0 allowed); admin approval of registrations; an admin with queues for pending registrations and for reviewers' completed cases against a threshold set in `.env` (5 for testing); the admin's username and password in `.env`. Radio options: operator chose the proposed defaults. Consent text: operator asked for a draft from their study template.
+- **Requirement ID(s):** new ARCH-045; ARCH-011, PRD-086 (RBAC), ARCH-035 (audit), ARCH-032 (encryption).
+- **What was done:**
+  - **Backend.** `app/auth/accounts.py` holds all logic behind an `AccountStore` protocol (`SqlAccountStore` for Postgres, an in-memory store in tests); routes stay thin. Google ID tokens are checked against Google's JWKS (RS256, audience `GOOGLE_CLIENT_ID`, issuer, expiry, `email_verified`; `app/auth/google.py`). Passwords use stdlib scrypt with a per-password salt, minimum 10 characters, constant-time checks, and a dummy hash for unknown emails (`app/auth/passwords.py`). The admin compares both `.env` fields in constant time and is created on first sign-in with role `admin`. Every method mints the existing HS256 token; new `AUTH_PROVIDER=session` verifies it like `devjwt` but without `POST /auth/dev-login`.
+  - **Endpoints.** `GET /auth/config`, `POST /auth/google`, `POST /auth/password/register`, `POST /auth/password/login`, `POST /auth/admin/login`, `POST /auth/refresh`, `GET /auth/me`, `GET|POST /auth/consent`, `GET /auth/registration/options`, `POST /auth/registration`; admin: `GET /admin/reviewers?status=`, `GET /admin/reviewers/progress`, `POST /admin/reviewers/{id}/approve|reject`, `POST /admin/reviewers/{id}/password`.
+  - **Data.** Migration `d7e2a4c91f30`: `iam.user.auth_method/google_sub/password_hash`, and `iam.reviewer_profile` (consent version + sha256 + time; the seven registration fields; Safaricom number encrypted with `reviewer_phone_aad`; status consented → pending → approved/rejected; decision time and admin). Applied to the dev database.
+  - **Consent.** `data/reviewer_consent.yaml`, drafted from the operator's template, loaded fail-closed (`app/auth/consent.py`): refused while any attestation field is empty/`TODO_CONFIRM` or any shown text still has a `[CONFIRM` item. Agreeing records the version and the file's sha256 and rejects an outdated version; declining writes only an audit event. Mounted read-only into `api`.
+  - **Frontend.** New `LoginPage` (Google button via Google Identity Services; email + password sign-in / create account; admin sign-in; dev-login only when the backend allows it), `ConsentPage`, `RegisterPage` (client checks mirror the server's), `PendingPage` ("Check again" refreshes the token after approval), `AdminPage` (two tabs: registrations awaiting approval with approve/reject; reviewers with a progress bar, "Target reached" once at the threshold, and admin password reset for email + password users). Routing sends a signed-in user to their current step; the nav shows Query only to clinicians and a Reviewers page to admins. The API client no longer treats a refused sign-in as an expired session and shows 422 field errors readably.
+- **Judgment calls:**
+  - **Consent draft corrected the template.** The template said no personal identifiers are collected and data are anonymous; this system stores email, Safaricom number, organisation and role and links ratings to the account, so the draft says that and calls analysis data de-identified (pseudonymised). Also: age removed (not collected), sex/role/phone/email added, the "deters any security vulnerabilities" claim replaced with the actual protections, and survey/Delphi/time wording marked `[CONFIRM]`. The list is at the bottom of the YAML.
+  - **"Completed case"** = a submitted `rating_round` for a review item; counted as distinct items per rater.
+  - **Approval grants `reviewer` and sets `is_clinician`** (reviewers must be clinicians, ARCH-011); not `clinician`, so approved reviewers don't get the query page.
+  - **Google and password accounts with the same email are joined** when Google has verified the address; a password sign-up for an existing email is refused (409). This reveals whether an email is registered; accepted for a closed reviewer group.
+  - **Forgotten passwords:** reset by the admin (no email service). No sign-in rate limiting or lockout yet; flagged.
+  - **Audit:** sign-ins use `login`; consent, registration, approval, password reset and registration listings (which include decrypted phone numbers) use a new `account` action, added to ARCH §18 (taxonomy extended, not left unlogged).
+  - **Admin password in `.env` is plaintext** (operator spec); `.env` is gitignored. A random 24-character value was generated for this dev `.env`.
+  - **Rejected users** cannot resubmit; the admin would need to reopen them (not built).
+- **Tests:** `tests/test_reviewer_accounts.py` (39: hashing; consent fail-closed and marker check; Google token claims; every form rule; consent/registration/approval/rejection flow; password and admin sign-in; Google–password join; progress threshold; admin reset; routes end to end incl. 403 for non-admins and 503 while consent is unattested). Full suite in the container: 1019 passed. mypy: no new errors. Frontend `npm run build` and `npm run lint` clean.
+- **Live check (dev stack, after rebuild and migration):** `/auth/config`; wrong admin password 401; admin sign-in → role admin; consent 503 "not ready (authored_by …)"; both admin queues answer; short password refused before any row is created. The browser flow was not walked through, and no Google sign-in was tried (no client id yet).
+- **Open (operator):** resolve the `[CONFIRM]` items, attest the consent file; create a Google OAuth web client and set `GOOGLE_CLIENT_ID` with the reviewers' address as an authorised origin; set `AUTH_PROVIDER=session` before real reviewers use it; protocol numbers.
+- **Reversible?:** yes (migration has a downgrade; routes and pages are additive; dev-login unchanged under `AUTH_PROVIDER=devjwt`).
+
+### 283. Failed password sign-ins rate-limited
+- **Date / phase:** 2026-10-07, Phase 9. Operator: "add rate limiting to the password sign-in" (gap flagged in #282).
+- **Requirement ID(s):** ARCH-045, ARCH-011.
+- **What was done:** `app/auth/rate_limit.py` counts failed sign-ins in fixed windows: 5 per account and 20 per client IP within 900 s (`SIGNIN_MAX_FAILURES_PER_ACCOUNT`, `SIGNIN_MAX_FAILURES_PER_IP`, `SIGNIN_WINDOW_SECONDS`). While a limit is reached, `POST /auth/password/login` and `POST /auth/admin/login` return 429 with `Retry-After` and "try again in N minutes" **without checking the password**, and write a `login` audit event with outcome `rate_limited`. A wrong password counts against both the account and the IP; a successful sign-in clears the account's count, not the IP's. Counters are in Redis (shared, survive API restarts); account keys are sha256 hashes of the lowercased email, so Redis holds no email addresses.
+- **Judgment calls:**
+  - **Admin sign-in limited too.** It is also a password check. It uses one counter whatever username is typed, so guessing usernames can't reset it. Side effect: 5 wrong admin attempts lock the real admin out for up to 15 minutes; accepted, as the admin is one person on a closed system.
+  - **Lockout, not slowdown:** a locked account is refused even with the right password until the window ends, so a lockout reveals nothing about which password was right. A deliberate attacker can lock a known reviewer email out for 15-minute periods; the per-IP limit bounds this from one address.
+  - **Client IP** is the last `X-Forwarded-For` entry, the one nginx appends. That is trustworthy only because nginx is the sole published port (`api` exposes 8000 inside the network only); if the API is ever published directly, this must change.
+  - **Redis down → in-process counters** with a warning log, so an outage weakens the limit rather than blocking all sign-ins.
+  - **Not limited:** Google sign-in (Google handles its own), password sign-up (refuses duplicates; creates no session for an existing account).
+- **Tests:** `tests/test_reviewer_accounts.py`, 8 new (lock after max failures and release after the window with a fake clock; success clears the account but not the IP; per-IP limit across accounts; hashed, case-insensitive keys; Redis outage falls back to memory; route: 6th attempt 429 + Retry-After even with the right password and audit `rate_limited`, other accounts unaffected; success resets the count; admin limited across usernames; client IP from the nginx-appended entry). Full suite in the container: 1027 passed; mypy: no new errors.
+- **Live check:** rebuilt `api`; through nginx, 5 wrong passwords for an address with no account → 401 each, 6th → 429, `Retry-After: 900`. Redis held two counters (account hash, IP), both deleted after the check.
+- **Reversible?:** yes (raise the limits, or remove the dependency).
+
+### 284. Rejected reviewers can resubmit their registration
+- **Date / phase:** 2026-10-07, Phase 9. Operator: "allow rejected reviewers to resubmit their registration" (gap flagged in #282).
+- **Requirement ID(s):** ARCH-045.
+- **What was done:**
+  - `accounts.submit_registration` accepts a submission when the status is `needs_registration` **or `rejected`**. On a resubmission the previous decision time moves to `last_rejected_at`, `decided_at`/`decided_by` are cleared, `submission_count` goes up, the status returns to `pending`, and the audit outcome is `registration_resubmitted` (with the count). Pending or approved registrations still can't be resubmitted (409).
+  - `GET /auth/registration` returns the caller's own last answers (phone decrypted) to prefill the form; 404 before any submission.
+  - Migration `e3f5b8a2c614`: `iam.reviewer_profile.submission_count` (existing submitted rows set to 1) and `last_rejected_at`. Applied to the dev database.
+  - Frontend: the "not approved" page has **Update and resubmit**, opening the registration form prefilled ("Update your registration", "Resubmit registration"); `/register` is reachable while rejected. The admin's pending card shows "Resubmission #N, rejected <date>".
+- **Judgment calls:**
+  - **Consent is not asked again.** The agreement recorded at first registration stands; the consent text can't change without a new version (and a changed text would be a reason to re-ask, not built). The answers are overwritten; the earlier answers stay only in the audit trail's outcome, not as a copy (no PHI-like history table for reviewer details).
+  - **No limit on resubmissions** and **no rejection reason** shown to the reviewer (the admin has no reason field). Either can be added.
+- **Tests:** `tests/test_reviewer_accounts.py`, 5 new (reject → resubmit with a changed answer → pending, count 2, last rejection kept, decision cleared, audit outcome → approve works; no resubmission while pending or approved; own answers returned, None before submitting; routes: rejected user gets prefill, resubmits, admin sees count and date; 404 before submitting). Full suite in the container: 1032 passed; mypy: no new errors; frontend build and lint clean.
+- **Live check:** rebuilt `api` and `frontend`, migration at head, new columns present, `GET /auth/registration` 404 for a user with none, admin listing answers. The reject → resubmit path itself can't be exercised live until the consent text is attested (no one can register yet).
+- **Reversible?:** yes (migration downgrade; route and button are additive).
+
+### 285. Rejection reason shown to the reviewer
+- **Date / phase:** 2026-10-07, Phase 9. Operator: "add a rejection reason shown to the reviewer" (suggested in #284).
+- **Requirement ID(s):** ARCH-045.
+- **What was done:**
+  - `POST /admin/reviewers/{id}/reject` now requires a JSON body `{"reason": ...}`, 5–500 characters after trimming (`RejectRequest`, and `accounts.decide` checks again). A missing or short reason is 422 and the registration stays pending.
+  - Migration `f1a9c3d75b20`: `iam.reviewer_profile.rejection_reason` (text). Applied to the dev database.
+  - `GET /auth/me` returns `rejection_reason`, only while the status is `rejected` (`accounts.rejection_reason`). The admin listing returns it for every registration.
+  - Frontend: **Reject…** on the admin card opens a reason box (character count, minimum enforced) with "Reject with this reason" / Cancel. The reviewer sees "Reason given by the administrator" on the not-approved page and at the top of the prefilled resubmission form. A resubmitted card shows the admin the previous reason.
+- **Judgment calls:**
+  - **A reason is mandatory** for every rejection, not optional: the point is that the reviewer can see what to fix.
+  - **The reason is kept after a resubmission** (overwritten only by the next rejection), so the admin can check it was addressed; the reviewer stops seeing it once the registration is pending again.
+  - **The reason text is not written to the audit log** (only `reason_given: true`): it is free text about a person, and the audit log is append-only.
+  - Rendered as plain text (React escapes it); line breaks preserved.
+- **Tests:** `tests/test_reviewer_accounts.py`, 7 new (missing, empty, blank, short and over-long reasons refused with the registration left pending; reason trimmed, shown only while rejected, kept for the admin after resubmission, audit detail without the text; route: 422 without a body or with a short reason, rejection with a reason, admin listing and `/auth/me` carry it). Existing rejection tests now pass a reason. Full suite in the container: 1039 passed; mypy: no new errors; frontend build and lint clean.
+- **Live check:** rebuilt `api` and `frontend`, migration at head; reject without a body → 422, with a reason for a non-existent registration → 409, `/auth/me` includes `rejection_reason: null` for the admin.
+- **Reversible?:** yes (migration downgrade; making the reason optional is a one-line change).
+
+### 286. Limit on registration resubmissions
+- **Date / phase:** 2026-10-07, Phase 9. Operator: "add a limit on the number of resubmissions" (gap flagged in #284).
+- **Requirement ID(s):** ARCH-045.
+- **What was done:**
+  - New setting `REVIEWER_MAX_RESUBMISSIONS` (default 2): resubmissions allowed after rejections. The first submission doesn't count, so 2 means up to three submissions in all and 0 makes the first rejection final.
+  - `accounts.submit_registration` takes `max_resubmissions` (required, so no caller can skip the setting) and refuses a resubmission once none are left: 409 "no resubmissions left; please contact the study team". `accounts.resubmissions_left` computes what remains from `submission_count`; no migration needed.
+  - `GET /auth/me` returns `resubmissions_left` while rejected; the admin listing returns, for each registration, how many would remain if it were rejected now.
+  - Frontend: the not-approved page says "You can resubmit N more time(s)", or, at 0, drops the button and asks the reviewer to contact the study team; the registration form shows "No resubmissions left" instead of the form at 0; the admin's pending card warns "Final submission: if rejected, this reviewer cannot resubmit."
+- **Judgment calls:**
+  - **Default 2** (three submissions): enough to fix a mistake or two without an endless loop. Configurable.
+  - **The limit counts submissions, not rejections**, and is read at submission time: lowering the setting applies at once to reviewers already rejected; raising it lets a blocked reviewer resubmit again. There is no per-reviewer override or admin "reopen" button; changing the setting is the way.
+- **Tests:** `tests/test_reviewer_accounts.py`, 4 new (count goes 2 → 1 → 0 across rejections, then 409 with the count and status unchanged; 0 makes the first rejection final; the first submission is never limited; routes: `/auth/me` reports what remains and nothing while pending, the admin row shows 0 before a final rejection, the blocked resubmission is 409). Existing calls pass `max_resubmissions=2`. Full suite in the container: 1043 passed; mypy: no new errors; frontend build and lint clean.
+- **Live check:** rebuilt `api` and `frontend`; the API reads `REVIEWER_MAX_RESUBMISSIONS=2`; `/auth/me` and the admin listing carry the new fields.
+- **Reversible?:** yes (set a high limit, or drop the check).
+
+### 287. Reviewer phone number optional; Kenyan Safaricom or Airtel only
+- **Date / phase:** 2026-10-12, Phase 9. Operator, editing the consent text: data-bundle reimbursement (KES 500 per 40 completed scenarios) goes to a Kenyan Safaricom or Airtel number, and "the reimbursement can only happen for those in Kenya"; participants outside Kenya may still take part.
+- **Requirement ID(s):** ARCH-045.
+- **What was done:**
+  - `RegistrationIn.safaricom_phone` is optional: missing, null or blank becomes `None`, and `submit_registration` then stores `phone_enc = NULL` (the column was already nullable; no migration). The admin listing already shows "—" for no number.
+  - `PHONE_PATTERN` tightened from any 10 digits to `^0[17][0-9]{8}$` (Kenyan mobile prefixes 07/01, which cover Safaricom and Airtel).
+  - Registration form: label "Kenyan Safaricom or Airtel number (optional)", no longer `required`, hint says participants in Kenya only and to leave blank otherwise; blank is sent as `null`. Admin label "Phone (Safaricom/Airtel)".
+  - `data/reviewer_consent.yaml` "What information we collect" and "Why we collect it" now describe the number as optional, Kenya only (the operator wrote "Benefits and reimbursement"). This changes the file's sha256.
+- **Judgment calls:**
+  - **Optional for everyone, not enforced by location.** The platform cannot verify where a reviewer is, and a reviewer in Kenya may decline reimbursement; a reviewer without a number simply is not paid.
+  - **API field name `safaricom_phone` kept** for client/API stability although Airtel numbers are now accepted; only labels changed.
+  - **No network check.** Safaricom and Airtel both issue 07xx and 01xx numbers, and numbers port between networks, so the pattern checks the Kenyan mobile format only.
+- **Tests:** `tests/test_reviewer_accounts.py`: phone missing/blank/null accepted as `None`, 01xx accepted, 08xx rejected; a registration without a phone stores `phone_enc = None`; the "every field mandatory" test now excludes the phone.
+- **Reversible?:** yes (make the field required again; restore the pattern).

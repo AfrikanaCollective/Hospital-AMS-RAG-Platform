@@ -74,8 +74,9 @@ _LEVEL1_BUILDERS = {
 
 def fetch_four_area_questions(session: Session) -> list[SweepQuestion]:
     """The four-area calibration pool (DEVIATIONS.md #264): `four-area-v2`
-    questions (one area per record), `well_supported`, auto-generated, with a
-    non-empty gold set, each carrying its area. The 2026-10-05 trial rows
+    holdout questions (one area per record), `well_supported`, auto-generated,
+    with a non-empty gold set, each carrying its area. Review-queue items
+    built from the same template (DEVIATIONS.md #280) are not selected. The 2026-10-05 trial rows
     (`four-area-v1`, four areas per record) are never selected."""
     rows = (
         session.execute(
@@ -83,6 +84,8 @@ def fetch_four_area_questions(session: Session) -> list[SweepQuestion]:
                 EvalQuestion.expected_outcome == ExpectedOutcome.WELL_SUPPORTED,
                 EvalQuestion.provenance == Provenance.AUTO_GENERATED,
                 EvalQuestion.generator_meta["template_version"].astext == FOUR_AREA_TEMPLATE,
+                # Four-area review-queue items share the template (#280).
+                EvalQuestion.generator_meta["purpose"].astext == "ablation_holdout",
             )
         )
         .scalars()

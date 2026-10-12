@@ -47,7 +47,7 @@ Judgment calls: [DEVIATIONS.md](DEVIATIONS.md).
 | LLM | `LLMGateway` → self-hosted gateway, `MODEL_ID` + `MODEL_ID_FALLBACKS` | config-driven, fallback routing |
 | Embeddings | config model id; `local` \| `gateway` \| `stub` (config-selectable) | no hardcoded model |
 | Reranker | config model id; **decided: local**, in the `api` process (not gateway-routed) | no hardcoded model; DEVIATIONS.md #44 |
-| Auth | `AuthProvider`: dev-JWT (roles: clinician/reviewer/admin/service) + OIDC stub | full IdP deferred |
+| Auth | `AuthProvider`: HS256 session token (roles: clinician/reviewer/admin/service), minted by dev-login or by reviewer sign-in (Google / email + password / `.env` admin; failed password sign-ins rate-limited); consent → registration → admin approval before any role (ARCH-045) + OIDC stub | full IdP (Keycloak) deferred |
 | Frontend | React (Vite + TS), static behind nginx | typed API client |
 | Deploy | docker-compose; `stub` LLM gateway profile for offline core flows | single host, no external net for core |
 

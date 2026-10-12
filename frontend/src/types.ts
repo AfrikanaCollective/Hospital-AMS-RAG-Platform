@@ -191,3 +191,109 @@ export interface DevLoginResponse {
   user_id: string;
   roles: string[];
 }
+
+// ── Reviewer sign-in, consent and registration (DEVIATIONS.md #282) ──
+
+export type RegistrationStatus =
+  | "needs_consent"
+  | "needs_registration"
+  | "pending"
+  | "approved"
+  | "rejected";
+
+export interface TokenResponse {
+  access_token: string;
+  token_type: "bearer";
+  user_id: string;
+  roles: string[];
+  registration_status: RegistrationStatus;
+}
+
+export interface AuthConfig {
+  google_client_id: string | null;
+  password_sign_in: boolean;
+  admin_sign_in: boolean;
+  dev_login: boolean;
+}
+
+export interface MeResponse {
+  user_id: string;
+  email: string;
+  roles: string[];
+  auth_method: string | null;
+  registration_status: RegistrationStatus;
+  /** Only while rejected (DEVIATIONS.md #285, #286). */
+  rejection_reason: string | null;
+  resubmissions_left: number | null;
+}
+
+export interface ConsentText {
+  version: string;
+  sha256: string;
+  title: string;
+  sections: { heading: string; body: string }[];
+  agreement: string;
+}
+
+export interface RegistrationOption {
+  value: string;
+  label: string;
+}
+
+export interface RegistrationOptions {
+  sex: RegistrationOption[];
+  cadre: RegistrationOption[];
+  expertise_level: RegistrationOption[];
+  years_min: number;
+  years_max: number;
+  text_min: number;
+  text_max: number;
+}
+
+export interface RegistrationForm {
+  sex: string;
+  cadre: string;
+  expertise_level: string;
+  years_post_internship: number;
+  organisation: string;
+  role_title: string;
+  safaricom_phone: string | null;
+}
+
+export interface ReviewerRow {
+  user_id: string;
+  email: string;
+  auth_method: string | null;
+  status: string;
+  sex: string | null;
+  cadre: string | null;
+  expertise_level: string | null;
+  years_post_internship: number | null;
+  organisation: string | null;
+  role_title: string | null;
+  safaricom_phone: string | null;
+  consent_version: string;
+  consented_at: string;
+  submitted_at: string | null;
+  decided_at: string | null;
+  submission_count: number;
+  last_rejected_at: string | null;
+  rejection_reason: string | null;
+  /** If this submission is rejected, how many more are allowed (#286). */
+  resubmissions_left: number;
+}
+
+export interface ReviewerProgressRow {
+  user_id: string;
+  email: string;
+  cadre: string | null;
+  organisation: string | null;
+  completed_cases: number;
+  threshold: number;
+  threshold_met: boolean;
+}
+
+export interface ReviewerProgress {
+  threshold: number;
+  reviewers: ReviewerProgressRow[];
+}

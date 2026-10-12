@@ -283,6 +283,8 @@ def _count_usable_four_area_by_area(session: Session) -> dict[str, int]:
         .where(
             EvalQuestion.provenance == Provenance.AUTO_GENERATED.value,
             EvalQuestion.generator_meta["template_version"].astext == FOUR_AREA_TEMPLATE,
+            # Review-queue items share the template (#280); only holdout rows count.
+            EvalQuestion.generator_meta["purpose"].astext == "ablation_holdout",
             # JSON null is a jsonb scalar, not SQL NULL, and Postgres doesn't
             # guarantee AND order: take the length only inside a CASE.
             case(
@@ -300,6 +302,32 @@ def _count_usable_four_area_by_area(session: Session) -> dict[str, int]:
 
 
 _COUNT_USABLE_FOUR_AREA_FN = _count_usable_four_area_by_area
+
+# Four-area review-queue items (DEVIATIONS.md #280): same question template as
+# the holdout, tagged with this purpose so neither pool ever selects the other.
+FOUR_AREA_REVIEW_PURPOSE = "review_queue"
+FOUR_AREA_REVIEW_PER_AREA_TARGET = 10
+
+
+def _count_four_area_review_by_area(session: Session) -> dict[str, int]:
+    """Four-area review-queue items (questions with a `Result`) per area,
+    escalated ones included: an escalation is itself something to review."""
+    area = EvalQuestion.generator_meta["area"].astext
+    rows = session.execute(
+        select(area, func.count())
+        .select_from(EvalQuestion)
+        .join(Result, Result.eval_question_id == EvalQuestion.id)
+        .where(
+            EvalQuestion.provenance == Provenance.AUTO_GENERATED.value,
+            EvalQuestion.generator_meta["template_version"].astext == FOUR_AREA_TEMPLATE,
+            EvalQuestion.generator_meta["purpose"].astext == FOUR_AREA_REVIEW_PURPOSE,
+        )
+        .group_by(area)
+    ).all()
+    return {area: n for area, n in rows}
+
+
+_COUNT_FOUR_AREA_REVIEW_FN = _count_four_area_review_by_area
 
 
 def _used_patient_ids(session: Session) -> set[uuid.UUID]:
@@ -472,6 +500,43 @@ def _generate_one_scenario(
     # deliberately distinct from a computed-but-identical string, so a
     # reader can tell "not computed this run" apart from "computed, this
     # record just didn't match anything."
+    multi_stage_query, multi_stage_fired, multi_stage_out = _run_multi_stage(
+        text, vocabulary, record, patient_id
+    )
+
+    question = EvalQuestion(
+        text=text,
+        provenance=Provenance.AUTO_GENERATED,
+        expected_outcome=expected_outcome,
+        source_record_id=patient_id,
+        target_guideline_ref=target_guideline_ref,
+        generator_meta={"template_version": "deterministic-v1"},
+        in_fixed_testset=False,
+    )
+    return _persist_review_result(
+        session,
+        question,
+        out,
+        multi_stage_query=multi_stage_query,
+        multi_stage_fired=multi_stage_fired,
+        multi_stage_out=multi_stage_out,
+    )
+
+
+def _run_multi_stage(
+    text: str,
+    vocabulary: ConceptVocabulary | None,
+    record: dict,
+    patient_id: object,
+    *,
+    per_guideline_cap: int | None = None,
+    record_escalations: bool = True,
+) -> tuple[str | None, bool, dict | None]:
+    """The multi-stage audit side channel (DEVIATIONS.md #186) for one review
+    item: `(multi_stage_query, multi_stage_fired, multi_stage_out)`. Shared by
+    the single-topic and four-area review-queue generators (#280); the
+    second pipeline call uses the same cap and escalation setting as the
+    first."""
     multi_stage_query: str | None = None
     multi_stage_fired = False
     multi_stage_out: dict | None = None
@@ -481,7 +546,11 @@ def _generate_one_scenario(
         multi_stage_fired = augmented.fired
         if augmented.fired:
             try:
-                multi_stage_out = _INVOKE_PIPELINE_FN(augmented.text)
+                multi_stage_out = _INVOKE_PIPELINE_FN(
+                    augmented.text,
+                    per_guideline_cap=per_guideline_cap,
+                    record_escalations=record_escalations,
+                )
             except (httpx.HTTPError, LLMGatewayError) as exc:
                 # Best-effort: the single-stage result above is already
                 # complete and valid on its own -- a transient gateway error
@@ -500,18 +569,24 @@ def _generate_one_scenario(
                     exc,
                 )
 
-    question = EvalQuestion(
-        text=text,
-        provenance=Provenance.AUTO_GENERATED,
-        expected_outcome=expected_outcome,
-        source_record_id=patient_id,
-        target_guideline_ref=target_guideline_ref,
-        generator_meta={"template_version": "deterministic-v1"},
-        in_fixed_testset=False,
-    )
+    return multi_stage_query, multi_stage_fired, multi_stage_out
+
+
+def _persist_review_result(
+    session: Session,
+    question: EvalQuestion,
+    out: dict,
+    *,
+    multi_stage_query: str | None,
+    multi_stage_fired: bool,
+    multi_stage_out: dict | None,
+) -> uuid.UUID:
+    """Writes `question`'s `Result` (encrypted answer, segments and
+    multi-stage answer), records its gold set, and commits. `question` must
+    already be added to `session`. Shared by both review-queue generators
+    (#280)."""
     session.add(question)
     session.flush()
-
     result, answer_text, segment_dicts, multi_stage_answer_text = _build_result(
         question,
         out,
@@ -1122,4 +1197,176 @@ def run_four_area_holdout_generation(
             len(unused_records),
         )
     logger.info("four_area_generation: %d new question(s); usable per area %s", len(created), short)
+    return created
+
+
+def _generate_one_area_review_item(
+    session: Session,
+    state: _GenerationState,
+    area: QueryArea,
+    areas: QueryAreas,
+    *,
+    dedup_threshold: float,
+    vocabulary: ConceptVocabulary | None,
+) -> uuid.UUID | str | None:
+    """One record -> one review-queue item for `area` (DEVIATIONS.md #280).
+    Same candidate pick, near-duplicate filter, question text and per-area
+    cap as `_generate_one_area_question`, but persisted like
+    `_generate_one_scenario`: an `EvalQuestion` plus an open `Result` with
+    the encrypted answer and the multi-stage answer alongside. Escalations
+    stay on the item and are not filed in HITL (operator choice). Returns
+    the `Result` id, `_GATEWAY_ERROR` (nothing written, record not used), or
+    None when the record was skipped."""
+    candidate = state.next_candidate()
+    if candidate is None:
+        return None
+    patient_id, record = candidate
+    if is_clinically_near_duplicate(
+        record, state.accepted_records, findings_jaccard_threshold=dedup_threshold
+    ):
+        return None
+    text = build_area_question(record, area)
+    try:
+        out = _INVOKE_PIPELINE_FN(
+            text, per_guideline_cap=area.per_guideline_cap, record_escalations=False
+        )
+    except (httpx.HTTPError, LLMGatewayError) as exc:
+        logger.warning(
+            "four_area_review_queue: transient gateway error on area %s for record %r, "
+            "skipping this record: %s",
+            area.name,
+            patient_id,
+            exc,
+        )
+        return _GATEWAY_ERROR
+
+    state.accepted_records.append(record)
+    state.used_this_run.add(patient_id)
+    multi_stage_query, multi_stage_fired, multi_stage_out = _run_multi_stage(
+        text,
+        vocabulary,
+        record,
+        patient_id,
+        per_guideline_cap=area.per_guideline_cap,
+        record_escalations=False,
+    )
+    question = EvalQuestion(
+        text=text,
+        provenance=Provenance.AUTO_GENERATED,
+        expected_outcome=ExpectedOutcome.WELL_SUPPORTED,
+        source_record_id=patient_id,
+        target_guideline_ref={"topic": area.opening, "area": area.name},
+        generator_meta={
+            "template_version": FOUR_AREA_TEMPLATE,
+            "purpose": FOUR_AREA_REVIEW_PURPOSE,
+            "area": area.name,
+            "per_guideline_cap": area.per_guideline_cap,
+            "query_areas_sha256": areas.sha256,
+            "query_areas_attested_by": f"{areas.authored_by} ({areas.authored_role})",
+        },
+        in_fixed_testset=False,
+    )
+    return _persist_review_result(
+        session,
+        question,
+        out,
+        multi_stage_query=multi_stage_query,
+        multi_stage_fired=multi_stage_fired,
+        multi_stage_out=multi_stage_out,
+    )
+
+
+def run_four_area_review_queue(
+    session: Session,
+    *,
+    per_area_target: int = FOUR_AREA_REVIEW_PER_AREA_TARGET,
+    dataset_id: str | None = None,
+    seed: int | None = None,
+    areas_path: str = _DEFAULT_QUERY_AREAS_PATH,
+    concepts_path: str = _DEFAULT_CONCEPTS_PATH,
+    max_consecutive_gateway_errors: int = FOUR_AREA_MAX_CONSECUTIVE_GATEWAY_ERRORS,
+) -> list[uuid.UUID]:
+    """Top up the review queue until every attested area has
+    `per_area_target` four-area items (DEVIATIONS.md #280). Each item comes
+    from a fresh de-identified record, never one the ablation holdout or an
+    earlier review item used (`_used_patient_ids`); each new record goes to
+    the area with the fewest items. Stops early after
+    `max_consecutive_gateway_errors` gateway failures in a row; a re-run
+    resumes. Returns the new `Result` ids. Fails closed if `areas_path`
+    isn't attested; an unattested `concepts_path` only drops the
+    multi-stage answer, as in `run_auto_seed_review_queue`."""
+    areas = load_query_areas(areas_path)
+    vocabulary, vocab_error = _LOAD_ATTESTED_VOCABULARY_FN(concepts_path)
+    if vocabulary is None:
+        logger.warning(
+            "four_area_review_queue: multi-stage answers skipped for this run -- %s is not "
+            "attested: %s",
+            concepts_path,
+            vocab_error,
+        )
+    counts = dict(_COUNT_FOUR_AREA_REVIEW_FN(session))
+    remaining = sum(max(0, per_area_target - counts.get(a.name, 0)) for a in areas.areas)
+    if remaining == 0:
+        logger.info(
+            "four_area_review_queue: every area already has %d review item(s)", per_area_target
+        )
+        return []
+
+    records = _LOAD_RECORDS_FN(session, dataset_id=dataset_id)
+    used_ids = _USED_PATIENT_IDS_FN(session)
+    unused_records = [r for r in records if r[0] not in used_ids]
+    if not unused_records:
+        logger.warning(
+            "four_area_review_queue: no unused de-identified records (%d loaded, "
+            "dataset_id=%r); ingest more first",
+            len(records),
+            dataset_id,
+        )
+        return []
+
+    settings = get_settings()
+    state = _GenerationState(
+        unused_records, seed=seed, existing_records=_EXISTING_RECORDS_FN(session)
+    )
+    by_name = {a.name: a for a in areas.areas}
+    created: list[uuid.UUID] = []
+    attempts = gateway_errors_in_a_row = 0
+    max_attempts = max(_MIN_ATTEMPTS_PER_SLOT, remaining * _ATTEMPTS_PER_SLOT_MULTIPLIER)
+    while (name := _next_area(counts, areas, per_area_target)) and attempts < max_attempts:
+        attempts += 1
+        made = _generate_one_area_review_item(
+            session,
+            state,
+            by_name[name],
+            areas,
+            dedup_threshold=settings.qgen_dedup_threshold,
+            vocabulary=vocabulary,
+        )
+        if made == _GATEWAY_ERROR:
+            gateway_errors_in_a_row += 1
+            if gateway_errors_in_a_row >= max_consecutive_gateway_errors:
+                logger.error(
+                    "four_area_review_queue: stopping after %d consecutive gateway errors "
+                    "(gateway down?); re-run to resume",
+                    gateway_errors_in_a_row,
+                )
+                break
+            continue
+        if made is None:
+            continue
+        gateway_errors_in_a_row = 0
+        assert isinstance(made, uuid.UUID)
+        created.append(made)
+        counts[name] = counts.get(name, 0) + 1
+    short = {a.name: counts.get(a.name, 0) for a in areas.areas}
+    if any(n < per_area_target for n in short.values()):
+        logger.warning(
+            "four_area_review_queue: stopped after %d attempts below target %d: %s "
+            "(%d unused de-identified record(s) available)",
+            attempts,
+            per_area_target,
+            short,
+            len(unused_records),
+        )
+    logger.info("four_area_review_queue: %d new review item(s); per area %s", len(created), short)
     return created

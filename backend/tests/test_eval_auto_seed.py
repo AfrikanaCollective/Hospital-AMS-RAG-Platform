@@ -538,7 +538,7 @@ def test_multi_stage_query_recorded_but_not_run_when_augmentation_does_not_fire(
 
     calls: list[str] = []
 
-    def _invoke(question_text: str) -> dict:
+    def _invoke(question_text: str, **_kwargs: object) -> dict:
         calls.append(question_text)
         return _well_supported_pipeline_output()
 
@@ -583,7 +583,7 @@ def test_multi_stage_runs_a_second_pipeline_call_and_persists_its_own_answer(
     augmented_text = RECORD_TEXT + "; fake fast breathing"
     calls: list[str] = []
 
-    def _invoke(question_text: str) -> dict:
+    def _invoke(question_text: str, **_kwargs: object) -> dict:
         calls.append(question_text)
         if question_text == augmented_text:
             return _multi_stage_pipeline_output()
@@ -640,7 +640,7 @@ def test_multi_stage_transient_gateway_error_keeps_the_single_stage_result(
 
     augmented_text = RECORD_TEXT + "; fake fast breathing"
 
-    def _invoke(question_text: str) -> dict:
+    def _invoke(question_text: str, **_kwargs: object) -> dict:
         if question_text == augmented_text:
             raise httpx.ConnectTimeout("boom")
         return _well_supported_pipeline_output()

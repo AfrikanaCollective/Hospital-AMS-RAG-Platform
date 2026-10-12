@@ -1,6 +1,7 @@
 """AuthProvider interface + selection (ARCH-011).
 
-AUTH_PROVIDER = devjwt (seeded signed JWT, roles embedded) | oidc (adapter stub).
+AUTH_PROVIDER = devjwt (seeded signed JWT, roles embedded) | session (same token,
+minted after Google / password / admin sign-in) | oidc (adapter stub).
 Reviewers must additionally be clinicians (iam.user.is_clinician).
 """
 
@@ -27,7 +28,9 @@ def get_auth_provider() -> AuthProvider:
     # Deferred (not both providers' deps need to be present in every
     # deployment; only the configured one is ever imported).
     name = get_settings().auth_provider
-    if name == "devjwt":
+    # "session" tokens are minted by this backend after a Google, password or
+    # admin sign-in (DEVIATIONS.md #282); same HS256 verification as devjwt.
+    if name in ("devjwt", "session"):
         from app.auth.devjwt import DevJwtProvider  # noqa: PLC0415
 
         return DevJwtProvider()

@@ -251,7 +251,10 @@ class Settings(BaseSettings):
     celery_result_backend: str = "redis://:redis_pw@redis:6379/2"
 
     # ── auth / rbac (ARCH-011 / ARCH-034) ──
-    auth_provider: str = "devjwt"  # devjwt | oidc
+    # devjwt: also serves POST /auth/dev-login (seeded users, no password).
+    # session: no dev-login; users sign in with Google, email + password, or
+    # the .env admin (DEVIATIONS.md #282). Both verify the same HS256 token.
+    auth_provider: str = "devjwt"  # devjwt | session | oidc
     # >=32 bytes (RFC 7518 §3.2 HMAC-SHA256 minimum) so PyJWT doesn't warn on
     # every encode/decode; still an obvious, loudly-flagged dev placeholder
     # (DevJwtProvider.__init__), never a real secret (ARCH-011).
@@ -260,6 +263,25 @@ class Settings(BaseSettings):
     oidc_issuer_url: str = ""
     oidc_client_id: str = ""
     oidc_audience: str = ""
+    # Reviewer sign-in and registration (DEVIATIONS.md #282).
+    # Google OAuth web client id; empty disables Google sign-in.
+    google_client_id: str = ""
+    # The one admin login; empty username or password disables it.
+    admin_username: str = ""
+    admin_password: str = ""
+    # Completed review cases at which the admin page marks a reviewer as
+    # having reached the target.
+    reviewer_completion_threshold: int = 5
+    reviewer_consent_path: str = "data/reviewer_consent.yaml"
+    # Resubmissions allowed after rejections (DEVIATIONS.md #286); 2 means up
+    # to three submissions in all.
+    reviewer_max_resubmissions: int = 2
+    # Failed password / admin sign-ins (DEVIATIONS.md #283): this many failures
+    # within the window lock the account (or, per IP, the address) until the
+    # window ends.
+    signin_max_failures_per_account: int = 5
+    signin_max_failures_per_ip: int = 20
+    signin_window_seconds: int = 900
 
     # ── crypto / secrets (ARCH-032 / ARCH-033) ──
     secrets_backend: str = "file"  # env | file | vault

@@ -180,8 +180,10 @@ accept-axis review UI: there was previously no way for a reviewer to
 discover an escalation id at all, only fetch one by an id already in hand.
 See `DEVIATIONS.md` #97.
 
-The frontend itself: a dev-JWT login screen (`POST /auth/dev-login`), a
-wired query interface with citation display and conversation continuity,
+The frontend itself: a sign-in screen (originally dev-JWT only, `POST
+/auth/dev-login`; since 2026-10-07 also Google, email + password and admin
+sign-in with consent, registration and an admin approval page — ARCH-045,
+DEVIATIONS.md #282), a wired query interface with citation display and conversation continuity,
 rank mode, and a standalone accept-axis workflow.
 
 For rank mode, each case a ranker reviews (open queue → case detail) is
@@ -1122,6 +1124,25 @@ area and the `query_areas.yaml` hash (warning if it differs from the hash the
 questions were generated with). The 2026-10-05 trial rows (`four-area-v1`,
 four areas per record) are never selected.
 
+**Four-area review-queue items (DEVIATIONS.md #280).** Clinician review items
+for the same four areas, generated from **fresh** de-identified records (never
+one the holdout or any earlier review item used):
+
+    python -m scripts.seed_four_area_review_queue --per-area 10
+
+Each item asks its area's question (same template and per-guideline cap as
+the holdout) and is stored as an `eval_question` plus an open `eval.Result`
+that the review wizard shows, with the multi-stage (vocabulary-enriched)
+answer alongside when `data/clinical_concepts.yaml` is attested. Escalations
+stay on the item; nothing is filed in the HITL escalation queue. Items are
+tagged `generator_meta.purpose = "review_queue"`, and the ablation pool and
+holdout count now also require `purpose = "ablation_holdout"`, so neither
+pool picks up the other's rows. Each area tops up to `--per-area` (default
+10) items, escalated ones included; the run commits per item, stops after 5
+gateway failures in a row, and resumes on re-run. Needs the running stack
+(Postgres, Qdrant, LLM gateway), so run it in the `api` container after a
+rebuild.
+
 **Full-scale re-run against the ablation-holdout pool (2026-09-25).**
 Following a host restart that took the whole stack down mid-generation,
 brought the deployment back up (rebuilding `api`/`worker` — the images
@@ -1325,6 +1346,8 @@ backend/
                     facet PNG from an existing results/ablation/<run_id>),
                     plot_recall_vs_bm25_weight_by_k (same, axes swapped:
                     weight on x, one line per K, default K=8,10,12,14),
+                    seed_four_area_review_queue (review-queue items per
+                    query area from fresh records, DEVIATIONS #280),
                     plot_mrr_vs_bm25_weight_by_arm (2x2 panels A-D = K=2,
                     4, 6, 8: mean reciprocal rank vs. BM25 weight, one
                     line per Level-1 x Level-2 arm; --k-values overrides),
@@ -1456,6 +1479,37 @@ Sign in with a seeded demo user's email, no password (`make seed`):
 `clinician@example.dev`, `reviewer1@example.dev`/`reviewer2@example.dev`/`reviewer3@example.dev`
 (reviewers), `admin@example.dev`.
 
+**Clinician reviewer sign-in (ARCH-045, DEVIATIONS.md #282).** Reviewers sign
+in with Google, or with an email address and password if they have no Google
+account. A first sign-in leads to the informed consent text (declining
+returns to the sign-in page), then a registration form (sex, clinical cadre,
+expertise level, years post-internship, organisation, role/title, all
+required; and a Kenyan Safaricom or Airtel number, optional because only
+participants in Kenya are reimbursed, DEVIATIONS.md #287). The account has no access until an administrator
+approves it on **Reviewers** (`/admin`), which also lists each approved
+reviewer's completed cases against `REVIEWER_COMPLETION_THRESHOLD` and lets
+the admin set a new password for an email + password reviewer. A rejected
+reviewer sees the admin's reason (required when rejecting, 5–500 characters;
+DEVIATIONS.md #285) and can correct their details and resubmit (the form opens prefilled),
+up to `REVIEWER_MAX_RESUBMISSIONS` times (DEVIATIONS.md #286);
+the admin sees it marked as a resubmission (DEVIATIONS.md #284). Five wrong
+passwords within 15 minutes lock an account for the rest of that window
+(DEVIATIONS.md #283). Before
+reviewers can use it:
+
+1. `make migrate` (adds `iam.reviewer_profile` and the sign-in columns).
+2. Set `ADMIN_USERNAME` / `ADMIN_PASSWORD` in `.env`; sign in under
+   "Administrator sign-in".
+3. Finalise `data/reviewer_consent.yaml`: resolve every `[CONFIRM: ...]`
+   item and fill in the attestation fields. Until then the consent step
+   answers "registration is closed".
+4. For Google sign-in, create an OAuth 2.0 web client in the Google Cloud
+   console, add the reviewers' address (e.g. `https://localhost`) as an
+   authorised JavaScript origin, and set `GOOGLE_CLIENT_ID`.
+5. Set `AUTH_PROVIDER=session` so the seeded dev-login is not offered.
+
+After changing `.env`, recreate `api` (`docker compose --profile dev up -d api`).
+
 ### Without Docker
 
 ```bash
@@ -1522,7 +1576,13 @@ All config is via environment variables / `.env` (secrets via
 | `RERANKER_DEVICE` / `RERANKER_BATCH_SIZE` / `RERANKER_MAX_LENGTH` | `auto` / `16` / `512` | local in-process serving knobs; the `local-models` extra (sentence-transformers + torch) is installed by default in `backend/Dockerfile` and pinned in `requirements-lock.txt` (DEVIATIONS.md #44b/#45). The reranker scores each chunk's heading path plus its text, the same leading text the indexes embed (DEVIATIONS.md #250); `RERANKER_MAX_LENGTH` covers question and chunk together, so longer chunks are truncated |
 | `EMBEDDING_BACKEND` | `local` | `local` \| `gateway` \| `stub` — still config-selectable (embeddings are not decided the way the reranker is) |
 | `SECRETS_BACKEND` | `file` | `env` \| `file` \| `vault` |
-| `AUTH_PROVIDER` | `devjwt` | `devjwt` \| `oidc` |
+| `AUTH_PROVIDER` | `devjwt` | `devjwt` \| `session` \| `oidc`. `session` = reviewer sign-in only (Google / email + password / admin), no dev-login; use it once real reviewers sign in (ARCH-045, DEVIATIONS.md #282) |
+| `GOOGLE_CLIENT_ID` | empty | Google OAuth 2.0 web client id for reviewer sign-in; empty hides the Google button. Add the address reviewers open as an "Authorized JavaScript origin" in the Google Cloud console |
+| `ADMIN_USERNAME` / `ADMIN_PASSWORD` | empty | the single admin login (plaintext in the gitignored `.env`); either empty disables admin sign-in |
+| `REVIEWER_COMPLETION_THRESHOLD` | `5` | completed review cases at which the admin page marks a reviewer's target as reached |
+| `REVIEWER_CONSENT_PATH` | `data/reviewer_consent.yaml` | operator-attested consent text; registration stays closed until it is attested |
+| `REVIEWER_MAX_RESUBMISSIONS` | `2` | resubmissions a rejected reviewer may make (2 = up to three submissions in all; 0 = the first rejection is final) (DEVIATIONS.md #286) |
+| `SIGNIN_MAX_FAILURES_PER_ACCOUNT` / `SIGNIN_MAX_FAILURES_PER_IP` / `SIGNIN_WINDOW_SECONDS` | `5` / `20` / `900` | failed email + password and admin sign-ins: reaching the limit within the window locks that account (or IP address) until the window ends; sign-in then returns 429 with `Retry-After`. Counters are in Redis (falls back to in-process if Redis is down) (DEVIATIONS.md #283) |
 | `PATIENT_RECORD_VECTORS_ENABLED` | `false` | keep off unless deliberately enabling record vectorization |
 | `LOCAL_ADAPTATION_ENABLED` | `false` | inert extension-seam flag; see CDS-FUTURE.md |
 | `INGEST_PARSER` | `pypdf` (code) / `layout` (`.env.example`) | `layout` = Docling + pdfplumber + local OCR (ARCH-044); `pypdf` = original text-only path, also the automatic fallback (held for review) |

@@ -438,8 +438,8 @@ class PopularityBaseline:
 
     k: int
     method: str
-    baseline: dict[str, ArmScore]  # metric -> score
-    arm_vs_baseline: dict[str, list[DeltaScore]]  # metric -> one per arm
+    baseline: dict[Metric, ArmScore]  # metric -> score
+    arm_vs_baseline: dict[Metric, list[DeltaScore]]  # metric -> one per arm
 
 
 def summarize_popularity_baseline(
@@ -453,7 +453,7 @@ def summarize_popularity_baseline(
     rows = [r for r in rows if r.k == k]  # once, not once per arm below
     base = popularity_baseline_scores(rows, k=k)
     baseline = {m: _arm_score(f"popularity/{m}", base[m], rng=rng) for m in _POPULARITY_METRICS}
-    deltas: dict[str, list[DeltaScore]] = {}
+    deltas: dict[Metric, list[DeltaScore]] = {}
     for m in _POPULARITY_METRICS:
         deltas[m] = []
         for level1 in ("present_only", "all_assessed"):

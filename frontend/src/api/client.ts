@@ -3,7 +3,15 @@
 // user back to /login (a full reload — simplest reliable way to reset all
 // React state for an MVP tool, not worth a pub-sub layer for).
 import type {
+  AuthConfig,
+  ConsentText,
   DevLoginResponse,
+  MeResponse,
+  RegistrationForm,
+  RegistrationOptions,
+  ReviewerProgress,
+  ReviewerRow,
+  TokenResponse,
   EscalationDetail,
   EscalationSummary,
   HeldChunk,
@@ -42,7 +50,9 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
     ...((init?.headers as Record<string, string>) ?? {}),
   };
   const res = await fetch(`${BASE}${path}`, { ...init, headers });
-  if (res.status === 401) {
+  // A 401 with no stored token is a refused sign-in (wrong password, invalid
+  // Google token), not an expired session: show its message instead.
+  if (res.status === 401 && auth) {
     clearStoredAuth();
     if (window.location.pathname !== "/login") window.location.href = "/login";
     throw new ApiError(401, "session expired");
@@ -50,8 +60,15 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   if (!res.ok) {
     let detail = res.statusText;
     try {
-      const body = (await res.json()) as { detail?: string };
-      if (body.detail) detail = body.detail;
+      const body = (await res.json()) as {
+        detail?: string | { loc?: (string | number)[]; msg?: string }[];
+      };
+      if (typeof body.detail === "string") detail = body.detail;
+      // FastAPI validation errors (422): one line per field.
+      else if (Array.isArray(body.detail))
+        detail = body.detail
+          .map((e) => `${(e.loc ?? []).slice(-1)[0] ?? "field"}: ${e.msg ?? "invalid"}`)
+          .join("; ");
     } catch {
       /* body wasn't JSON; keep statusText */
     }
@@ -62,6 +79,59 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  // ── reviewer sign-in, consent, registration, admin (DEVIATIONS.md #282) ──
+  getAuthConfig: () => req<AuthConfig>("/auth/config"),
+  googleLogin: (idToken: string) =>
+    req<TokenResponse>("/auth/google", {
+      method: "POST",
+      body: JSON.stringify({ id_token: idToken }),
+    }),
+  passwordLogin: (email: string, password: string) =>
+    req<TokenResponse>("/auth/password/login", {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
+    }),
+  passwordRegister: (email: string, password: string) =>
+    req<TokenResponse>("/auth/password/register", {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
+    }),
+  adminLogin: (username: string, password: string) =>
+    req<TokenResponse>("/auth/admin/login", {
+      method: "POST",
+      body: JSON.stringify({ username, password }),
+    }),
+  refreshToken: () => req<TokenResponse>("/auth/refresh", { method: "POST" }),
+  getMe: () => req<MeResponse>("/auth/me"),
+  getConsent: () => req<ConsentText>("/auth/consent"),
+  decideConsent: (agree: boolean, consent: ConsentText) =>
+    req<MeResponse>("/auth/consent", {
+      method: "POST",
+      body: JSON.stringify({ agree, version: consent.version, sha256: consent.sha256 }),
+    }),
+  getRegistrationOptions: () => req<RegistrationOptions>("/auth/registration/options"),
+  getOwnRegistration: () => req<RegistrationForm>("/auth/registration"),
+  submitRegistration: (form: RegistrationForm) =>
+    req<MeResponse>("/auth/registration", { method: "POST", body: JSON.stringify(form) }),
+  listReviewers: (status: "pending" | "approved" | "rejected" | "all") =>
+    req<ReviewerRow[]>(`/admin/reviewers?status=${status}`),
+  approveReviewer: (userId: string) =>
+    req<{ user_id: string; status: string }>(`/admin/reviewers/${userId}/approve`, {
+      method: "POST",
+    }),
+  // The reason is shown to the reviewer (DEVIATIONS.md #285).
+  rejectReviewer: (userId: string, reason: string) =>
+    req<{ user_id: string; status: string }>(`/admin/reviewers/${userId}/reject`, {
+      method: "POST",
+      body: JSON.stringify({ reason }),
+    }),
+  getReviewerProgress: () => req<ReviewerProgress>("/admin/reviewers/progress"),
+  setReviewerPassword: (userId: string, newPassword: string) =>
+    req<void>(`/admin/reviewers/${userId}/password`, {
+      method: "POST",
+      body: JSON.stringify({ new_password: newPassword }),
+    }),
+
   devLogin: (email: string) =>
     req<DevLoginResponse>("/auth/dev-login", { method: "POST", body: JSON.stringify({ email }) }),
 

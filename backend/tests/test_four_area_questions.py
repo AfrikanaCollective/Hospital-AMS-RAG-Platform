@@ -339,3 +339,198 @@ def test_a_success_resets_the_consecutive_error_count(
         session, per_area_target=1, areas_path=str(REAL_AREAS)
     )
     assert len(session.questions) == len(AREA_ORDER)  # never 5 in a row, so it finished
+
+
+# ── review queue (DEVIATIONS.md #280) ──
+
+
+class _FakeAugmented:
+    def __init__(self, text: str) -> None:
+        self.text = text + " [enriched]"
+        self.fired = True
+
+
+def _review_records(n: int) -> list[tuple[uuid.UUID, dict]]:
+    """`_records` plus the ids `PatientRecord` requires: the multi-stage
+    step validates the record before enriching the query."""
+    return [
+        (pid, {**rec, "record_id": f"DEIDREC-{i:06d}", "mrn": f"MRN-{i}"})
+        for i, (pid, rec) in enumerate(_records(n))
+    ]
+
+
+@pytest.fixture
+def review_seams(monkeypatch: pytest.MonkeyPatch):
+    calls: list[tuple[str, int | None, dict]] = []
+
+    def pipeline(text: str, *, per_guideline_cap: int | None = None, **kw: object) -> dict:
+        calls.append((text, per_guideline_cap, kw))
+        return _citing(f"chunk-{len(calls)}")
+
+    monkeypatch.setattr(auto_seed, "_COUNT_FOUR_AREA_REVIEW_FN", lambda session: {})  # noqa: ARG005
+    monkeypatch.setattr(auto_seed, "_LOAD_RECORDS_FN", lambda *a, **k: _review_records(40))  # noqa: ARG005
+    monkeypatch.setattr(auto_seed, "_USED_PATIENT_IDS_FN", lambda session: set())  # noqa: ARG005
+    monkeypatch.setattr(auto_seed, "_EXISTING_RECORDS_FN", lambda session: [])  # noqa: ARG005
+    monkeypatch.setattr(auto_seed, "_INVOKE_PIPELINE_FN", pipeline)
+    monkeypatch.setattr(
+        auto_seed,
+        "_LOAD_ATTESTED_VOCABULARY_FN",
+        lambda path: (object(), None),  # noqa: ARG005
+    )
+    monkeypatch.setattr(
+        auto_seed,
+        "_BUILD_ARM_C_QUERY_FN",
+        lambda text, vocabulary, record: _FakeAugmented(text),  # noqa: ARG005
+    )
+    return calls
+
+
+def _results(session: _FakeSession) -> list:
+    from app.db.models.eval import Result  # noqa: PLC0415
+
+    return [o for o in session.added if isinstance(o, Result)]
+
+
+def test_review_items_top_up_each_area_with_open_results(review_seams) -> None:  # noqa: ANN001
+    session = _FakeSession()
+    created = auto_seed.run_four_area_review_queue(
+        session, per_area_target=2, areas_path=str(REAL_AREAS)
+    )
+    qs, results = session.questions, _results(session)
+    assert len(created) == len(results) == len(qs) == 2 * len(AREA_ORDER)
+    assert {a: sum(_area_of(q) == a for q in qs) for a in AREA_ORDER} == dict.fromkeys(
+        AREA_ORDER, 2
+    )
+    assert len({q.source_record_id for q in qs}) == len(qs)  # one fresh record each
+    for q in qs:
+        assert q.generator_meta["purpose"] == auto_seed.FOUR_AREA_REVIEW_PURPOSE
+        assert q.generator_meta["template_version"] == auto_seed.FOUR_AREA_TEMPLATE
+        assert q.target_guideline_ref == {"topic": extract_topic(q.text), "area": _area_of(q)}
+    assert all(r.queue_state == "open" and r.answer_enc is not None for r in results)
+
+
+def test_review_items_use_the_area_cap_and_never_file_hitl_escalations(review_seams) -> None:  # noqa: ANN001
+    session = _FakeSession()
+    auto_seed.run_four_area_review_queue(session, per_area_target=1, areas_path=str(REAL_AREAS))
+    caps = {a.name: a.per_guideline_cap for a in load_query_areas(REAL_AREAS).areas}
+    by_text = {q.text: _area_of(q) for q in session.questions}
+    # primary + multi-stage call per item, both with the area's cap
+    assert len(review_seams) == 2 * len(AREA_ORDER)
+    for text, cap, kw in review_seams:
+        area = by_text[text.removesuffix(" [enriched]")]
+        assert cap == caps[area]
+        assert kw == {"record_escalations": False}
+
+
+def test_review_items_carry_the_multi_stage_answer(review_seams) -> None:  # noqa: ANN001
+    session = _FakeSession()
+    auto_seed.run_four_area_review_queue(session, per_area_target=1, areas_path=str(REAL_AREAS))
+    for r in _results(session):
+        assert r.multi_stage_fired is True
+        assert r.multi_stage_query.endswith(" [enriched]")
+        assert r.multi_stage_answer_enc is not None and r.multi_stage_citations
+
+
+def test_an_escalated_review_item_still_counts(
+    review_seams,  # noqa: ANN001, ARG001
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def escalates(text: str, **_kw: object) -> dict:  # noqa: ARG001
+        return {"observed_outcome": "escalated", "escalation": {"trigger_code": "x"}}
+
+    monkeypatch.setattr(auto_seed, "_INVOKE_PIPELINE_FN", escalates)
+    session = _FakeSession()
+    created = auto_seed.run_four_area_review_queue(
+        session, per_area_target=1, areas_path=str(REAL_AREAS)
+    )
+    assert len(created) == len(AREA_ORDER)  # one each; an escalation is itself reviewable
+    assert all(r.answer_enc is None and r.citations == [] for r in _results(session))
+    assert all(q.gold_relevant_chunks is None for q in session.questions)
+
+
+def test_review_areas_already_at_target_get_no_more(
+    review_seams, monkeypatch: pytest.MonkeyPatch
+) -> None:  # noqa: ANN001
+    monkeypatch.setattr(
+        auto_seed,
+        "_COUNT_FOUR_AREA_REVIEW_FN",
+        lambda session: dict.fromkeys(AREA_ORDER, 1) | {"assessment": 0},  # noqa: ARG005
+    )
+    session = _FakeSession()
+    auto_seed.run_four_area_review_queue(session, per_area_target=1, areas_path=str(REAL_AREAS))
+    assert [_area_of(q) for q in session.questions] == ["assessment"]
+
+
+def test_review_run_stops_after_consecutive_gateway_errors(
+    review_seams, monkeypatch: pytest.MonkeyPatch
+) -> None:  # noqa: ANN001
+    n = {"calls": 0}
+
+    def down(text: str, **_kw: object) -> dict:  # noqa: ARG001
+        n["calls"] += 1
+        raise httpx.ConnectError("connection refused")
+
+    monkeypatch.setattr(auto_seed, "_INVOKE_PIPELINE_FN", down)
+    session = _FakeSession()
+    assert (
+        auto_seed.run_four_area_review_queue(
+            session, per_area_target=10, areas_path=str(REAL_AREAS)
+        )
+        == []
+    )
+    assert n["calls"] == auto_seed.FOUR_AREA_MAX_CONSECUTIVE_GATEWAY_ERRORS
+    assert session.added == []
+
+
+def test_review_generation_refuses_an_unattested_areas_file(review_seams, tmp_path: Path) -> None:  # noqa: ANN001, ARG001
+    data = _areas_dict()
+    data["authored_by"] = "TODO_CONFIRM"
+    with pytest.raises(QueryAreasNotAttested):
+        auto_seed.run_four_area_review_queue(
+            _FakeSession(), per_area_target=1, areas_path=str(_write(tmp_path, data))
+        )
+
+
+class _CapturingSession:
+    """Records the statement; returns no rows."""
+
+    def __init__(self) -> None:
+        self.sql = ""
+
+    def execute(self, stmt):  # noqa: ANN001, ANN201
+        from sqlalchemy.dialects import postgresql  # noqa: PLC0415
+
+        self.sql = str(
+            stmt.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True})
+        )
+        return self
+
+    def scalars(self):  # noqa: ANN201
+        return self
+
+    def all(self) -> list:
+        return []
+
+
+@pytest.mark.parametrize(
+    ("query", "purpose"),
+    [
+        ("holdout_count", "ablation_holdout"),
+        ("ablation_pool", "ablation_holdout"),
+        ("review_count", "review_queue"),
+    ],
+)
+def test_holdout_and_review_pools_never_select_each_other(query: str, purpose: str) -> None:
+    """DEVIATIONS.md #280: both pools use the `four-area-v2` template, so
+    every query that picks one of them also filters on its purpose."""
+    from app.eval.unified_ablation.runner import fetch_four_area_questions  # noqa: PLC0415
+
+    run = {
+        "holdout_count": auto_seed._count_usable_four_area_by_area,
+        "ablation_pool": fetch_four_area_questions,
+        "review_count": auto_seed._count_four_area_review_by_area,
+    }[query]
+    session = _CapturingSession()
+    run(session)
+    assert "'four-area-v2'" in session.sql
+    assert f"'{purpose}'" in session.sql

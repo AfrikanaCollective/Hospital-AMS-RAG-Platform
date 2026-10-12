@@ -52,9 +52,7 @@ def write_popularity_report(
         writer.writerows(records)
 
     summary_path = run_dir / "statistical_summary.json"
-    summary = (
-        json.loads(summary_path.read_text(encoding="utf-8")) if summary_path.is_file() else {}
-    )
+    summary = json.loads(summary_path.read_text(encoding="utf-8")) if summary_path.is_file() else {}
     summary["popularity_baseline_by_k"] = [asdict(b) for b in baselines]
     summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
     _print_report(baselines)

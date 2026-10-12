@@ -3648,3 +3648,18 @@ not retroactively. When in doubt, log it.
   - The multi-stage audit query (`multi_stage.query`, concept-augmented) is still returned by the API for traceability but was never shown on the review page; left as is.
 - **Tests:** `tests/test_four_area_questions.py`: expansions removed for current and birth-weight-only records, opening line unchanged, other three areas untouched, and a stored-question example from the live queue. Suite 1063 passed.
 - **Reversible?:** yes (return `eval_question.text` directly).
+
+### 292. Review queue colour-coded by query area
+- **Date / phase:** 2026-10-12, Phase 9. Operator: "Color code the review queue boxes including the phone-width card view". The operator named no basis; coded by query area, the column added in #290.
+- **Requirement ID(s):** PRD-042.
+- **What was done:**
+  - Four theme tokens per area in `frontend/src/index.css` (text colour + light tint): assessment blue, investigations amber, severity classification purple, antibiotic course green. Each text colour is ≥7:1 on its tint. Red stays reserved for `--danger` and teal for `--accent`/selection.
+  - `frontend/src/queryArea.ts:queryAreaStyle` maps an area to a left stripe, a tint and a badge style; an item with no area gets a neutral grey.
+  - Table (≥ `sm`): each row tinted, a 4px stripe on its left edge, the "Query area" cell a coloured badge. Phone-width cards: tinted, 4px coloured left border, the area as a badge.
+  - Selected item: teal tint plus a teal outline (row) or ring (card), replacing the area tint so the selection stays obvious.
+- **Judgment calls:**
+  - **Colour by query area**, not by expected/observed outcome or rater progress.
+  - **Colour is never the only cue:** the area name is always written in the badge (WCAG 1.4.1).
+  - **Stripe set inline** (`style`), not as a border-colour utility, so the card's border colour class cannot override it.
+- **Tests:** no frontend test suite; `tsc` and ESLint clean; the built CSS contains every area utility. Not viewed in a browser (the Chrome extension was not connected).
+- **Reversible?:** yes.

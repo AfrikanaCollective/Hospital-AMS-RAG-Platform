@@ -24,6 +24,17 @@
   --color-disclaimer-border: #c9a227;
 
   --color-focus: #1d4ed8;
+
+  /* Review-queue query areas (DEVIATIONS #292). Each text colour is >=7:1 on
+     its tint; red stays reserved for --danger, teal for --accent (selection). */
+  --color-area-assessment: #1e40af; /* blue-800 */
+  --color-area-assessment-bg: #eff6ff;
+  --color-area-investigations: #92400e; /* amber-800 */
+  --color-area-investigations-bg: #fffbeb;
+  --color-area-severity: #6b21a8; /* purple-800 */
+  --color-area-severity-bg: #faf5ff;
+  --color-area-antibiotic: #166534; /* green-800 */
+  --color-area-antibiotic-bg: #f0fdf4;
 }
 
 body {

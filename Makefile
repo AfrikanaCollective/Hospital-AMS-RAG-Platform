@@ -9,7 +9,7 @@ RESOLVE_ABLATION_RUN = run_id="$(RUN_ID)"; \
   if [ -z "$$run_id" ]; then echo "no run under backend/results/ablation/ — run 'make unified-ablation-report' first" >&2; exit 1; fi;
 
 .PHONY: help up down logs build migrate seed gen-data ingest-deid fetch-layout-models reingest-layout \
-        prepare-guidelines fetch-guidelines test lint typecheck eval fmt lock \
+        prepare-guidelines fetch-guidelines provenance provenance-check test lint typecheck eval fmt lock \
         retrieval-tuning-report model-ablation-report orchestration-ablation-report \
         unified-ablation-report recall-by-bm25-weight-plot recall-vs-bm25-weight-by-k-plot
 
@@ -47,6 +47,19 @@ gen-data: ## generate synthetic patient records (fallback); domain from RECORD_D
 ingest-deid: ## map an attested de-identified dataset onto record.py (ARCH-039); DATASET=<dir>
 	$(COMPOSE) --profile $(PROFILE) exec api python -m scripts.ingest_deidentified_records \
 	  --dataset-dir /app/$(or $(DATASET),data/patient_records/deidentified/newborn_nbu_2021) --attest-deidentified
+
+GIT_COMMIT = $$(git rev-parse HEAD)
+# The manifest itself doesn't count as an uncommitted change.
+GIT_DIRTY  = $$(test -z "$$(git status --porcelain -- . ':!data/PROVENANCE.json')" && echo false || echo true)
+
+provenance: ## pin file hashes + database digests + git commit into data/PROVENANCE.json (PRD-072, DEVIATIONS #295); commit the result
+	$(COMPOSE) --profile $(PROFILE) exec -T api python -m scripts.provenance pin \
+	  --git-commit "$(GIT_COMMIT)" --git-dirty "$(GIT_DIRTY)" > data/PROVENANCE.json.tmp \
+	  && mv data/PROVENANCE.json.tmp data/PROVENANCE.json || { rm -f data/PROVENANCE.json.tmp; exit 1; }
+
+provenance-check: ## re-derive and compare against data/PROVENANCE.json; exits 1 on any changed/missing pinned data or broken link
+	$(COMPOSE) --profile $(PROFILE) exec -T api python -m scripts.provenance check \
+	  --git-commit "$(GIT_COMMIT)" < data/PROVENANCE.json
 
 prepare-guidelines: ## validate the operator-provided guideline corpus in data/excerpt_guidelines/ (ARCH-038)
 	$(COMPOSE) --profile $(PROFILE) exec api python -m scripts.prepare_sample_guidelines --dir /app/data/excerpt_guidelines

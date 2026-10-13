@@ -1545,6 +1545,8 @@ cd ../frontend && npm install && npm run dev
 | `make seed` | schemas + roles + rubric domains + demo users |
 | `make gen-data` | synthetic patient records (fallback); domain via `RECORD_DOMAIN` (default `neonatal`) |
 | `make ingest-deid DATASET=<dir>` | map an attested de-identified dataset onto `record.py` (ARCH-039); refuses without a complete `DATASET.md` attestation |
+| `make provenance` | pin the data state into `data/PROVENANCE.json` (tracked): the git commit and model/review settings, a SHA-256 of every data file (guideline PDFs and manifest, attested YAML inputs, patient dataset files, ingest artifacts, ablation outputs), and a digest of each table the evaluation rests on (guideline versions and chunks, patients and records, eval questions, results, ratings, IRR scores, archives) over the rows that existed at the pin. Hashes, counts and ids only, no record content. Re-pin after a deliberate data change and commit the manifest with it (PRD-072, DEVIATIONS #295) |
+| `make provenance-check` | re-derive the same state and compare: a changed or missing pinned file or row, an active guideline version whose file no longer matches its ingest hash, a gold chunk or open-result citation that no longer resolves, or a known gap that grew fails (exit 1); rows added since the pin (new ratings, new questions) and unsettled `DATASET.md` fields are reported. Read-only; runs in the `api` container |
 | `make prepare-guidelines` | validate the operator-provided guideline corpus + `manifest.json` (ARCH-038); `fetch-guidelines` is a deprecated alias |
 | `make test` | backend pytest (offline; includes gating safety tests) |
 | `make lint` | `ruff check` + `ruff format --check` |
@@ -1626,6 +1628,7 @@ All config is via environment variables / `.env` (secrets via
   `birth weight (kg) (2.35 kg, 2.25 kg, 2.0 kg)`, i.e. as provided, to the
   nearest 0.25 kg and to the nearest whole kg (DEVIATIONS.md #248). Editing the
   vocabulary changes the ablation's `concepts_sha256`.
+- `data/PROVENANCE.json` — the pinned data provenance manifest (`make provenance` / `make provenance-check`, DEVIATIONS.md #295).
 - `data/patient_records/` — patient record data (all files **gitignored**;
   only `DATASET.md` / `field_mapping.yaml` / `.gitkeep` are tracked):
   - `synthetic/` — output of `make gen-data` (a **fallback**). Domain via

@@ -1,6 +1,6 @@
 {
  "code": {
-  "git_commit": "791506676ec0b9f033079fab2b245d4b35bfecbf",
+  "git_commit": "86e8c972f5369410e5e21c4c9dbd056403929e9c",
   "git_dirty": false
  },
  "database": {
@@ -17,8 +17,8 @@
    "sha256": "2192da2b1d90fe283b40a8f19dbbc79099f8ec27679c85c3ed1bd60fc2c01f20"
   },
   "eval.eval_question": {
-   "count": 908,
-   "sha256": "bb1c27a7e97e5f7baa75390668ff38a1ab51bef86114f8bfcae3317e6051ec7b"
+   "count": 896,
+   "sha256": "a89c0ed00dded0ca4e296bb0c0268cd8da91c8eab6a302ce3be00b0f1e10ffe0"
   },
   "eval.irr_score": {
    "count": 11,
@@ -174,11 +174,11 @@
   "data/reviewer_consent.yaml": "ddb9d992d1c3cb32083e3a79864c6e2725d2b711dab0d2af850100fdfb85e5b8"
  },
  "known_gaps": {
-  "questions_missing_source_record": 12,
-  "well_supported_questions_without_gold": 200
+  "questions_missing_source_record": 0,
+  "well_supported_questions_without_gold": 191
  },
  "manifest_version": 1,
- "pinned_at": "2026-10-13T08:59:43.627620+00:00",
+ "pinned_at": "2026-10-13T09:04:53.737460+00:00",
  "settings": {
   "embedding_model_id": "BAAI/bge-large-en-v1.5",
   "irr_min_raters": 3,
@@ -192,10 +192,10 @@
    "newborn_nbu_2021": 5260
   },
   "questions_by_template": {
-   "deterministic-v1": 318,
+   "deterministic-v1": 313,
    "four-area-v1": 12,
    "four-area-v2": 455,
-   "v1": 123
+   "v1": 116
   },
   "results_by_queue_state": {
    "archived": 238,

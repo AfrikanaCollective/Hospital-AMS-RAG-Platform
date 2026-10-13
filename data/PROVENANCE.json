@@ -1,6 +1,6 @@
 {
  "code": {
-  "git_commit": "b8ef4e1fe29fab422a88b87e20efdf45dcae1c4f",
+  "git_commit": "791506676ec0b9f033079fab2b245d4b35bfecbf",
   "git_dirty": false
  },
  "database": {
@@ -164,7 +164,7 @@
   "data/ingest_artifacts/gold_remap_20261005T055912Z.json": "239f6ab7fb317c59f223e14aa7e527efdd8fe5a6b5241a4047a71ff0d33d5004",
   "data/ingest_artifacts/gold_text_before_reset_20260930.json": "bd7fc3619626212e40bbfd461376b0b99ea131699f463232dcf1cf51684d9a07",
   "data/ingest_artifacts/unified_ablation_four_area_20261007.log": "efbbaed34eba4158e83a1efc8e3a1683b0fc26bfd0cb7f186bf63481dcfc7064",
-  "data/patient_records/deidentified/newborn_nbu_2021/DATASET.md": "4e26bfdbe2e2985c2487c88ebefaf9afcccf9b183ce20ed8a40f05b4b9928919",
+  "data/patient_records/deidentified/newborn_nbu_2021/DATASET.md": "1ab17c9edccb69dbc17cc697f8dfbb9f10c88003ac12c3cc9de8f87dfd9ab2fe",
   "data/patient_records/deidentified/newborn_nbu_2021/field_mapping.yaml": "cfcff9bbe0fd84d0a3c96bcd7ef886c9d743a2184942842cc92d3ad902dd4ad5",
   "data/patient_records/deidentified/newborn_nbu_2021/rag_dataset.csv": "d0f1a269e69ff48793195b263c69cbc2884e1baca511e257dfdbd17d342c6c3e",
   "data/patient_records/deidentified/newborn_nbu_2021/records.normalized.json": "b927545c12e4d5af0313bb4c615c988865faca27f38802f34acc1560bc66177d",
@@ -178,7 +178,7 @@
   "well_supported_questions_without_gold": 200
  },
  "manifest_version": 1,
- "pinned_at": "2026-10-13T07:20:31.522855+00:00",
+ "pinned_at": "2026-10-13T08:59:43.627620+00:00",
  "settings": {
   "embedding_model_id": "BAAI/bge-large-en-v1.5",
   "irr_min_raters": 3,

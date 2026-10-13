@@ -3712,3 +3712,11 @@ not retroactively. When in doubt, log it.
 - **Tests:** `tests/test_provenance.py` (9: digest order/timezone independence, bytes hashed not written, file changed/missing/new, table changed/deleted/added, known gaps, guideline file vs ingest hash, path mapping, attestation alternatives with and without a front-matter fence).
 - **Live check:** pinned 2026-10-13T07:12:47Z at `8dc06b0` (dirty: this change's own files were not yet committed): 122 files, 11 tables. The check passes, with warnings for the dirty pin, the two known gaps and the consent basis. A manifest with one file hash, one table digest, one row count and one gap count altered fails on exactly those 4 (exit 1). The attestation warning was first missed (the parser stopped at the opening `---`), found in this run and fixed.
 - **Reversible?:** yes (delete the module, script, targets and manifest).
+
+### 296. Eval questions pointing to missing patient records deleted
+- **Date / phase:** 2026-10-13, Phase 9. The provenance check (#295) flagged 12 eval questions whose `source_record_id` matches no `records.patient_record` or `records.patient` row. Operator: "drop all of the 12", after being told that 7 of them were the entire fixed test set.
+- **Requirement ID(s):** PRD-066, PRD-072.
+- **What was done:** the 12 rows (all created 2026-09-19; 7 template `v1` with `in_fixed_testset = true`, 5 `deterministic-v1`) copied to `eval.bak_20261013_orphan_questions`, then deleted from `eval.eval_question` in the same transaction. None had a result, rating round, batch item or draft, so nothing else changed. 896 questions remain.
+- **Consequence:** the fixed test set is now empty (`in_fixed_testset` = 0 rows), so `make eval` has nothing to run until it is regenerated. Not regenerated here (not asked).
+- **Judgment calls:** backed up rather than dropped outright, same as #209; drop `eval.bak_20261013_orphan_questions` once the deletion is final. The provenance pin was retaken after the deletion, so the `questions_missing_source_record` known gap is pinned at 0 and any new orphan now fails the check.
+- **Reversible?:** yes, from the backup table (`insert into eval.eval_question select * from eval.bak_20261013_orphan_questions`), then re-pin.

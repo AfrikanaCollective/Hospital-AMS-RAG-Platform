@@ -1552,7 +1552,7 @@ cd ../frontend && npm install && npm run dev
 | `make lint` | `ruff check` + `ruff format --check` |
 | `make typecheck` | `mypy` |
 | `make lock` | regenerate `backend/requirements-lock.txt` from `pyproject.toml` (PRD-NFR-3 / DEVIATIONS.md #45) — run after changing dependencies, never hand-edit the lock |
-| `make eval` | run the evaluation harness against the fixed synthetic test set |
+| `make eval` | run the evaluation harness against the fixed synthetic test set. **The fixed set is empty since 2026-10-13**: its 7 questions pointed to patient records no longer in the database and were deleted (DEVIATIONS #296); it must be regenerated before `make eval` has anything to run |
 | `make retrieval-tuning-report` | Phase 6 BM25/vector weight × depth sweep → 1 combined 3-panel PNG report, 18cm×21cm @ 600dpi (PRD-109/ARCH-040); needs a real Qdrant + Postgres with an ingested corpus and seeded eval questions, and the `retrieval-tuning` extra (`pip install -e .[retrieval-tuning]`) |
 | `make model-ablation-report` | SapBERT/MedCPT/BM25 embedding ablation → 1 combined 2-panel PNG report (PRD-110/ARCH-041); needs a real Qdrant + Postgres with an ingested corpus and seeded eval questions, the `retrieval-tuning` + `local-models` extras, and `MODEL_ABLATION_BACKEND=local` for real (non-stub) models |
 | `make orchestration-ablation-report` | Phase 7 single-stage/criteria-reuse/operator-vocabulary orchestration ablation → 1 combined 3-panel PNG report (PRD-111); needs a real Qdrant + Postgres with an ingested corpus and seeded eval questions, and the `retrieval-tuning` extra; the operator-vocabulary arm additionally needs an attested `data/clinical_concepts.yaml` |

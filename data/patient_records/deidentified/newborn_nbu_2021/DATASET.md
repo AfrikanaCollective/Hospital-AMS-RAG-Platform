@@ -7,10 +7,10 @@ collection_period: "2021-01-01 to 2024-12-31"
 site: "Newborn units of the CIN hospitals"
 deidentification_method: "Removal of direct identifiers, inclusion of integer surrogate key"
 deidentification_standard: "Local IRB-approved de-identification"
-consent_basis: "Waiver of consent under IRB approval #SERU3 / broad consent / other"
+consent_basis: "KEMRI Scientific and Ethics Review Unit (SERU) approval KEMRI/SERU/CGMR-C/307/4901"
 licence: "CC BY-NC-SA 4.0"
 attested_by: "Timothy Tuti - Primary Investigator"
-attested_date: "2026-09-01"
+attested_date: "2026-10-13" 
 ---
 
 # Dataset: newborn_nbu_2021

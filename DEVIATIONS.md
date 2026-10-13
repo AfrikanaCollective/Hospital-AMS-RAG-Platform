@@ -3720,3 +3720,9 @@ not retroactively. When in doubt, log it.
 - **Consequence:** the fixed test set is now empty (`in_fixed_testset` = 0 rows), so `make eval` has nothing to run until it is regenerated. Not regenerated here (not asked).
 - **Judgment calls:** backed up rather than dropped outright, same as #209; drop `eval.bak_20261013_orphan_questions` once the deletion is final. The provenance pin was retaken after the deletion, so the `questions_missing_source_record` known gap is pinned at 0 and any new orphan now fails the check.
 - **Reversible?:** yes, from the backup table (`insert into eval.eval_question select * from eval.bak_20261013_orphan_questions`), then re-pin.
+
+### 297. Backup of the deleted orphan questions dropped
+- **Date / phase:** 2026-10-13, Phase 9. Operator: "drop the backup table".
+- **Requirement ID(s):** PRD-066.
+- **What was done:** `eval.bak_20261013_orphan_questions` (the 12 rows deleted in #296; none had been restored) dropped. The #296 deletion is now final and can't be undone from the database. The provenance pin doesn't cover backup tables, so no re-pin was needed.
+- **Reversible?:** no.

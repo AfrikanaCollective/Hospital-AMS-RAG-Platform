@@ -41,6 +41,7 @@ from app.db.models.eval import RubricDomain
 from app.db.models.iam import ROLES, Role, User, UserRole
 from app.db.models.records import RecordFieldPolicy
 from app.db.session import session_scope
+from app.eval.triage import TRIAGE_AGREEMENT_DOMAIN
 from app.rubric.domains import RUBRIC_DOMAINS
 
 DEMO_USERS = [
@@ -60,7 +61,9 @@ DEFAULT_FIELD_POLICIES = [
 
 def _seed_rubric_domains(session) -> int:  # noqa: ANN001
     count = 0
-    for domain in RUBRIC_DOMAINS:
+    # The triage-agreement score is stored as a rubric_rating row too, so its
+    # domain row must exist for the FK (ARCH-046, DEVIATIONS.md #299).
+    for domain in (*RUBRIC_DOMAINS, TRIAGE_AGREEMENT_DOMAIN):
         ref = domain.as_reference()
         ref.pop("required", None)  # not a rubric_domain column
         stmt = insert(RubricDomain).values(**ref)

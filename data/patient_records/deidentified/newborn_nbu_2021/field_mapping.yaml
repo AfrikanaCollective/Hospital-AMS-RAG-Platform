@@ -33,7 +33,13 @@ fields:
   # --- encounter_details ---
   admission_date_time: { target: encounter.admitted_at,             transform: parse_datetime }
   care_setting:        { target: encounter.care_setting,            transform: identity }
+  # Critical / Substantial / Moderate / Low / Minimal since the 2026-10-14
+  # export. Used only for the reviewers' triage-agreement question, never
+  # for guideline retrieval (ARCH-046, DEVIATIONS.md #298).
   triage_category:     { target: encounter.triage_category,         transform: none_literal_to_null }
+  # birth_date_time (added 2026-10-14) is deliberately NOT mapped, so it is
+  # never stored: date_of_birth stays derived (admitted_at - age_days) on the
+  # operator's instruction (DEVIATIONS.md #298).
   # --- vitals ---
   heart_rate:          { target: vitals.0.heart_rate_bpm,           transform: to_float }
   respiratory_rate:    { target: vitals.0.resp_rate_bpm,            transform: to_float }
@@ -54,8 +60,10 @@ list_targets:
     present_key: present
     recorded_at_from: admission_date_time
     ts_key: recorded_at
+    # difficulty_breathing added with the 2026-10-14 export (DEVIATIONS.md #298)
     members: [apnoea, bulging_fontanelle, central_cyanosis, convulsions, crackles,
-              difficulty_feeding, floppy, grunting, indrawing, irritable]
+              difficulty_breathing, difficulty_feeding, floppy, grunting, indrawing,
+              irritable]
   interventions:
     target: interventions
     active_key: active

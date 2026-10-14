@@ -288,3 +288,30 @@ def test_review_updates_both_copies_of_the_status(monkeypatch: pytest.MonkeyPatc
     assert payload["review_status"] == "confirmed"
     assert payload["meta"]["review_status"] == "confirmed"  # #267
     assert "embedding_text" not in payload["meta"]
+
+
+def test_carry_over_reads_a_pre_reset_export(tmp_path) -> None:  # noqa: ANN001
+    """A corpus rebuilt from scratch has no superseded versions; the export
+    supplies the confirmed text, grouped by document title (DEVIATIONS.md #301)."""
+    import json  # noqa: PLC0415
+
+    from scripts.carry_over_review_confirmations import load_export  # noqa: PLC0415
+
+    path = tmp_path / "confirmed.json"
+    rows = [
+        {
+            "document": "Doc A",
+            "page_start": 47,
+            "text": _OLD_TABLE,
+            "meta": {"table_source": {"source": "ocr"}},
+        },
+        {"document": "Doc B", "page_start": 2, "text": "Plain text.", "meta": {}},
+    ]
+    path.write_text(json.dumps(rows), encoding="utf-8")
+    by_title = load_export(path)
+    assert set(by_title) == {"Doc A", "Doc B"}
+    label, text, source = by_title["Doc A"][0]
+    assert (text, source) == (_OLD_TABLE, "ocr")
+    assert "p.47" in label
+    assert identical_confirmed_source(_OLD_TABLE, "ocr", by_title["Doc A"]) == label
+    assert identical_confirmed_source(_OLD_TABLE, "ocr", by_title["Doc B"]) is None

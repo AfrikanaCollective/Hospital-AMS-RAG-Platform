@@ -219,6 +219,14 @@ concepts:
     synonyms: ["feeding difficulties", "not feeding well", "poor feeding"]
     notes: "fires only when difficulty feeding was assessed and present"
 
+  difficulty breathing:
+    field: examination_findings.difficulty_breathing
+    operator: "present"
+    source: "operator-curated"
+    # Added 2026-10-14 on the operator's instruction (DEVIATIONS.md #301).
+    # No synonyms yet: synonyms are operator-curated only.
+    notes: "fires only when difficulty breathing was assessed and present"
+
   bulging_fontanelle:
     field: examination_findings.bulging_fontanelle
     operator: "present"

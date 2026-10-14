@@ -33,6 +33,14 @@ evaluation workflow.
 | **8** | Unified hierarchical (Level 1 × 2 × 3) ablation, superseding Phases 6/7's separate tools; Level 3 restructured (2026-09-23) to a single BM25/SapBERT weighted-rank sweep, MedCPT/RRF dropped, primary metric Recall@K; every delta now carries a bootstrap p-value, plus a full Recall@k×weight grid and a post-hoc best-weight-vs-BM25 test (DEVIATIONS #202) | ✅ implemented + run live (approved via [UNIFIED-ABLATION-PROPOSAL.md](UNIFIED-ABLATION-PROPOSAL.md); offline-verified + live-smoke-tested against the real corpus after both the restructure and the statistics extension — see DEVIATIONS #192–#202); **full-scale re-run complete (2026-09-25, `results/ablation/20260925T064650Z-81570c93/`, 1,589 real calibration questions, 699,160 rows)** — the ablation-holdout pool tops out at 1,992/2,500 (a genuine diversity-filter saturation wall, not a transient failure) and the operator accepted this run as final rather than relaxing the filter (DEVIATIONS #203–#205); Level 3 grid reduced to 6 weights {0.0, 0.2, …, 1.0} on 2026-09-25 and this run's summary + figures re-derived at that grid (DEVIATIONS #207) |
 | **9** | Layout-aware guideline ingestion (`PRD-113` / `ARCH-044`): Docling + pdfplumber + local RapidOCR, header/footer removal, font-fused headings, cell-structured tables, flowchart decision logic from vector geometry, attested text corrections, admin review gate for OCR'd numbers, corpus re-ingested with gold-id remap | ✅ 9a + 9b implemented (approved 2026-09-28, see [LAYOUT-INGESTION-PROPOSAL.md](LAYOUT-INGESTION-PROPOSAL.md); DEVIATIONS #213-#216); 9c (vision model) not built — gateway image support unverified |
 
+**Data reset (2026-10-14, DEVIATIONS.md #298-#300).** Every patient-derived
+artifact so far (questions, review items, ratings, ablation runs under
+`backend/results/`) was development-only and is being dropped with a full
+reset of the Postgres/Qdrant/Redis volumes. `newborn_nbu_2021` is now a
+1,500-patient export. The Phase 6-8 ablation results quoted above no longer
+exist on disk. The new review queue is triage-stratified (ARCH-046); the
+ablation holdout is regenerated from the records the queue does not use.
+
 Phase 1 delivers a **navigable skeleton**: folder structure, stub modules,
 data models, database schema (28 tables across 7 Postgres schemas, including
 the multi-rater rubric workflow tables), API endpoint stubs, a React UI shell
@@ -1143,6 +1151,24 @@ gateway failures in a row, and resumes on re-run. Needs the running stack
 (Postgres, Qdrant, LLM gateway), so run it in the `api` container after a
 rebuild.
 
+**Triage-stratified review queue (ARCH-046, PRD-114; DEVIATIONS.md
+#298-#300).** This replaces the per-area queue above as the review queue:
+40 fresh de-identified records per `triage_category` (Critical, Substantial,
+Moderate, Low, Minimal), each asked all four area questions, so 800 items:
+
+    make triage-review-queue                 # ARGS="--per-category 40 --seed 1"
+
+Each **assessment** item ends with a required triage-agreement question: a
+fixed-template narrative ("This newborn was assigned triage category ... In
+<source>, newborns in this category had a mortality rate of ...") using the
+operator-attested `data/triage_mortality.yaml`, scored 1 (strongly disagree)
+to 5 (strongly agree). The score is a `rubric_rating` row with domain
+`triage_agreement`, so it gets per-domain IRR like the 11 rubric domains. No
+other area shows or accepts it. The category is never part of any retrieval
+query. Run this **before** regenerating the ablation holdout, so the holdout
+uses only the remaining records. Commits per item, stops after 5 gateway
+failures in a row, and a re-run finishes unfinished records first.
+
 **Full-scale re-run against the ablation-holdout pool (2026-09-25).**
 Following a host restart that took the whole stack down mid-generation,
 brought the deployment back up (rebuilding `api`/`worker` — the images
@@ -1241,7 +1267,10 @@ DEVIATIONS.md #251). After a re-ingest that only re-chunks unchanged text,
 `python -m scripts.carry_over_review_confirmations [--apply]` confirms a held
 chunk only when every block of its text is a whole block of a chunk already
 confirmed in the most recent superseded version, with the same table-source
-pin; anything else stays held for a reviewer (DEVIATIONS.md #255).
+pin; anything else stays held for a reviewer (DEVIATIONS.md #255). For a
+corpus rebuilt from scratch (no superseded versions), `--from-export PATH`
+takes the confirmed chunks from a JSON export instead, matched by document
+title (DEVIATIONS.md #301).
 Evident source errors can be fixed only through an attested manifest
 `text_corrections` entry, which is shown on every citation. Supersession and
 withdrawal now also update Qdrant, so superseded chunks leave retrieval,
@@ -1348,6 +1377,8 @@ backend/
                     weight on x, one line per K, default K=8,10,12,14),
                     seed_four_area_review_queue (review-queue items per
                     query area from fresh records, DEVIATIONS #280),
+                    seed_triage_review_queue (40 records per triage
+                    category x 4 areas, ARCH-046),
                     plot_mrr_vs_bm25_weight_by_arm (2x2 panels A-D = K=2,
                     4, 6, 8: mean reciprocal rank vs. BM25 weight, one
                     line per Level-1 x Level-2 arm; --k-values overrides),
@@ -1545,6 +1576,7 @@ cd ../frontend && npm install && npm run dev
 | `make seed` | schemas + roles + rubric domains + demo users |
 | `make gen-data` | synthetic patient records (fallback); domain via `RECORD_DOMAIN` (default `neonatal`) |
 | `make ingest-deid DATASET=<dir>` | map an attested de-identified dataset onto `record.py` (ARCH-039); refuses without a complete `DATASET.md` attestation |
+| `make triage-review-queue [ARGS=...]` | triage-stratified review queue: 40 records per triage category x 4 query areas, triage-agreement question on assessment items (ARCH-046) |
 | `make provenance` | pin the data state into `data/PROVENANCE.json` (tracked): the git commit and model/review settings, a SHA-256 of every data file (guideline PDFs and manifest, attested YAML inputs, patient dataset files, ingest artifacts, ablation outputs), and a digest of each table the evaluation rests on (guideline versions and chunks, patients and records, eval questions, results, ratings, IRR scores, archives) over the rows that existed at the pin. Hashes, counts and ids only, no record content. Re-pin after a deliberate data change and commit the manifest with it (PRD-072, DEVIATIONS #295) |
 | `make provenance-check` | re-derive the same state and compare: a changed or missing pinned file or row, an active guideline version whose file no longer matches its ingest hash, a gold chunk or open-result citation that no longer resolves, or a known gap that grew fails (exit 1); rows added since the pin (new ratings, new questions) and unsettled `DATASET.md` fields are reported. Read-only; runs in the `api` container |
 | `make prepare-guidelines` | validate the operator-provided guideline corpus + `manifest.json` (ARCH-038); `fetch-guidelines` is a deprecated alias |
@@ -1589,6 +1621,7 @@ All config is via environment variables / `.env` (secrets via
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD` | empty | the single admin login (plaintext in the gitignored `.env`); either empty disables admin sign-in |
 | `REVIEWER_COMPLETION_THRESHOLD` | `5` | completed review cases at which the admin page marks a reviewer's target as reached |
 | `REVIEWER_CONSENT_PATH` | `data/reviewer_consent.yaml` | operator-attested consent text; registration stays closed until it is attested |
+| `TRIAGE_MORTALITY_PATH` | `data/triage_mortality.yaml` | operator-attested mortality per triage category for the triage-agreement question (ARCH-046); fails closed while any field is missing or `TODO_CONFIRM` |
 | `REVIEW_BATCH_SIZE` | `12` | fresh review cases given to a reviewer at a time, once no cases started by other reviewers are left for them (DEVIATIONS.md #294) |
 | `REVIEWER_MAX_RESUBMISSIONS` | `2` | resubmissions a rejected reviewer may make (2 = up to three submissions in all; 0 = the first rejection is final) (DEVIATIONS.md #286) |
 | `SIGNIN_MAX_FAILURES_PER_ACCOUNT` / `SIGNIN_MAX_FAILURES_PER_IP` / `SIGNIN_WINDOW_SECONDS` | `5` / `20` / `900` | failed email + password and admin sign-ins: reaching the limit within the window locks that account (or IP address) until the window ends; sign-in then returns 429 with `Retry-After`. Counters are in Redis (falls back to in-process if Redis is down) (DEVIATIONS.md #283) |
@@ -1645,8 +1678,13 @@ All config is via environment variables / `.env` (secrets via
     Alembic migration, still pending, to have created the `records` schema
     tables) to also write `patient`/`patient_record` rows to the database. See
     ARCH-039 / DEVIATIONS.md #33–#35, #38, #57. The bundled example is
-    `newborn_nbu_2021` (a de-identified Kenya Newborn Unit dataset, EAV,
-    ~40,871 patients).
+    `newborn_nbu_2021` (a de-identified Kenya Newborn Unit dataset, EAV;
+    since 2026-10-14 a 1,500-patient export, 300 per triage category, with
+    `difficulty_breathing` mapped as a finding and `birth_date_time` left
+    unmapped — DEVIATIONS.md #298).
+- `data/triage_mortality.yaml` — operator-attested mortality per triage
+  category, shown only in the reviewers' triage-agreement question (ARCH-046);
+  a local statistic, never guideline content and never in an answer.
 - `data/excerpt_guidelines/` — **the guideline corpus. You supply this.** Drop
   real clinical-guideline PDFs here, then copy
   `data/excerpt_guidelines/manifest.example.json` to `manifest.json` and fill in

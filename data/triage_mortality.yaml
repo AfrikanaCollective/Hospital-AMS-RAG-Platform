@@ -1,0 +1,29 @@
+# Mortality by triage category, shown to reviewers in the triage-agreement
+# question of "assessment" review-queue items (ARCH-046, PRD-114;
+# DEVIATIONS.md #299).
+#
+# Operator-supplied local statistic, NOT guideline content: it is never sent
+# to retrieval, never cited, and never appears in an answer. Like
+# data/query_areas.yaml, code may use this file only while every field below
+# is filled in (no TODO_CONFIRM); otherwise the triage question cannot be
+# generated or served.
+#
+# `mortality` is shown exactly as written here (">60%", "~9%", ...).
+
+attested_by: "Timothy Tuti"
+attested_role: "Primary Investigator"
+attested_date: "2026-10-14"
+
+source:
+  # Read in the narrative as "In <citation>, newborns in this category ..."
+  citation: "the PLOS ONE study (doi:10.1371/journal.pone.0359212)"
+  url: "https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0359212"
+
+# Ordered from highest to lowest risk. Names must match the dataset's
+# `triage_category` values exactly.
+categories:
+  Critical:    { mortality: ">60%" }
+  Substantial: { mortality: ">45%" }
+  Moderate:    { mortality: "~9%" }
+  Low:         { mortality: "~3%" }
+  Minimal:     { mortality: "<1%" }

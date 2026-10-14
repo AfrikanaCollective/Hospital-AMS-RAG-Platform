@@ -299,6 +299,14 @@ Per reviewer (DEVIATIONS.md #294): items others started come first; then a
 batch of up to 12 fresh items, kept until done; one half-finished rating
 at most, which must be submitted before any other item.
 
+**Triage-stratified queue + triage question (ARCH-046, PRD-114).** The queue
+is 40 records per `triage_category` (Critical/Substantial/Moderate/Low/
+Minimal) x 4 query areas = 800 items. **Assessment** items only end with a
+required 1-5 triage-agreement score (fixed-template narrative with the
+attested mortality from `data/triage_mortality.yaml`), stored as rubric
+domain `triage_agreement` (outside the 11). `triage_category` never reaches
+retrieval; the mortality figure never enters an answer.
+
 **IRR metric: Krippendorff's alpha, ordinal difference function, per domain.**
 Why: any number of raters + *variable* raters per item + ordinal 5-pt scale +
 missing-data tolerant + chance-corrected. Secondary reported stats: Gwet's AC2

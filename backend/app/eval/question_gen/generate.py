@@ -109,7 +109,8 @@ _SECTION_FIELDS: tuple[tuple[str, str], ...] = (
     ("day_of_life", "day of life"),
     ("care_setting", "care setting"),
     ("presenting_complaint", "presenting complaint"),
-    ("triage_category", "triage category"),
+    # triage_category deliberately absent: it is never used for guideline
+    # retrieval, only for the reviewers' triage question (ARCH-046, #299).
 )
 _VITAL_FIELDS: tuple[tuple[str, str], ...] = (
     ("heart_rate_bpm", "heart rate (bpm)"),

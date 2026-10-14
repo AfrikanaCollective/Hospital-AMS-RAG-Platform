@@ -53,6 +53,11 @@ from app.db.models.eval import (
     result_segments_aad,
 )
 from app.eval.question_gen.areas import reviewer_question_text
+from app.eval.triage import (
+    TriageMortalityNotAttested,
+    load_triage_mortality,
+    triage_review_payload,
+)
 from app.rubric.assignment import (
     QueueRuleError,
     QueueStore,
@@ -60,6 +65,7 @@ from app.rubric.assignment import (
     load_draft,
     save_draft,
 )
+from app.rubric.workflow import triage_category_for_result
 
 router = APIRouter()
 
@@ -73,6 +79,22 @@ def _query_area(session: Session, result: Result) -> str | None:
     question = session.get(EvalQuestion, result.eval_question_id)
     area = (question.generator_meta or {}).get("area") if question is not None else None
     return area if isinstance(area, str) else None
+
+
+def _triage_review(session: Session, result: Result) -> dict | None:
+    """The triage-agreement question for an assessment-area item (ARCH-046,
+    DEVIATIONS.md #299); None on every other item. An unattested mortality
+    table is a server misconfiguration, not a silently missing question."""
+    category = triage_category_for_result(session, result)
+    if category is None:
+        return None
+    try:
+        table = load_triage_mortality(get_settings().triage_mortality_path)
+    except TriageMortalityNotAttested as exc:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, f"triage mortality table: {exc}"
+        ) from exc
+    return triage_review_payload(category, table)
 
 
 @router.get("")
@@ -209,6 +231,7 @@ async def get_queue_item(
         "provenance": result.provenance,
         "expected_outcome": result.expected_outcome,
         "query_area": _query_area(session, result),
+        "triage_review": _triage_review(session, result),
         "question": question,
         "answer": answer,
         "segments": segments,

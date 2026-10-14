@@ -199,6 +199,7 @@ export const api = {
           submission.accept.action === "partial_accept"
             ? submission.accept.editedAnswer || undefined
             : undefined,
+        triage_agreement: submission.triageAgreement,
       }),
     }),
 

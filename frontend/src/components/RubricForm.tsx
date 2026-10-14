@@ -1,7 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import * as RadioGroup from "@radix-ui/react-radio-group";
 import * as Collapsible from "@radix-ui/react-collapsible";
-import type { AcceptAxisValue, RatingDraftState, RatingSubmission, RubricDomain } from "../types";
+import type {
+  AcceptAxisValue,
+  RatingDraftState,
+  RatingSubmission,
+  RubricDomain,
+  TriageReview,
+} from "../types";
 import { api } from "../api/client";
 import AcceptAxisControls from "./AcceptAxisControls";
 import Button from "./ui/Button";
@@ -31,8 +37,14 @@ const ANCHOR_KEYS = ["anchor_1", "anchor_2", "anchor_3", "anchor_4", "anchor_5"]
 //
 // `initial` restores a saved half-finished rating and `onChange` reports
 // every change so the page can save it (DEVIATIONS.md #294).
+//
+// `triageReview` (assessment-area items only, ARCH-046 / DEVIATIONS.md #299)
+// adds one more required step after the accept axis: the triage-agreement
+// question. Its score rides in `scores` (so the draft keeps it) and is split
+// out as `triageAgreement` on submit.
 export default function RubricForm({
   candidateAnswer,
+  triageReview,
   onSubmit,
   busy,
   initial,
@@ -40,6 +52,7 @@ export default function RubricForm({
   submitLabel = "Submit rating",
 }: {
   candidateAnswer?: string | null;
+  triageReview?: TriageReview | null;
   onSubmit: (submission: RatingSubmission) => void;
   busy?: boolean;
   initial?: Partial<RatingDraftState>;
@@ -73,13 +86,18 @@ export default function RubricForm({
       .catch(() => setDomains([]));
   }, []);
 
-  const totalSteps = domains.length + 1; // + the accept-axis step
-  const onAcceptStep = step >= domains.length;
-  const domain = onAcceptStep ? null : domains[step];
+  const triageDomain = triageReview?.domain ?? null;
+  // + the accept-axis step, + the triage step when this item asks it
+  const totalSteps = domains.length + 1 + (triageDomain ? 1 : 0);
+  const onAcceptStep = step === domains.length;
+  const onTriageStep = triageDomain !== null && step > domains.length;
+  const onLastStep = step >= totalSteps - 1;
+  const domain = step < domains.length ? domains[step] : null;
   const ratedCount = domains.filter((d) => scores[d.code]).length;
 
   const scoresComplete = domains.length > 0 && domains.every((d) => scores[d.code]);
-  const complete = scoresComplete && isAcceptAxisValueValid(accept, false);
+  const triageComplete = !triageDomain || Boolean(scores[triageDomain.code]);
+  const complete = scoresComplete && triageComplete && isAcceptAxisValueValid(accept, false);
 
   const canAdvance = domain ? Boolean(scores[domain.code]) : true;
 
@@ -91,15 +109,28 @@ export default function RubricForm({
       ref={formRef}
       onSubmit={(e) => {
         e.preventDefault();
-        onSubmit({ scores, comment, accept });
+        if (!triageDomain) {
+          onSubmit({ scores, comment, accept });
+          return;
+        }
+        const { [triageDomain.code]: triageAgreement, ...rubricScores } = scores;
+        onSubmit({ scores: rubricScores, comment, accept, triageAgreement });
       }}
       className="grid gap-4 rounded-xl border border-border bg-surface p-4 pb-20 sm:pb-4"
     >
       {/* Progress (DEVIATIONS #133) — numeral + label, never a bare color bar. */}
       <div>
         <div className="mb-2 flex items-center justify-between text-[13px] text-ink-muted">
-          <span>{onAcceptStep ? "Final step" : `Domain ${step + 1} of ${domains.length}`}</span>
-          <span>{onAcceptStep ? "Accept axis" : domain?.name}</span>
+          <span>
+            {onTriageStep || (onAcceptStep && !triageDomain)
+              ? "Final step"
+              : onAcceptStep
+                ? "Next to last step"
+                : `Domain ${step + 1} of ${domains.length}`}
+          </span>
+          <span>
+            {onTriageStep ? "Triage category" : onAcceptStep ? "Accept axis" : domain?.name}
+          </span>
         </div>
         <div className="h-1 overflow-hidden rounded-full bg-surface-alt">
           <div
@@ -141,6 +172,36 @@ export default function RubricForm({
         </div>
       )}
 
+      {onTriageStep && triageReview && triageDomain && (
+        <div className="grid gap-3">
+          <h4 className="text-[15px] font-semibold text-ink">
+            Triage category{" "}
+            <span className="font-normal text-ink-muted">(required for this case)</span>
+          </h4>
+          <p className="text-[15px] leading-relaxed text-ink">{triageReview.narrative}</p>
+          <p className="text-[12px] text-ink-muted">
+            Mortality figure: operator-supplied local statistic, not guideline content.{" "}
+            <a
+              className="text-accent-strong underline"
+              href={triageReview.source_url}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Source
+            </a>
+          </p>
+          <DomainStep
+            domain={triageDomain}
+            value={scores[triageDomain.code]}
+            onChange={(v) => setScores((s) => ({ ...s, [triageDomain.code]: v }))}
+            defOpen={defOpen}
+            setDefOpen={setDefOpen}
+            answerOpen={false}
+            setAnswerOpen={() => {}}
+          />
+        </div>
+      )}
+
       {/* Sticky thumb-reach nav (DEVIATIONS #133). */}
       <div className="fixed inset-x-0 bottom-0 z-10 flex items-center gap-2 border-t border-border bg-surface p-3 sm:static sm:border-0 sm:bg-transparent sm:p-0">
         <Button
@@ -154,7 +215,7 @@ export default function RubricForm({
         <span className="shrink-0 text-[12px] text-ink-muted">
           {ratedCount}/{domains.length} rated
         </span>
-        {onAcceptStep ? (
+        {onLastStep ? (
           // type="button" + requestSubmit(), NOT type="submit" — this slot
           // renders in the same tree position as the Next button below, so
           // React patches the existing <button> node's attributes in place

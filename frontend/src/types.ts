@@ -125,6 +125,19 @@ export interface RatingSubmission {
   scores: Record<string, number>;
   comment: string;
   accept: AcceptAxisValue;
+  /** 1-5, only on items that ask the triage question (ARCH-046). */
+  triageAgreement?: number;
+}
+
+// The triage-agreement question on assessment-area items (ARCH-046,
+// DEVIATIONS.md #299); null on every other item.
+export interface TriageReview {
+  category: string;
+  mortality: string;
+  narrative: string;
+  source_citation: string;
+  source_url: string;
+  domain: RubricDomain;
 }
 
 // GET /review-queue item (rank mode).
@@ -163,6 +176,7 @@ export interface QueueResultDetail {
   provenance: string;
   expected_outcome: string | null;
   query_area: string | null;
+  triage_review: TriageReview | null;
   // The auto-generated (or clinician-submitted) question this result
   // answers; null for a result with no linked `eval_question` row
   // (DEVIATIONS.md #120).

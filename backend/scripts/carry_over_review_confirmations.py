@@ -12,14 +12,21 @@ chunk confirmed, through the normal `review_chunk` path (Postgres + Qdrant +
 one append-only audit event per chunk), with a note naming the source chunk.
 Anything not identical stays held for a human reviewer.
 
+`--from-export PATH` takes the confirmed chunks from a JSON export instead
+of superseded versions -- for a corpus rebuilt from scratch, which has no
+superseded versions (DEVIATIONS.md #301). The export is a list of
+`{"document": <title>, "page_start", "text", "meta"}` rows, matched to the
+re-ingested document by title; the same identical-text rule applies.
+
 Dry run by default; pass `--apply` to write.
 
-    python -m scripts.carry_over_review_confirmations [--apply]
+    python -m scripts.carry_over_review_confirmations [--from-export PATH] [--apply]
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
 from sqlalchemy import select
@@ -39,10 +46,26 @@ def _source(meta: dict | None) -> str | None:
     return ((meta or {}).get("table_source") or {}).get("source")
 
 
+def load_export(path: Path) -> dict[str, list[tuple[str, str, str | None]]]:
+    """Exported confirmed chunks by document title, in the matcher's
+    `(source label, text, table_source)` shape."""
+    by_title: dict[str, list[tuple[str, str, str | None]]] = {}
+    for i, row in enumerate(json.loads(path.read_text(encoding="utf-8")) or []):
+        label = f"{path.name}#{i} (p.{row.get('page_start')})"
+        by_title.setdefault(row["document"], []).append(
+            (label, row["text"], _source(row.get("meta")))
+        )
+    return by_title
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--apply", action="store_true", help="write the confirmations")
+    parser.add_argument(
+        "--from-export", type=Path, default=None, help="confirmed chunks from a JSON export"
+    )
     args = parser.parse_args(argv)
+    exported = load_export(args.from_export) if args.from_export else None
 
     store = _default_vectorstore() if args.apply else None
     carried = kept = 0
@@ -63,22 +86,28 @@ def main(argv: list[str] | None = None) -> int:
             ]
             if not held:
                 continue
-            confirmed = [
-                (str(c.id), c.text, _source(c.meta))
-                for c in session.execute(
-                    select(Chunk)
-                    .join(DocumentVersion, DocumentVersion.id == Chunk.document_version_id)
-                    .where(
-                        DocumentVersion.document_id == version.document_id,
-                        DocumentVersion.status == "superseded",
-                    )
-                    # most recent superseded version first
-                    .order_by(DocumentVersion.ingested_at.desc(), Chunk.ordinal)
-                ).scalars()
-                if (c.meta or {}).get("review_status") == CONFIRMED
-            ]
-            name = Path(session.get(Document, version.document_id).source_uri or "").name
-            print(f"{name}: {len(held)} held, {len(confirmed)} confirmed in superseded versions")
+            document = session.get(Document, version.document_id)
+            if exported is not None:
+                confirmed = exported.get(document.title, [])
+                where = "the export"
+            else:
+                where = "superseded versions"
+                confirmed = [
+                    (str(c.id), c.text, _source(c.meta))
+                    for c in session.execute(
+                        select(Chunk)
+                        .join(DocumentVersion, DocumentVersion.id == Chunk.document_version_id)
+                        .where(
+                            DocumentVersion.document_id == version.document_id,
+                            DocumentVersion.status == "superseded",
+                        )
+                        # most recent superseded version first
+                        .order_by(DocumentVersion.ingested_at.desc(), Chunk.ordinal)
+                    ).scalars()
+                    if (c.meta or {}).get("review_status") == CONFIRMED
+                ]
+            name = Path(document.source_uri or "").name
+            print(f"{name}: {len(held)} held, {len(confirmed)} confirmed in {where}")
             for chunk in held:
                 source = identical_confirmed_source(chunk.text, _source(chunk.meta), confirmed)
                 label = f"  ordinal {chunk.ordinal:3d} {(chunk.section_path or '')[-45:]}"
@@ -96,7 +125,11 @@ def main(argv: list[str] | None = None) -> int:
                         decision=CONFIRMED,
                         note=(
                             f"carried over: text identical to confirmed chunk {source} "
-                            "of a superseded version (DEVIATIONS.md #255)"
+                            + (
+                                "from the pre-reset export (DEVIATIONS.md #255, #301)"
+                                if exported is not None
+                                else "of a superseded version (DEVIATIONS.md #255)"
+                            )
                         ),
                         actor_id=None,
                         actor_role="system:carry_over_review",

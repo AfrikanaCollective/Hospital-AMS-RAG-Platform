@@ -43,7 +43,15 @@ from typing import TYPE_CHECKING
 from sqlalchemy import func, select
 
 from app.config import get_settings
-from app.db.models.eval import IRRScore, RatingRound, Result, ResultArchive, RubricRating
+from app.db.models.eval import (
+    EvalQuestion,
+    IRRScore,
+    RatingRound,
+    Result,
+    ResultArchive,
+    RubricRating,
+)
+from app.eval.triage import TRIAGE_AGREEMENT_DOMAIN_CODE, triage_review_applies
 from app.hitl.decisions import apply_rating_accept_action
 from app.rubric.irr import per_domain_irr
 
@@ -82,6 +90,23 @@ class ResultArchivedError(ValueError):
     """The result already has its ratings and was archived; a late
     submission (e.g. a draft finished after others) must not add a 4th
     (DEVIATIONS.md #294)."""
+
+
+class TriageAgreementError(ValueError):
+    """A triage-agreement score was missing on an item that asks for it, or
+    given on one that doesn't (ARCH-046, DEVIATIONS.md #299)."""
+
+
+def triage_category_for_result(session: Session, result: Result) -> str | None:
+    """The triage category an item asks about, or None when it doesn't ask
+    the triage question: only assessment-area items whose question recorded
+    a known category at generation time (ARCH-046)."""
+    if result.eval_question_id is None:
+        return None
+    question = session.get(EvalQuestion, result.eval_question_id)
+    meta = (question.generator_meta or {}) if question is not None else {}
+    area, category = meta.get("area"), meta.get("triage_category")
+    return category if triage_review_applies(area, category) else None
 
 
 def is_eligible_rater(
@@ -179,6 +204,7 @@ def submit_rating(
     accept_edited_answer: str | None = None,
     accept_accepted_context_ids: list[str] | None = None,
     is_original_rater: bool = False,
+    triage_agreement: int | None = None,
 ) -> RatingRound:
     """Both HITL axes, one sitting (ARCH §13.2 "Both axes together"):
     `accept_action` is required on every call — a rater completing the
@@ -186,12 +212,21 @@ def submit_rating(
     That's the whole task (DEVIATIONS.md #100) — no reason code is collected
     or passed to `apply_rating_accept_action` here, and no escalation is
     ever created by this path. `RatingRound.accept_action_id` links the
-    resulting `HitlDecision` back to this round."""
+    resulting `HitlDecision` back to this round.
+
+    `triage_agreement` is required exactly when the item asks the triage
+    question (`triage_category_for_result`) and refused otherwise; it is
+    stored as one more `rubric_rating` row (ARCH-046)."""
     result = _fetch_result(session, result_id)
     if result is None:
         raise ResultNotFoundError(f"no result {result_id}")
     if result.queue_state == QueueState.ARCHIVED:
         raise ResultArchivedError(f"result {result_id} is already archived")
+    asks_triage = triage_category_for_result(session, result) is not None
+    if asks_triage and triage_agreement is None:
+        raise TriageAgreementError("this item needs a triage-agreement score (1-5)")
+    if not asks_triage and triage_agreement is not None:
+        raise TriageAgreementError("this item does not ask the triage question")
 
     already_rated_by = {r.rater_id for r in _fetch_rating_rounds(session, result_id)}
     eligible = is_eligible_rater(
@@ -217,6 +252,19 @@ def submit_rating(
                 rater_id=rater_id,
                 domain_code=s.domain_code,
                 score=s.score,
+                rated_at=now,
+                rating_round_id=round_row.id,
+                comment=comment,
+            )
+        )
+
+    if triage_agreement is not None:
+        session.add(
+            RubricRating(
+                result_id=result_id,
+                rater_id=rater_id,
+                domain_code=TRIAGE_AGREEMENT_DOMAIN_CODE,
+                score=triage_agreement,
                 rated_at=now,
                 rating_round_id=round_row.id,
                 comment=comment,

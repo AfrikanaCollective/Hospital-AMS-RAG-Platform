@@ -40,6 +40,7 @@ from app.rubric.workflow import (
     DuplicateRaterError,
     ResultArchivedError,
     ResultNotFoundError,
+    TriageAgreementError,
     submit_rating,
 )
 from app.schemas.rubric import RatingRoundRequest
@@ -83,11 +84,14 @@ async def submit_rating_route(
             comment=body.comment,
             accept_edited_answer=body.accept_edited_answer,
             accept_accepted_context_ids=body.accept_accepted_context_ids,
+            triage_agreement=body.triage_agreement,
         )
     except ResultNotFoundError as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
     except (DuplicateRaterError, ResultArchivedError) as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    except TriageAgreementError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
     clear_draft_after_submit(store, rater_id, rid)
     return {
         "rating_round_id": str(round_row.id),

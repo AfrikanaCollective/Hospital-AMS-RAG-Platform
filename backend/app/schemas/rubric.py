@@ -60,6 +60,10 @@ class RatingRoundRequest(BaseModel):
     # alone is a complete, valid partial_accept.
     accept_edited_answer: str | None = None
     accept_accepted_context_ids: list[str] = Field(default_factory=list)
+    # The triage-agreement question (ARCH-046, DEVIATIONS.md #299): required
+    # on assessment-area items with a triage category, refused on every other
+    # item. Which applies depends on the result, so `submit_rating` checks it.
+    triage_agreement: int | None = Field(default=None, ge=1, le=5)
 
     @field_validator("scores")
     @classmethod

@@ -273,6 +273,9 @@ class Settings(BaseSettings):
     # having reached the target.
     reviewer_completion_threshold: int = 5
     reviewer_consent_path: str = "data/reviewer_consent.yaml"
+    # Operator-attested mortality by triage category, shown in the triage-
+    # agreement question of assessment review items (ARCH-046, DEVIATIONS.md #299).
+    triage_mortality_path: str = "data/triage_mortality.yaml"
     # Resubmissions allowed after rejections (DEVIATIONS.md #286); 2 means up
     # to three submissions in all.
     reviewer_max_resubmissions: int = 2

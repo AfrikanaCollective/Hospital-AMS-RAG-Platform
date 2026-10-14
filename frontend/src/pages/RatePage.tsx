@@ -192,6 +192,7 @@ function RateCase({ resultId }: { resultId: string }) {
           <RubricForm
             key={resultId}
             candidateAnswer={detail.answer}
+            triageReview={detail.triage_review}
             busy={busy}
             initial={initial}
             onChange={onChange}

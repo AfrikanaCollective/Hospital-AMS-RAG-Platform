@@ -27,7 +27,9 @@ version control (`.gitignore`).
 ## Shape
 
 - Format: EAV / long — columns `key, field_name, field_value, context`.
-- ~40,871 patients, one assessment snapshot each; `(key, field_name)` is unique.
+- **1,500 patients** (2026-10-14 export, replacing the earlier ~40,871-patient
+  extract), one assessment snapshot each; `(key, field_name)` is unique.
+  300 patients in each of the five `triage_category` values.
 - `key` is an integer surrogate id (no name / MRN in the source).
 - **2026-09-18 export update:** rows with `field_value == "NA"` are now
   included explicitly for a field that was **not assessed** for a patient
@@ -48,14 +50,14 @@ version control (`.gitignore`).
   `generalise_month` transform for `admission_date_time` in `field_mapping.yaml`
   and re-ingest.
 
-## Source variables (34) by context
+## Source variables (39) by context
 
 | context | variables                                                                                                                                        |
 |---|--------------------------------------------------------------------------------------------------------------------------------------------------|
 | demographics | age_days, birth_weight (kg), gestational_age (weeks), sex, weight_now (kg)                                                                       |
-| encounter_details | admission_date_time, care_setting (all "NBU"), triage_category (all "None")                                                                      |
+| encounter_details | admission_date_time, birth_date_time *(added 2026-10-14; not mapped, never stored)*, care_setting (all "NBU"), triage_category (Critical / Substantial / Moderate / Low / Minimal) |
 | vitals | capillary_refill (1–7 s), heart_rate, oxygen_saturation, respiratory_rate, temparature *(sic — °C)*                                              |
-| history_examination | apnoea, bulging_fontanelle, central_cyanosis, convulsions, crackles, difficulty_feeding, floppy, grunting, indrawing, irritable (all TRUE/FALSE) |
+| history_examination | apnoea, bulging_fontanelle, central_cyanosis, convulsions, crackles, difficulty_breathing *(added 2026-10-14)*, difficulty_feeding, floppy, grunting, indrawing, irritable (all TRUE/FALSE) |
 | interventions | antibiotics, cpap, feeds, fluids, kmc, oxygen, phenobarbital (all TRUE/FALSE)                                                                    |
 | medication | ampicillin, ceftazidime, ceftriaxone, gentamicin, penicillin (all TRUE/FALSE)                                                                    |
 | **maternal_risk_factors** *(added 2026-09-18)* | maternal_infection, prom (all TRUE/FALSE) — `prom` = premature/prolonged rupture of membranes (confirmed by operator, 2026-09-18) |
@@ -63,8 +65,10 @@ version control (`.gitignore`).
 ## Mapping
 
 See `field_mapping.yaml`. Transforms of note: `birth_weight`/`weight_now`
-kg→g; `sex` normalised to `male`/`female`; `triage_category` literal `"None"`
-→ null; `temparature` misspelling mapped to `temperature_c`; the 22 boolean
+kg→g; `sex` normalised to `male`/`female`; `triage_category` kept as given
+(a literal `"None"` would still become null) and used only for the reviewers'
+triage-agreement question, never for guideline retrieval (ARCH-046);
+`birth_date_time` is deliberately unmapped, so it is dropped at ingestion; `temparature` misspelling mapped to `temperature_c`; the 23 boolean
 sign/intervention/medication variables expand into
 `examination_findings[]` / `interventions[]` / `medications[]`.
 `date_of_birth` is derived (`admitted_at − age_days`, approximate).
@@ -75,6 +79,10 @@ v1.4.0) — a maternal-history sign list, kept separate from the newborn's own
 ## Limitations
 
 - Single snapshot per patient (no trends).
-- `care_setting` and `triage_category` are constant in this extract.
+- `care_setting` is constant in this extract.
+- The 300-per-category triage balance is a property of this extract, not of
+  the source population.
+- 6 `admission_date_time` values carry a date with no time (parsed as
+  midnight UTC).
 - Many fields are partially populated — this is expected and exercises the
   SCOPE-2.2 missing-information path.

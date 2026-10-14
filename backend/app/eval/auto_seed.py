@@ -141,6 +141,12 @@ from app.eval.question_gen.areas import (
 from app.eval.question_gen.deterministic import build_deterministic_narrative
 from app.eval.question_gen.diversity import is_clinically_near_duplicate
 from app.eval.question_gen.planner import Composition, allocate
+from app.eval.triage import (
+    TRIAGE_CATEGORIES,
+    load_triage_mortality,
+    record_triage_category,
+    triage_review_applies,
+)
 from app.llm.gateway import LLMGatewayError
 from app.logging import get_logger
 from app.records.concepts import ConceptVocabulary
@@ -1200,31 +1206,21 @@ def run_four_area_holdout_generation(
     return created
 
 
-def _generate_one_area_review_item(
+def _make_area_review_item(
     session: Session,
-    state: _GenerationState,
+    patient_id: uuid.UUID,
+    record: dict,
     area: QueryArea,
     areas: QueryAreas,
     *,
-    dedup_threshold: float,
     vocabulary: ConceptVocabulary | None,
-) -> uuid.UUID | str | None:
-    """One record -> one review-queue item for `area` (DEVIATIONS.md #280).
-    Same candidate pick, near-duplicate filter, question text and per-area
-    cap as `_generate_one_area_question`, but persisted like
-    `_generate_one_scenario`: an `EvalQuestion` plus an open `Result` with
-    the encrypted answer and the multi-stage answer alongside. Escalations
-    stay on the item and are not filed in HITL (operator choice). Returns
-    the `Result` id, `_GATEWAY_ERROR` (nothing written, record not used), or
-    None when the record was skipped."""
-    candidate = state.next_candidate()
-    if candidate is None:
-        return None
-    patient_id, record = candidate
-    if is_clinically_near_duplicate(
-        record, state.accepted_records, findings_jaccard_threshold=dedup_threshold
-    ):
-        return None
+    extra_meta: dict | None = None,
+) -> uuid.UUID | str:
+    """One record, one area -> one review-queue item (DEVIATIONS.md #280):
+    the area question, one real pipeline call with the area's cap, the
+    multi-stage answer alongside, persisted as an `EvalQuestion` plus an open
+    `Result`. Escalations stay on the item and are not filed in HITL.
+    Returns the `Result` id, or `_GATEWAY_ERROR` (nothing written)."""
     text = build_area_question(record, area)
     try:
         out = _INVOKE_PIPELINE_FN(
@@ -1240,8 +1236,6 @@ def _generate_one_area_review_item(
         )
         return _GATEWAY_ERROR
 
-    state.accepted_records.append(record)
-    state.used_this_run.add(patient_id)
     multi_stage_query, multi_stage_fired, multi_stage_out = _run_multi_stage(
         text,
         vocabulary,
@@ -1263,6 +1257,7 @@ def _generate_one_area_review_item(
             "per_guideline_cap": area.per_guideline_cap,
             "query_areas_sha256": areas.sha256,
             "query_areas_attested_by": f"{areas.authored_by} ({areas.authored_role})",
+            **(extra_meta or {}),
         },
         in_fixed_testset=False,
     )
@@ -1274,6 +1269,35 @@ def _generate_one_area_review_item(
         multi_stage_fired=multi_stage_fired,
         multi_stage_out=multi_stage_out,
     )
+
+
+def _generate_one_area_review_item(
+    session: Session,
+    state: _GenerationState,
+    area: QueryArea,
+    areas: QueryAreas,
+    *,
+    dedup_threshold: float,
+    vocabulary: ConceptVocabulary | None,
+) -> uuid.UUID | str | None:
+    """One fresh record -> one review-queue item for `area` (DEVIATIONS.md
+    #280). Same candidate pick and near-duplicate filter as
+    `_generate_one_area_question`. Returns the `Result` id, `_GATEWAY_ERROR`
+    (nothing written, record not used), or None when the record was
+    skipped."""
+    candidate = state.next_candidate()
+    if candidate is None:
+        return None
+    patient_id, record = candidate
+    if is_clinically_near_duplicate(
+        record, state.accepted_records, findings_jaccard_threshold=dedup_threshold
+    ):
+        return None
+    made = _make_area_review_item(session, patient_id, record, area, areas, vocabulary=vocabulary)
+    if made != _GATEWAY_ERROR:
+        state.accepted_records.append(record)
+        state.used_this_run.add(patient_id)
+    return made
 
 
 def run_four_area_review_queue(
@@ -1369,4 +1393,170 @@ def run_four_area_review_queue(
             len(unused_records),
         )
     logger.info("four_area_review_queue: %d new review item(s); per area %s", len(created), short)
+    return created
+
+
+# Triage-stratified review queue (ARCH-046, PRD-114; DEVIATIONS.md #300):
+# `TRIAGE_REVIEW_PER_CATEGORY` fresh records from each triage category, each
+# record asked all four area questions, so 5 x 40 records x 4 areas = 800
+# items. Only the assessment item asks the triage-agreement question.
+TRIAGE_REVIEW_QUEUE_DESIGN = "triage-stratified-v1"
+TRIAGE_REVIEW_PER_CATEGORY = 40
+
+
+def _triage_review_progress(session: Session) -> dict[uuid.UUID, tuple[str | None, set[str]]]:
+    """For each record already in the triage-stratified queue: its recorded
+    triage category and the areas that already have an item (a `Result`)."""
+    meta = EvalQuestion.generator_meta
+    rows = session.execute(
+        select(EvalQuestion.source_record_id, meta["triage_category"].astext, meta["area"].astext)
+        .join(Result, Result.eval_question_id == EvalQuestion.id)
+        .where(
+            meta["purpose"].astext == FOUR_AREA_REVIEW_PURPOSE,
+            meta["queue_design"].astext == TRIAGE_REVIEW_QUEUE_DESIGN,
+        )
+    ).all()
+    progress: dict[uuid.UUID, tuple[str | None, set[str]]] = {}
+    for patient_id, category, area in rows:
+        if patient_id is None:
+            continue
+        _, done = progress.setdefault(patient_id, (category, set()))
+        done.add(area)
+    return progress
+
+
+_TRIAGE_REVIEW_PROGRESS_FN = _triage_review_progress
+
+
+def plan_triage_review_records(
+    records: list[tuple[uuid.UUID, dict]],
+    *,
+    already: dict[uuid.UUID, str | None],
+    used_ids: set[uuid.UUID],
+    per_category: int,
+    seed: int | None,
+    accepted_records: list[dict],
+    dedup_threshold: float,
+) -> tuple[list[tuple[uuid.UUID, dict, str]], dict[str, int]]:
+    """Which new records to add, per triage category, to reach
+    `per_category` records each. `already` maps records already in the queue
+    to their category. Candidates are unused records of that category in a
+    seeded shuffle, skipping clinical near-duplicates of `accepted_records`
+    (which this extends). Returns the picks (id, record, category) and the
+    shortfall per category (0 when the target is reached)."""
+    have = {c: 0 for c in TRIAGE_CATEGORIES}
+    for category in already.values():
+        if category in have:
+            have[category] += 1
+    pool: dict[str, list[tuple[uuid.UUID, dict]]] = {c: [] for c in TRIAGE_CATEGORIES}
+    for patient_id, record in records:
+        category = record_triage_category(record)
+        if category is not None and patient_id not in used_ids:
+            pool[category].append((patient_id, record))
+    rng = random.Random(seed)
+    picks: list[tuple[uuid.UUID, dict, str]] = []
+    short: dict[str, int] = {}
+    for category in TRIAGE_CATEGORIES:
+        candidates = sorted(pool[category], key=lambda r: str(r[0]))
+        rng.shuffle(candidates)
+        for patient_id, record in candidates:
+            if have[category] >= per_category:
+                break
+            if is_clinically_near_duplicate(
+                record, accepted_records, findings_jaccard_threshold=dedup_threshold
+            ):
+                continue
+            accepted_records.append(record)
+            picks.append((patient_id, record, category))
+            have[category] += 1
+        short[category] = max(0, per_category - have[category])
+    return picks, short
+
+
+def run_triage_review_queue(
+    session: Session,
+    *,
+    per_category: int = TRIAGE_REVIEW_PER_CATEGORY,
+    dataset_id: str | None = None,
+    seed: int | None = None,
+    areas_path: str = _DEFAULT_QUERY_AREAS_PATH,
+    concepts_path: str = _DEFAULT_CONCEPTS_PATH,
+    mortality_path: str | None = None,
+    max_consecutive_gateway_errors: int = FOUR_AREA_MAX_CONSECUTIVE_GATEWAY_ERRORS,
+) -> list[uuid.UUID]:
+    """Build the triage-stratified review queue (ARCH-046, DEVIATIONS.md
+    #300): `per_category` fresh records per triage category, every record
+    asked all four area questions. Records already in the queue with a
+    missing area (an interrupted run, a gateway error) are finished first,
+    then new records are added. A record used by any earlier generated
+    question is never picked. Stops after `max_consecutive_gateway_errors`
+    gateway failures in a row; a re-run resumes. Fails closed if the query
+    areas or the triage mortality table aren't attested. Returns the new
+    `Result` ids."""
+    areas = load_query_areas(areas_path)
+    mortality = load_triage_mortality(mortality_path or get_settings().triage_mortality_path)
+    vocabulary, vocab_error = _LOAD_ATTESTED_VOCABULARY_FN(concepts_path)
+    if vocabulary is None:
+        logger.warning(
+            "triage_review_queue: multi-stage answers skipped for this run -- %s is not "
+            "attested: %s",
+            concepts_path,
+            vocab_error,
+        )
+    progress = _TRIAGE_REVIEW_PROGRESS_FN(session)
+    records = _LOAD_RECORDS_FN(session, dataset_id=dataset_id)
+    by_id = dict(records)
+    picks, short = plan_triage_review_records(
+        records,
+        already={pid: category for pid, (category, _) in progress.items()},
+        used_ids=_USED_PATIENT_IDS_FN(session),
+        per_category=per_category,
+        seed=seed,
+        accepted_records=_EXISTING_RECORDS_FN(session),
+        dedup_threshold=get_settings().qgen_dedup_threshold,
+    )
+    if any(short.values()):
+        logger.warning(
+            "triage_review_queue: not enough distinct unused records to reach %d per "
+            "category; short by %s",
+            per_category,
+            short,
+        )
+
+    # Unfinished records first, then the new ones; each gets every area it lacks.
+    work: list[tuple[uuid.UUID, dict, str, set[str]]] = []
+    for patient_id, (category, done) in progress.items():
+        record = by_id.get(patient_id)
+        if record is not None and category is not None and len(done) < len(areas.areas):
+            work.append((patient_id, record, category, done))
+    work.extend((pid, record, category, set()) for pid, record, category in picks)
+
+    created: list[uuid.UUID] = []
+    gateway_errors_in_a_row = 0
+    for patient_id, record, category, done in work:
+        for area in areas.areas:
+            if area.name in done:
+                continue
+            extra = {"queue_design": TRIAGE_REVIEW_QUEUE_DESIGN, "triage_category": category}
+            if triage_review_applies(area.name, category):
+                extra["triage_mortality_sha256"] = mortality.sha256
+            made = _make_area_review_item(
+                session, patient_id, record, area, areas, vocabulary=vocabulary, extra_meta=extra
+            )
+            if made == _GATEWAY_ERROR:
+                gateway_errors_in_a_row += 1
+                if gateway_errors_in_a_row >= max_consecutive_gateway_errors:
+                    logger.error(
+                        "triage_review_queue: stopping after %d consecutive gateway errors "
+                        "(gateway down?); re-run to resume",
+                        gateway_errors_in_a_row,
+                    )
+                    return created
+                continue
+            gateway_errors_in_a_row = 0
+            assert isinstance(made, uuid.UUID)
+            created.append(made)
+    logger.info(
+        "triage_review_queue: %d new review item(s) for %d record(s)", len(created), len(work)
+    )
     return created

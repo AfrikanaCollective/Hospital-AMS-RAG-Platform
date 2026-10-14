@@ -3726,3 +3726,59 @@ not retroactively. When in doubt, log it.
 - **Requirement ID(s):** PRD-066.
 - **What was done:** `eval.bak_20261013_orphan_questions` (the 12 rows deleted in #296; none had been restored) dropped. The #296 deletion is now final and can't be undone from the database. The provenance pin doesn't cover backup tables, so no re-pin was needed.
 - **Reversible?:** no.
+
+### 298. `newborn_nbu_2021` replaced by a 1,500-patient export; mapping updated; all patient-derived work reset
+- **Date / phase:** 2026-10-14, Phase 9 follow-up. Operator: the dataset now holds "only 1500 unique patient records"; `triage_category` has five categories; "all ablation results need to be permanently dropped"; "everything requiring patient records was for development/internal test purposes until now"; chose **Option B (full reset)**; "birth_date_time should not replace the derived date_of_birth"; "difficulty_breathing should be mapped as an examination finding".
+- **Requirement ID(s):** ARCH-039, PRD-114, ARCH-046.
+- **What was found (aggregates only):** 49,850 rows, 1,500 keys, 39 variables, no duplicate `(key, field_name)`. `triage_category` is Critical/Substantial/Moderate/Low/Minimal, 300 each (no longer constant `"None"`). Two new variables: `birth_date_time` and `difficulty_breathing` (TRUE/FALSE/NA). 6 `admission_date_time` and 6 `birth_date_time` values are date-only; `_parse_datetime` already accepts that format (midnight UTC).
+- **What was done:**
+  - `field_mapping.yaml`: `difficulty_breathing` added to `examination_findings` members (23 boolean sign/intervention/medication variables now). `birth_date_time` deliberately not mapped: `app/ingestion/eav.py` ignores unmapped variables, so it is never stored and `date_of_birth` stays derived (`admitted_at − age_days`). `triage_category` mapping unchanged (`none_literal_to_null` is a no-op on the five values).
+  - `DATASET.md` body updated (shape, variables, limitations). Its attestation front matter was **not** changed; it is the operator's to re-sign for the new export.
+- **Reset (Option B):** drop the Postgres, Qdrant and Redis volumes (every patient record, eval question, result, rating, IRR score, archive, review batch, draft, conversation, LangGraph checkpoint, all `bak_*` tables, **and the audit chain**), all of `backend/results/` (9 ablation runs, 7.7 GB; the model-ablation run; the review-queue log) and the old `records.normalized.json`; then migrate, seed, re-ingest the guideline corpus and the 1,500 records. The HF model cache volume is kept. The volume deletion was blocked by the session's permission check, so the operator runs it; the outcome is recorded in a later entry.
+- **Judgment calls:**
+  - **Ending the audit chain** is acceptable only because this is the decommissioning of a development deployment whose patient-derived contents the operator declared dev-only; rule 6 (no UPDATE/DELETE on audit rows by the app role) is unchanged, and the new deployment starts a fresh chain.
+  - **Corpus review decisions:** the 14 admin-confirmed chunks (all Kenya Comprehensive Newborn Care Protocols excerpt, pp. 47-48) were exported (guideline text and chunk meta only, no patient data) before the reset so the identical-text carry-over rule (#255) can be re-applied after re-ingestion instead of re-reviewing by hand; the operator decides whether to replay them.
+  - **Concept vocabulary not extended:** `data/clinical_concepts.yaml` is operator-curated and has no `difficulty_breathing` concept; not added without the operator.
+- **Tests:** `tests/test_triage_review.py::test_mapping_adds_difficulty_breathing_and_drops_birth_date_time`; `tests/test_eav_mapping.py::test_real_dataset_maps_cleanly` runs against the new file.
+- **Reversible?:** mapping yes; the reset no.
+
+### 299. Triage-agreement question on assessment review items
+- **Date / phase:** 2026-10-14. Operator: the triage category "will be used as a final audit/review queue question, with a narrative about the mortality risk with the reviewer asked whether they agree with the triage category on a scale of 1 to 5"; "required on every 'assessment' query area review item. It should not be shown, requested or required on the rest"; "will not be used for guideline retrieval". Mortality ">60 %, >45%, ~9%, ~3%, <1%" for Critical, Substantial, Moderate, Low, Minimal; source PLOS ONE doi:10.1371/journal.pone.0359212; attested by the Primary Investigator (Timothy Tuti). Narrative wording agreed ("seems reasonably accurate").
+- **Requirement ID(s):** PRD-114, ARCH-046.
+- **What was done:** `data/triage_mortality.yaml` (attested, fail-closed loader in `app/eval/triage.py`, path `TRIAGE_MORTALITY_PATH`, mounted read-only into `api`); fixed-template narrative; `triage_review` on `GET /review-queue/{id}` for assessment items; `RatingRoundRequest.triage_agreement` (1-5), required/refused by `submit_rating` (422 from the route); stored as a `rubric_rating` row, domain `triage_agreement`, seeded by `make seed`; `RubricForm` adds it as the final step after the accept axis; `triage_category` removed from the single-topic generator's rendered fields.
+- **Judgment calls:**
+  - **Stored as a rubric row, not a 12th rubric domain:** `RUBRIC_DOMAINS` stays the operator's verbatim 11 (#112), and the 11-score request rule is unchanged; the extra row gives per-domain IRR and archival for free. Its `rubric_domain` row has ordinal 12, `required` true (meaning: required where asked).
+  - **Anchors 2-4** ("Disagree", "Neither agree nor disagree", "Agree") are the standard Likert midpoints; the operator gave only 1 and 5.
+  - **Placement:** the final step, after the accept axis ("final ... question").
+  - **`{source}` rendering:** "the PLOS ONE study (doi:10.1371/journal.pone.0359212)"; the URL is shown as a "Source" link, with a note that the figure is an operator-supplied local statistic, not guideline content.
+  - **Mortality shown verbatim** as attested (">60%", "~9%"), not converted to numbers.
+  - **The category is stored in `generator_meta.triage_category`** (plaintext, like the question text itself, which already carries record facts in plaintext) so the item can be served and the stratification counted without decrypting records.
+  - **Not a CDS feature:** the question rates the dataset's own label; nothing is said to or recommended for a patient, and the figure never reaches an answer.
+- **Tests:** `tests/test_triage_review.py` (loader, fail-closed cases, exact narrative, area gating, retrieval exclusion, rating required/refused/stored, schema bounds).
+- **Reversible?:** yes.
+
+### 300. Triage-stratified review queue (200 records, 800 items); holdout from the remaining records
+- **Date / phase:** 2026-10-14. Operator: "The review queue should use 200 unique patient records with 40 records coming from each of the triage category. Each patient record in the review queue should produce 4 query areas. Thus total items in the review queue should be 800." "You should drop the ablation pool and regenerate it from the 1300 unique patient records not used in the review queue."
+- **Requirement ID(s):** PRD-114, ARCH-046, PRD-047.
+- **What was done:** `run_triage_review_queue` / `plan_triage_review_records` in `app/eval/auto_seed.py`, `scripts/seed_triage_review_queue.py`, `make triage-review-queue`. The per-item body of the per-area generator (#280) was factored into `_make_area_review_item`, shared by both; the per-area generator's behaviour is unchanged.
+- **Judgment calls:**
+  - **Same near-duplicate filter** as every other generator (#188), applied within and across categories; with 300 records per category and 40 needed, a shortfall is logged per category rather than relaxing the filter.
+  - **Seeded shuffle within each category**, ordered by patient id first, so a given `--seed` picks the same records.
+  - **Escalated items stay in the queue** (as in #280); every record still gets all four areas.
+  - **Gateway failures:** an area that failed is retried on the next run (unfinished records first); the run stops after 5 consecutive failures.
+  - **Holdout:** the existing `generate_ablation_holdout_questions` (four-area, 200 usable per area by default) is reused unchanged; it already excludes any record a generated question used, so running it after the queue restricts it to the other 1,300 records. 800 holdout records are needed for the default target; the diversity filter may stop it short (as in #203-#205).
+- **Tests:** `tests/test_triage_review.py` (per-category planning, used-record exclusion, shortfall, 4 areas per record, mortality hash on assessment items only, unfinished records first, triage never in a pipeline query, fail-closed table).
+- **Reversible?:** yes.
+
+### 301. Confirmed chunk reviews carried over from an export; `difficulty breathing` concept added; attestation left as signed
+- **Date / phase:** 2026-10-14. Operator: "carry the 14 confirmed chunk reviews over where the re-ingested text is identical. Do not resign the DATASET.md 2026-10-13 attestation. difficulty_breathing should get an entry in clinical_concepts.yaml."
+- **Requirement ID(s):** ARCH-044, PRD-113, ARCH-042, PRD-057, ARCH-039.
+- **What was done:**
+  - `scripts/carry_over_review_confirmations.py --from-export PATH`: the full reset (#298) leaves no superseded versions, so the confirmed text comes from `data/ingest_artifacts/confirmed_chunks_pre_reset_20261014.json` (14 chunks, exported before the reset), matched to the re-ingested document by title. The matching rule is #255's, unchanged (every block identical, same table-source pin); anything else stays held for an admin. Each carried confirmation goes through `review_chunk` with its own audit event naming the export row. To run after re-ingestion.
+  - `data/clinical_concepts.yaml`: `difficulty breathing` (`examination_findings.difficulty_breathing`, operator `present`, source `operator-curated`), alongside the other sign concepts. Changes the vocabulary's hash used by the multi-stage answers.
+  - `DATASET.md` attestation front matter (attested 2026-10-13) kept as signed for the 2026-10-14 export, on the operator's instruction.
+- **Judgment calls:**
+  - **No synonyms** on the new concept: the file reserves synonyms for the operator (#147) and a coding session must not choose them; the field is optional, so the concept loads and fires on the term itself. Synonyms to be added by the operator if wanted.
+  - **Match by document title,** since chunk and document ids are new after the reset; the manifest supplies the same titles on re-ingestion.
+- **Tests:** `tests/test_corpus_review.py::test_carry_over_reads_a_pre_reset_export`; `tests/test_triage_review.py::test_the_vocabulary_has_a_difficulty_breathing_concept`.
+- **Reversible?:** yes (remove the concept; a carried confirmation can be rejected by an admin).

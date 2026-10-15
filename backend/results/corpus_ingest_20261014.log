@@ -1,0 +1,48 @@
+[32m[INFO] 2026-10-14 07:45:55,546 [RapidOCR] base.py:23: Using engine_name: onnxruntime[0m
+[32m[INFO] 2026-10-14 07:45:55,606 [RapidOCR] download_file.py:60: File exists and is valid: /usr/local/lib/python3.11/site-packages/rapidocr/models/PP-OCRv6_det_small.onnx[0m
+[32m[INFO] 2026-10-14 07:45:55,607 [RapidOCR] main.py:63: Using /usr/local/lib/python3.11/site-packages/rapidocr/models/PP-OCRv6_det_small.onnx[0m
+[32m[INFO] 2026-10-14 07:45:55,661 [RapidOCR] base.py:23: Using engine_name: onnxruntime[0m
+[32m[INFO] 2026-10-14 07:45:55,662 [RapidOCR] download_file.py:60: File exists and is valid: /usr/local/lib/python3.11/site-packages/rapidocr/models/ch_ppocr_mobile_v2.0_cls_mobile.onnx[0m
+[32m[INFO] 2026-10-14 07:45:55,663 [RapidOCR] main.py:63: Using /usr/local/lib/python3.11/site-packages/rapidocr/models/ch_ppocr_mobile_v2.0_cls_mobile.onnx[0m
+[32m[INFO] 2026-10-14 07:45:55,687 [RapidOCR] base.py:23: Using engine_name: onnxruntime[0m
+[32m[INFO] 2026-10-14 07:45:55,704 [RapidOCR] download_file.py:60: File exists and is valid: /usr/local/lib/python3.11/site-packages/rapidocr/models/PP-OCRv6_rec_small.onnx[0m
+[32m[INFO] 2026-10-14 07:45:55,704 [RapidOCR] main.py:63: Using /usr/local/lib/python3.11/site-packages/rapidocr/models/PP-OCRv6_rec_small.onnx[0m
+Loading weights:   0%|          | 0/770 [00:00<?, ?it/s]Loading weights: 100%|██████████| 770/770 [00:00<00:00, 8306.39it/s]
+RERANKER_MODEL_ID='BAAI/bge-reranker-v2-m3' is an UNVERIFIED placeholder default. Confirm or override it and set the corresponding *_VERIFIED=true (DEVIATIONS.md #10).
+RERANKER_MODEL_ID='BAAI/bge-reranker-v2-m3' is an UNVERIFIED placeholder default. Confirm or override it and set the corresponding *_VERIFIED=true (DEVIATIONS.md #10).
+/app/app/retrieval/vectorstore.py:91: UserWarning: Api key is used with an insecure connection.
+  else QdrantClient(url=url, api_key=api_key or None)
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Loading weights:   0%|          | 0/391 [00:00<?, ?it/s]Loading weights: 100%|██████████| 391/391 [00:00<00:00, 5760.03it/s]
+[ingest] 'WHO recommendations for management of serious bacterial infections in infants aged 0–59 days (WHO Dec 2024)_pages_17-19_76-77.pdf': 19 chunk(s) persisted (document_version=b10b6f23-89c2-4480-947b-9cfbd79d9b2c)
+[33m[WARNING] 2026-10-14 07:46:21,642 [RapidOCR] main.py:132: The text detection result is empty[0m
+RapidOCR returned empty result!
+RERANKER_MODEL_ID='BAAI/bge-reranker-v2-m3' is an UNVERIFIED placeholder default. Confirm or override it and set the corresponding *_VERIFIED=true (DEVIATIONS.md #10).
+RERANKER_MODEL_ID='BAAI/bge-reranker-v2-m3' is an UNVERIFIED placeholder default. Confirm or override it and set the corresponding *_VERIFIED=true (DEVIATIONS.md #10).
+[transformers] Token indices sequence length is longer than the specified maximum sequence length for this model (1696 > 512). Running this sequence through the model will result in indexing errors
+/app/app/retrieval/vectorstore.py:91: UserWarning: Api key is used with an insecure connection.
+  else QdrantClient(url=url, api_key=api_key or None)
+[ingest] 'Comprehensive Newborn Care Protocols (Ministry of Health Kenya, Nov 2022)_pages_47_48.pdf': 17 chunk(s) persisted (document_version=c981dc59-2779-4673-b60f-89f58072db46)
+RapidOCR returned empty result!
+RapidOCR returned empty result!
+RapidOCR returned empty result!
+RapidOCR returned empty result!
+RapidOCR returned empty result!
+RapidOCR returned empty result!
+RapidOCR returned empty result!
+RapidOCR returned empty result!
+[33m[WARNING] 2026-10-14 07:47:05,342 [RapidOCR] main.py:132: The text detection result is empty[0m
+RapidOCR returned empty result!
+RapidOCR returned empty result!
+RERANKER_MODEL_ID='BAAI/bge-reranker-v2-m3' is an UNVERIFIED placeholder default. Confirm or override it and set the corresponding *_VERIFIED=true (DEVIATIONS.md #10).
+RERANKER_MODEL_ID='BAAI/bge-reranker-v2-m3' is an UNVERIFIED placeholder default. Confirm or override it and set the corresponding *_VERIFIED=true (DEVIATIONS.md #10).
+/app/app/retrieval/vectorstore.py:91: UserWarning: Api key is used with an insecure connection.
+  else QdrantClient(url=url, api_key=api_key or None)
+[ingest] 'Ministry of Health National Antibiotic Use Guidelines (November 2024)_pages_11-20_33-38_45-52.pdf': 66 chunk(s) persisted (document_version=745a938e-009e-450a-aceb-ffd5fb391b3b)
+RERANKER_MODEL_ID='BAAI/bge-reranker-v2-m3' is an UNVERIFIED placeholder default. Confirm or override it and set the corresponding *_VERIFIED=true (DEVIATIONS.md #10).
+RERANKER_MODEL_ID='BAAI/bge-reranker-v2-m3' is an UNVERIFIED placeholder default. Confirm or override it and set the corresponding *_VERIFIED=true (DEVIATIONS.md #10).
+/app/app/retrieval/vectorstore.py:91: UserWarning: Api key is used with an insecure connection.
+  else QdrantClient(url=url, api_key=api_key or None)
+[ingest] 'NICE Neonatal infection - antibiotics for prevention and treatment (May 2026)_FULL.pdf': 195 chunk(s) persisted (document_version=a0f9e08d-a21e-4e5a-83ef-c07555d4d53a)
+[ingest] ingested 4 new document(s)
+EXIT=0

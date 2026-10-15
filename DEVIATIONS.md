@@ -3782,3 +3782,17 @@ not retroactively. When in doubt, log it.
   - **Match by document title,** since chunk and document ids are new after the reset; the manifest supplies the same titles on re-ingestion.
 - **Tests:** `tests/test_corpus_review.py::test_carry_over_reads_a_pre_reset_export`; `tests/test_triage_review.py::test_the_vocabulary_has_a_difficulty_breathing_concept`.
 - **Reversible?:** yes (remove the concept; a carried confirmation can be rejected by an admin).
+
+### 302. Reset carried out; corpus and records re-ingested; review queue generation started
+- **Date / phase:** 2026-10-14. Operator ran the volume deletion (#298) and confirmed "reset done, continue with the rebuild". Verified before rebuilding: the `pg-data`, `qdrant-data` and `redis-data` volumes gone, `backend/results/` empty, the old `records.normalized.json` deleted (a first "done" report was premature: the volumes and data were still present and nothing was rebuilt until the operator re-ran the commands).
+- **Requirement ID(s):** ARCH-039, ARCH-044, ARCH-046, PRD-114.
+- **What was done:**
+  - `make build`, `make up`, `alembic upgrade head` (head `b6d2f9e04a17`), `scripts.seed_db` (12 rubric domain rows: the 11 + `triage_agreement`; 4 roles; 5 demo users; 2 field policies). A fresh audit chain starts here.
+  - Guideline corpus re-ingested from the manifest with the layout parser: 4 documents, 4 active versions, 297 chunks (139 retrievable, 144 excluded by manifest `exclude_sections`, 14 held). Before the reset the active versions had 284 chunks (131 excluded); the 13 extra excluded chunks were not investigated, since excluded chunks are never retrieved. Log: `backend/results/corpus_ingest_20261014.log`.
+  - All 14 held chunks (Kenya Newborn Care Protocols p.48 dose tables) matched the pre-reset export exactly and were confirmed by `carry_over_review_confirmations --from-export ... --apply` (#301); 0 remain held.
+  - 1,500 records ingested with `--persist`. Aggregate check: 300 per triage category; `difficulty_breathing` true 1,003 / false 434 / not assessed 63 (same as the CSV); no `birth_date_time` anywhere in the stored records.
+  - Review-queue smoke run (`--per-category 1 --seed 20261014`): 20 items, 4 per category, 19 `well_supported` + 1 escalated (Substantial), multi-stage answer on all 20; the assessment item serves the triage narrative, the other three serve none; no question text contains the triage category. About 2.3 minutes per item.
+  - Full run launched detached (`--per-category 40 --seed 20261014`), topping up to 800 items; log `backend/results/triage_review_queue_20261014.log`. At the smoke rate the remaining 780 items take roughly 30 hours.
+- **Still to do:** ablation holdout from the remaining 1,300 records (after the queue finishes, so it cannot pick a queue record), then `make provenance`.
+- **Flagged, not changed:** the deployment still uses `SECRETS_BACKEND=file` with the dev KEK ("DEV KEY — not for real data") while holding operator-attested de-identified data, as before the reset.
+- **Reversible?:** n/a (operations record).

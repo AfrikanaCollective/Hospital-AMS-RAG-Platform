@@ -1,0 +1,68 @@
+[ablation-holdout] four-area: topping up to 250 usable question(s) per area, one record and one real pipeline call per question -- this may take a long time.
+2026-10-16 07:58:08 [warning  ] SECRETS_BACKEND=file: using a local DEV KEY at ./secrets/dev_kek.bin. DEV KEY — not for real data. This deployment must not touch real PHI.
+2026-10-16 07:58:08 [warning  ] SECRETS_BACKEND=file: using a local DEV KEY at ./secrets/dev_kek.bin. DEV KEY — not for real data. This deployment must not touch real PHI.
+/app/app/retrieval/vectorstore.py:91: UserWarning: Api key is used with an insecure connection.
+  else QdrantClient(url=url, api_key=api_key or None)
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Loading weights:   0%|          | 0/391 [00:00<?, ?it/s]Loading weights: 100%|██████████| 391/391 [00:00<00:00, 18297.55it/s]
+Loading weights:   0%|          | 0/393 [00:00<?, ?it/s]Loading weights: 100%|██████████| 393/393 [00:00<00:00, 14009.53it/s]
+RERANKER_MODEL_ID='BAAI/bge-reranker-v2-m3' is an UNVERIFIED placeholder default. Confirm or override it and set the corresponding *_VERIFIED=true (DEVIATIONS.md #10).
+RERANKER_MODEL_ID='BAAI/bge-reranker-v2-m3' is an UNVERIFIED placeholder default. Confirm or override it and set the corresponding *_VERIFIED=true (DEVIATIONS.md #10).
+/app/app/retrieval/vectorstore.py:91: UserWarning: Api key is used with an insecure connection.
+  else QdrantClient(url=url, api_key=api_key or None)
+RERANKER_MODEL_ID='BAAI/bge-reranker-v2-m3' is an UNVERIFIED placeholder default. Confirm or override it and set the corresponding *_VERIFIED=true (DEVIATIONS.md #10).
+RERANKER_MODEL_ID='BAAI/bge-reranker-v2-m3' is an UNVERIFIED placeholder default. Confirm or override it and set the corresponding *_VERIFIED=true (DEVIATIONS.md #10).
+RERANKER_MODEL_ID='BAAI/bge-reranker-v2-m3' is an UNVERIFIED placeholder default. Confirm or override it and set the corresponding *_VERIFIED=true (DEVIATIONS.md #10).
+RERANKER_MODEL_ID='BAAI/bge-reranker-v2-m3' is an UNVERIFIED placeholder default. Confirm or override it and set the corresponding *_VERIFIED=true (DEVIATIONS.md #10).
+RERANKER_MODEL_ID='BAAI/bge-reranker-v2-m3' is an UNVERIFIED placeholder default. Confirm or override it and set the corresponding *_VERIFIED=true (DEVIATIONS.md #10).
+RERANKER_MODEL_ID='BAAI/bge-reranker-v2-m3' is an UNVERIFIED placeholder default. Confirm or override it and set the corresponding *_VERIFIED=true (DEVIATIONS.md #10).
+RERANKER_MODEL_ID='BAAI/bge-reranker-v2-m3' is an UNVERIFIED placeholder default. Confirm or override it and set the corresponding *_VERIFIED=true (DEVIATIONS.md #10).
+RERANKER_MODEL_ID='BAAI/bge-reranker-v2-m3' is an UNVERIFIED placeholder default. Confirm or override it and set the corresponding *_VERIFIED=true (DEVIATIONS.md #10).
+RERANKER_MODEL_ID='BAAI/bge-reranker-v2-m3' is an UNVERIFIED placeholder default. Confirm or override it and set the corresponding *_VERIFIED=true (DEVIATIONS.md #10).
+RERANKER_MODEL_ID='BAAI/bge-reranker-v2-m3' is an UNVERIFIED placeholder default. Confirm or override it and set the corresponding *_VERIFIED=true (DEVIATIONS.md #10).
+RERANKER_MODEL_ID='BAAI/bge-reranker-v2-m3' is an UNVERIFIED placeholder default. Confirm or override it and set the corresponding *_VERIFIED=true (DEVIATIONS.md #10).
+RERANKER_MODEL_ID='BAAI/bge-reranker-v2-m3' is an UNVERIFIED placeholder default. Confirm or override it and set the corresponding *_VERIFIED=true (DEVIATIONS.md #10).
+RERANKER_MODEL_ID='BAAI/bge-reranker-v2-m3' is an UNVERIFIED placeholder default. Confirm or override it and set the corresponding *_VERIFIED=true (DEVIATIONS.md #10).
+RERANKER_MODEL_ID='BAAI/bge-reranker-v2-m3' is an UNVERIFIED placeholder default. Confirm or override it and set the corresponding *_VERIFIED=true (DEVIATIONS.md #10).
+RERANKER_MODEL_ID='BAAI/bge-reranker-v2-m3' is an UNVERIFIED placeholder default. Confirm or override it and set the corresponding *_VERIFIED=true (DEVIATIONS.md #10).
+RERANKER_MODEL_ID='BAAI/bge-reranker-v2-m3' is an UNVERIFIED placeholder default. Confirm or override it and set the corresponding *_VERIFIED=true (DEVIATIONS.md #10).
+RERANKER_MODEL_ID='BAAI/bge-reranker-v2-m3' is an UNVERIFIED placeholder default. Confirm or override it and set the corresponding *_VERIFIED=true (DEVIATIONS.md #10).
+RERANKER_MODEL_ID='BAAI/bge-reranker-v2-m3' is an UNVERIFIED placeholder default. Confirm or override it and set the corresponding *_VERIFIED=true (DEVIATIONS.md #10).
+RERANKER_MODEL_ID='BAAI/bge-reranker-v2-m3' is an UNVERIFIED placeholder default. Confirm or override it and set the corresponding *_VERIFIED=true (DEVIATIONS.md #10).
+RERANKER_MODEL_ID='BAAI/bge-reranker-v2-m3' is an UNVERIFIED placeholder default. Confirm or override it and set the corresponding *_VERIFIED=true (DEVIATIONS.md #10).
+RERANKER_MODEL_ID='BAAI/bge-reranker-v2-m3' is an UNVERIFIED placeholder default. Confirm or override it and set the corresponding *_VERIFIED=true (DEVIATIONS.md #10).
+RERANKER_MODEL_ID='BAAI/bge-reranker-v2-m3' is an UNVERIFIED placeholder default. Confirm or override it and set the corresponding *_VERIFIED=true (DEVIATIONS.md #10).
+RERANKER_MODEL_ID='BAAI/bge-reranker-v2-m3' is an UNVERIFIED placeholder default. Confirm or override it and set the corresponding *_VERIFIED=true (DEVIATIONS.md #10).
+2026-10-16 08:12:32 [info     ] hitl_escalation_not_recorded_offline_run purpose=ablation_holdout trigger_code=grounding_failure
+RERANKER_MODEL_ID='BAAI/bge-reranker-v2-m3' is an UNVERIFIED placeholder default. Confirm or override it and set the corresponding *_VERIFIED=true (DEVIATIONS.md #10).
+RERANKER_MODEL_ID='BAAI/bge-reranker-v2-m3' is an UNVERIFIED placeholder default. Confirm or override it and set the corresponding *_VERIFIED=true (DEVIATIONS.md #10).
+RERANKER_MODEL_ID='BAAI/bge-reranker-v2-m3' is an UNVERIFIED placeholder default. Confirm or override it and set the corresponding *_VERIFIED=true (DEVIATIONS.md #10).
+RERANKER_MODEL_ID='BAAI/bge-reranker-v2-m3' is an UNVERIFIED placeholder default. Confirm or override it and set the corresponding *_VERIFIED=true (DEVIATIONS.md #10).
+RERANKER_MODEL_ID='BAAI/bge-reranker-v2-m3' is an UNVERIFIED placeholder default. Confirm or override it and set the corresponding *_VERIFIED=true (DEVIATIONS.md #10).
+RERANKER_MODEL_ID='BAAI/bge-reranker-v2-m3' is an UNVERIFIED placeholder default. Confirm or override it and set the corresponding *_VERIFIED=true (DEVIATIONS.md #10).
+RERANKER_MODEL_ID='BAAI/bge-reranker-v2-m3' is an UNVERIFIED placeholder default. Confirm or override it and set the corresponding *_VERIFIED=true (DEVIATIONS.md #10).
+RERANKER_MODEL_ID='BAAI/bge-reranker-v2-m3' is an UNVERIFIED placeholder default. Confirm or override it and set the corresponding *_VERIFIED=true (DEVIATIONS.md #10).
+RERANKER_MODEL_ID='BAAI/bge-reranker-v2-m3' is an UNVERIFIED placeholder default. Confirm or override it and set the corresponding *_VERIFIED=true (DEVIATIONS.md #10).
+RERANKER_MODEL_ID='BAAI/bge-reranker-v2-m3' is an UNVERIFIED placeholder default. Confirm or override it and set the corresponding *_VERIFIED=true (DEVIATIONS.md #10).
+RERANKER_MODEL_ID='BAAI/bge-reranker-v2-m3' is an UNVERIFIED placeholder default. Confirm or override it and set the corresponding *_VERIFIED=true (DEVIATIONS.md #10).
+RERANKER_MODEL_ID='BAAI/bge-reranker-v2-m3' is an UNVERIFIED placeholder default. Confirm or override it and set the corresponding *_VERIFIED=true (DEVIATIONS.md #10).
+RERANKER_MODEL_ID='BAAI/bge-reranker-v2-m3' is an UNVERIFIED placeholder default. Confirm or override it and set the corresponding *_VERIFIED=true (DEVIATIONS.md #10).
+RERANKER_MODEL_ID='BAAI/bge-reranker-v2-m3' is an UNVERIFIED placeholder default. Confirm or override it and set the corresponding *_VERIFIED=true (DEVIATIONS.md #10).
+RERANKER_MODEL_ID='BAAI/bge-reranker-v2-m3' is an UNVERIFIED placeholder default. Confirm or override it and set the corresponding *_VERIFIED=true (DEVIATIONS.md #10).
+RERANKER_MODEL_ID='BAAI/bge-reranker-v2-m3' is an UNVERIFIED placeholder default. Confirm or override it and set the corresponding *_VERIFIED=true (DEVIATIONS.md #10).
+RERANKER_MODEL_ID='BAAI/bge-reranker-v2-m3' is an UNVERIFIED placeholder default. Confirm or override it and set the corresponding *_VERIFIED=true (DEVIATIONS.md #10).
+RERANKER_MODEL_ID='BAAI/bge-reranker-v2-m3' is an UNVERIFIED placeholder default. Confirm or override it and set the corresponding *_VERIFIED=true (DEVIATIONS.md #10).
+RERANKER_MODEL_ID='BAAI/bge-reranker-v2-m3' is an UNVERIFIED placeholder default. Confirm or override it and set the corresponding *_VERIFIED=true (DEVIATIONS.md #10).
+RERANKER_MODEL_ID='BAAI/bge-reranker-v2-m3' is an UNVERIFIED placeholder default. Confirm or override it and set the corresponding *_VERIFIED=true (DEVIATIONS.md #10).
+RERANKER_MODEL_ID='BAAI/bge-reranker-v2-m3' is an UNVERIFIED placeholder default. Confirm or override it and set the corresponding *_VERIFIED=true (DEVIATIONS.md #10).
+RERANKER_MODEL_ID='BAAI/bge-reranker-v2-m3' is an UNVERIFIED placeholder default. Confirm or override it and set the corresponding *_VERIFIED=true (DEVIATIONS.md #10).
+RERANKER_MODEL_ID='BAAI/bge-reranker-v2-m3' is an UNVERIFIED placeholder default. Confirm or override it and set the corresponding *_VERIFIED=true (DEVIATIONS.md #10).
+RERANKER_MODEL_ID='BAAI/bge-reranker-v2-m3' is an UNVERIFIED placeholder default. Confirm or override it and set the corresponding *_VERIFIED=true (DEVIATIONS.md #10).
+RERANKER_MODEL_ID='BAAI/bge-reranker-v2-m3' is an UNVERIFIED placeholder default. Confirm or override it and set the corresponding *_VERIFIED=true (DEVIATIONS.md #10).
+RERANKER_MODEL_ID='BAAI/bge-reranker-v2-m3' is an UNVERIFIED placeholder default. Confirm or override it and set the corresponding *_VERIFIED=true (DEVIATIONS.md #10).
+RERANKER_MODEL_ID='BAAI/bge-reranker-v2-m3' is an UNVERIFIED placeholder default. Confirm or override it and set the corresponding *_VERIFIED=true (DEVIATIONS.md #10).
+RERANKER_MODEL_ID='BAAI/bge-reranker-v2-m3' is an UNVERIFIED placeholder default. Confirm or override it and set the corresponding *_VERIFIED=true (DEVIATIONS.md #10).
+RERANKER_MODEL_ID='BAAI/bge-reranker-v2-m3' is an UNVERIFIED placeholder default. Confirm or override it and set the corresponding *_VERIFIED=true (DEVIATIONS.md #10).
+RERANKER_MODEL_ID='BAAI/bge-reranker-v2-m3' is an UNVERIFIED placeholder default. Confirm or override it and set the corresponding *_VERIFIED=true (DEVIATIONS.md #10).
+RERANKER_MODEL_ID='BAAI/bge-reranker-v2-m3' is an UNVERIFIED placeholder default. Confirm or override it and set the corresponding *_VERIFIED=true (DEVIATIONS.md #10).
+RERANKER_MODEL_ID='BAAI/bge-reranker-v2-m3' is an UNVERIFIED placeholder default. Confirm or override it and set the corresponding *_VERIFIED=true (DEVIATIONS.md #10).

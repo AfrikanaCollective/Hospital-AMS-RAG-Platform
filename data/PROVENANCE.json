@@ -1,143 +1,59 @@
 {
  "code": {
-  "git_commit": "86e8c972f5369410e5e21c4c9dbd056403929e9c",
-  "git_dirty": false
+  "git_commit": "69c3bb169ca14e3b676a7af11a8da9f9b64a13bd",
+  "git_dirty": true
  },
  "database": {
   "corpus.chunk": {
-   "count": 298,
-   "sha256": "8dbd1d57008052f99ad2a60f8e6f3143ddff1d6f334047faaa927f85a603f03b"
+   "count": 297,
+   "sha256": "a5b4c2602905770142b5dc467c62c69b58b8afe73f300982598cd2df2dbc26b7"
   },
   "corpus.document": {
    "count": 4,
-   "sha256": "441b686ff6c6ca67d2ffd6d604085806188e8e2ff104d4145164b721c93b2ffe"
+   "sha256": "bac20aa6f9c43da435ea12e16d4f3370f07a833b3a40a69181c267068752dd78"
   },
   "corpus.document_version": {
-   "count": 6,
-   "sha256": "2192da2b1d90fe283b40a8f19dbbc79099f8ec27679c85c3ed1bd60fc2c01f20"
+   "count": 4,
+   "sha256": "fd868f724c9247607cd3ece6fc69c57796adc7c0fd1a9fb69be3838067ce3214"
   },
   "eval.eval_question": {
-   "count": 896,
-   "sha256": "a89c0ed00dded0ca4e296bb0c0268cd8da91c8eab6a302ce3be00b0f1e10ffe0"
+   "count": 1644,
+   "sha256": "924961c915cac542ed6a81b459810b7c39fcc73fc07ffa00bf92e6f873c5b563"
   },
   "eval.irr_score": {
-   "count": 11,
-   "sha256": "59763009b93bc440e1b819d30d8c7d49d8fdf523824bec56e1eef5b76a88f9ba"
+   "count": 0,
+   "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
   },
   "eval.rating_round": {
-   "count": 5,
-   "sha256": "8d1389ab26c3afa20724a40930c640dfc537ea11e0a1f682a70fb3cd39e609ee"
+   "count": 0,
+   "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
   },
   "eval.result": {
-   "count": 278,
-   "sha256": "44176f2a51d568050e3404228b1a264065bf1df317a6a73accfcd4fc7c88e6ab"
+   "count": 800,
+   "sha256": "799f338f028e0066d5f5807c0b757737533d2d7a4e9bfb5f94623b9ec6ed6740"
   },
   "eval.result_archive": {
-   "count": 1,
-   "sha256": "1c4d20f3b43533fc47cee1369596f8628689763e24fbff0a722f700ef9d64b01"
+   "count": 0,
+   "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
   },
   "eval.rubric_rating": {
-   "count": 55,
-   "sha256": "c85a482a651da2344dffb4b4174e54166b11ba4961527788068bc0fb715ee015"
+   "count": 0,
+   "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
   },
   "records.patient": {
-   "count": 5000,
-   "sha256": "f30d8311ee0aa543d3ed5c69d4a3187accb3f5705068202c57412fe82be6f7a4"
+   "count": 1500,
+   "sha256": "eb7e21462a825d5bfde154fb2b5fd5a752b49c9f00d3ffb3a422188abb5d9f85"
   },
   "records.patient_record": {
-   "count": 5260,
-   "sha256": "a7f736664dc53be864375d1cef3c04fddd3a56abb7f3425c8d01a657e4b604a0"
+   "count": 1500,
+   "sha256": "323f87f57e08cc2aca0201ddb5895edb42037ee6027b28610cc4f975dcf274d4"
   }
  },
  "files": {
-  "backend/results/ablation/20260925T064650Z-81570c93/arm_vs_popularity_baseline.csv": "d33cd95b9b7bd10341937effc660663008a3420b8a39392b9d6938af5f0503ca",
-  "backend/results/ablation/20260925T064650Z-81570c93/configuration.json": "6b94663abc4631e5ef24b0788a49cd1c41603228fd5149632a14f16f34dc7ac2",
-  "backend/results/ablation/20260925T064650Z-81570c93/hit_at_k_by_bm25_weight.png": "ace66e09fc36eb02bd11b612f7078ae2a07cf3800a1297d79d79b640a0c078bb",
-  "backend/results/ablation/20260925T064650Z-81570c93/hit_at_k_vs_bm25_weight_by_k.png": "aea2779fbf69c1722e3c787a049ba0ec924ec0aceb46ebbe46cb5fb485a9bc38",
-  "backend/results/ablation/20260925T064650Z-81570c93/mrr_at_k_vs_bm25_weight_by_arm.png": "076116105c968c9bbbe3bb8b869724c36a78717fd9f0a3940e8681016a9ba2f1",
-  "backend/results/ablation/20260925T064650Z-81570c93/per_query_results.jsonl": "535b65fafdd2c17f9c3eabde13358205c373564945d32a6f023b0387db6482bb",
-  "backend/results/ablation/20260925T064650Z-81570c93/recall_at_k_by_bm25_weight.png": "00133fd97f93a457436eed59d6653e57a14290cb5ae3c1db54d1fe98d6751f2d",
-  "backend/results/ablation/20260925T064650Z-81570c93/recall_at_k_vs_bm25_weight_by_k.png": "d590d85eeeaccc4fa81df218274d41401ad38ac6ca75fe212280a9017f0b5068",
-  "backend/results/ablation/20260925T064650Z-81570c93/statistical_summary.json": "ef6b200ea8439cceade3c51b995d10cacf8a4325e4bcc3ed4d3266fc0173d783",
-  "backend/results/ablation/20260925T064650Z-81570c93/unified_ablation_report.png": "382d15406c1812493e28e71e9af6bda9a9b79dbb3037ae688338d4e9073587f7",
-  "backend/results/ablation/20260928T041704Z-4f9a3403/arm_vs_popularity_baseline.csv": "d0ab90b002fe4d406e93865cc01b359792a89512f80b6768d25ea52d6291eb34",
-  "backend/results/ablation/20260928T041704Z-4f9a3403/configuration.json": "ba75d701264f586e4683afe9af5b48c72ba01658405508f4d602511705f67c17",
-  "backend/results/ablation/20260928T041704Z-4f9a3403/hit_at_k_by_bm25_weight.png": "347a80c3c981f3f0c84dab39b37585ad22a1da10b59a36bfe27280a7f4ece5b2",
-  "backend/results/ablation/20260928T041704Z-4f9a3403/hit_at_k_vs_bm25_weight_by_k.png": "4d823d90ce9ec2f2ab39ab2ee815cbd66f55eb39da3aa804c1bf716513ce5281",
-  "backend/results/ablation/20260928T041704Z-4f9a3403/mrr_at_k_vs_bm25_weight_by_arm.png": "3c919ad0e3240eb0b3483ab61db2813cf2d89e802268d2f822f5bf8e99e55346",
-  "backend/results/ablation/20260928T041704Z-4f9a3403/per_query_results.jsonl": "e37a8f4c8f1d1635f7c26574e4eba04a15ab2e7114cc6a95a12e8dd8384a223a",
-  "backend/results/ablation/20260928T041704Z-4f9a3403/recall_at_k_by_bm25_weight.png": "61683825fad12e12df4c84d12e80ba8278e0de9ab62767899a47b6f0b8ae4965",
-  "backend/results/ablation/20260928T041704Z-4f9a3403/recall_at_k_vs_bm25_weight_by_k.png": "13ab204abf71292c770a30855dae8d468a6703a6d56b70deb92c6e20d4284eb7",
-  "backend/results/ablation/20260928T041704Z-4f9a3403/statistical_summary.json": "14471f07a4b130db9b6ae8bb6064a1e40a4c08680eef27a892737c7cfd2d9e67",
-  "backend/results/ablation/20260928T041704Z-4f9a3403/unified_ablation_report.png": "1ee49a838cd5e91f17063626299dede6e2f0c44d508c9a9eb04a484e40aaa200",
-  "backend/results/ablation/20260928T070240Z-9020ca38/arm_vs_popularity_baseline.csv": "3e6601f7ab44748ec7f07957d96ddf3ea53c879c3a8632a1559b5077f12dd77c",
-  "backend/results/ablation/20260928T070240Z-9020ca38/configuration.json": "75e142f1470718f52bac4adc86aff19398de95faa844aff1755faefb6333d6a2",
-  "backend/results/ablation/20260928T070240Z-9020ca38/hit_at_k_by_bm25_weight.png": "efb9c9f9ab14127b27a4feb5a5ad941f43e1e4896eb41ac1fb7c5186300e216c",
-  "backend/results/ablation/20260928T070240Z-9020ca38/hit_at_k_vs_bm25_weight_by_k.png": "13f4094765467b1a715d9ef5b4417997e0f37cad5842967fc14d780d088c428b",
-  "backend/results/ablation/20260928T070240Z-9020ca38/mrr_at_k_vs_bm25_weight_by_arm.png": "93af0c57f42ed722324a16ef5b5d9b12b1551357b54d21cdd42e0a1f741a22f5",
-  "backend/results/ablation/20260928T070240Z-9020ca38/per_query_results.jsonl": "b94723cfd7e8c5b81c7d782f50b363e45b754e849033b0d23756f620f184ba6b",
-  "backend/results/ablation/20260928T070240Z-9020ca38/recall_at_k_by_bm25_weight.png": "bbbd23250411dc4e1a13f33af88158a2bb8063db94c3ccc86da9c69cdee6ddd6",
-  "backend/results/ablation/20260928T070240Z-9020ca38/recall_at_k_vs_bm25_weight_by_k.png": "e7b2ca36f765041a17d06bc0d604aee502e23338a5c223ab693046a43d980ef9",
-  "backend/results/ablation/20260928T070240Z-9020ca38/statistical_summary.json": "5af77387c9f3fab7a0a2b3823f821b49a78c8e51f158bfb733dabb7678c5f78d",
-  "backend/results/ablation/20260928T071358Z-d18a9400/arm_vs_popularity_baseline.csv": "450bbdae4e22ebdcdeaeb52365250aaf4c1ef496e582ebed4f07622421b5a894",
-  "backend/results/ablation/20260928T071358Z-d18a9400/configuration.json": "4ce3e9d53d47440bcd1e99f71555355cf867faac9af0be21d91847835adcafa4",
-  "backend/results/ablation/20260928T071358Z-d18a9400/hit_at_k_by_bm25_weight.png": "c0895a3d02f5751c6f4f9bac2d273e9684ae35f7d2a78022f869f5623987c7c8",
-  "backend/results/ablation/20260928T071358Z-d18a9400/hit_at_k_vs_bm25_weight_by_k.png": "d36d68e3e32d623412478a4ab31c3415d5d2cfb02a2969ab52ff7959254b162a",
-  "backend/results/ablation/20260928T071358Z-d18a9400/mrr_at_k_vs_bm25_weight_by_arm.png": "11c728cf28120de8a87c81789dd4f1ee51268a7624777809bba43c25947c52da",
-  "backend/results/ablation/20260928T071358Z-d18a9400/per_query_results.jsonl": "830e8a21dfa96b15280c63f2de54fa45b1a620ed07b0e812aeba52e565eac3c1",
-  "backend/results/ablation/20260928T071358Z-d18a9400/recall_at_k_by_bm25_weight.png": "ba6f3a32978b70cd3db566b22222707d84e1ee706f83cb3a2847a26107063398",
-  "backend/results/ablation/20260928T071358Z-d18a9400/recall_at_k_vs_bm25_weight_by_k.png": "0e4ad9114598d10c51dae9f62d5ea6fbcadd8074d6eb7ffff1d2011a8a3ecd27",
-  "backend/results/ablation/20260928T071358Z-d18a9400/statistical_summary.json": "b55e22327dfdae912b215df0765fdeb836d7932dd74c05229d3ad56447cd594c",
-  "backend/results/ablation/20260929T053850Z-63640d95/arm_vs_popularity_baseline.csv": "064895505f50695c6ba16031da7b1d9eb23aa964b88ada98274e172f49c6004f",
-  "backend/results/ablation/20260929T053850Z-63640d95/configuration.json": "315a53f93c63397acf07e7784896ff431b202f7c28956ca0a531bd1fb8f0dd14",
-  "backend/results/ablation/20260929T053850Z-63640d95/hit_at_k_by_bm25_weight.png": "570d8cc2f7834797dd5f1655f46956f6ba1e20d6bb065e9f2a008c6e3fae3845",
-  "backend/results/ablation/20260929T053850Z-63640d95/hit_at_k_vs_bm25_weight_by_k.png": "df181769b71b5dffb36c374d55d4ca309085cd399749d96d98f51d9c5f9f990c",
-  "backend/results/ablation/20260929T053850Z-63640d95/mrr_at_k_vs_bm25_weight_by_arm.png": "0f89c6ed8637937a237163e5a4415604ec54f3aa17de1502ef301825899aebff",
-  "backend/results/ablation/20260929T053850Z-63640d95/per_query_results.jsonl": "d7aa5d7b9ffd1e6efa6da87e1ab05fcda4f8747b394a1e8a4e1e82d5ba0ce63b",
-  "backend/results/ablation/20260929T053850Z-63640d95/recall_at_k_by_bm25_weight.png": "3080a472ffee845486c99db2a980f9d4077ca9297b190244cc0528965043ee4c",
-  "backend/results/ablation/20260929T053850Z-63640d95/recall_at_k_vs_bm25_weight_by_k.png": "9e696c13a91ac0b8cca5fece9ebcff8ae59a2439b3dd8d515c22991015e5f69b",
-  "backend/results/ablation/20260929T053850Z-63640d95/statistical_summary.json": "84f92e94d7ada1c03186eb1db0b62d4a412c93a1b5e0ecdeb349e3edaf72afb4",
-  "backend/results/ablation/20260929T061710Z-01555433/arm_vs_popularity_baseline.csv": "4e64bbf7a5e3d427207708cb7b6a1dc948a5a97c8ce9a1c05b2b7804e53bc58c",
-  "backend/results/ablation/20260929T061710Z-01555433/configuration.json": "780f84f84f4a6b5d4a833f8c9ea3247ccdd9fcb5b80e1049227a72b83b42ebc4",
-  "backend/results/ablation/20260929T061710Z-01555433/hit_at_k_by_bm25_weight.png": "d65885a74e2876673aa1b53ca3596ef033e3d2fe49b7d716daace634d7d0c798",
-  "backend/results/ablation/20260929T061710Z-01555433/hit_at_k_vs_bm25_weight_by_k.png": "8a5ba44fe240e308d1c831b631dea819ad6e7f3868b2dbd1058950e11266032b",
-  "backend/results/ablation/20260929T061710Z-01555433/mrr_at_k_vs_bm25_weight_by_arm.png": "bf875a8ceca48b6ac58da3311255474e550e740254335793ba6d2a550a6f7f75",
-  "backend/results/ablation/20260929T061710Z-01555433/per_query_results.jsonl": "373e1a4535af0ebde6e5924feef0afaf49365b7ae7768fac05af9c3327cea0f8",
-  "backend/results/ablation/20260929T061710Z-01555433/recall_at_k_by_bm25_weight.png": "e38ed5ad112e64ae9e01cb5476122d7fa2549263569054c61959c7d8d5825b7a",
-  "backend/results/ablation/20260929T061710Z-01555433/recall_at_k_vs_bm25_weight_by_k.png": "257bbc8ca87b571b5354108096c935504d3d3d3ee048a9bc8397b45a035beec7",
-  "backend/results/ablation/20260929T061710Z-01555433/statistical_summary.json": "a245dfc443534bf556bfe0a7fc8f6011c6de1d6b7d59a80aab61a1770d59465f",
-  "backend/results/ablation/20260929T064213Z-6ea6c3b2/arm_vs_popularity_baseline.csv": "15be760960ddb3b475665eb6b6b9060d1d4491e71b5110b7477576a501e14e3f",
-  "backend/results/ablation/20260929T064213Z-6ea6c3b2/configuration.json": "f4ac8cf6cba4c9b68bc1e47a249a8e9725b75b90c3bcede042558c7f2803b9ee",
-  "backend/results/ablation/20260929T064213Z-6ea6c3b2/hit_at_k_by_bm25_weight.png": "6c67f1bd388bfb714dd5feb85f5ea0a0aca6f41e34204159efec5628670848f5",
-  "backend/results/ablation/20260929T064213Z-6ea6c3b2/hit_at_k_vs_bm25_weight_by_k.png": "b2380634f589f9f31373e2ac8df94ce6c6404fa67b014187e2d36b8e5555a938",
-  "backend/results/ablation/20260929T064213Z-6ea6c3b2/mrr_at_k_vs_bm25_weight_by_arm.png": "a16578761c6068720c7d26a82a735df2aa41e6ef00b2bd90b8e58c45b216db37",
-  "backend/results/ablation/20260929T064213Z-6ea6c3b2/per_query_results.jsonl": "beca434219b6a469f2372fd8dc65e567f4d1aae6080dbccd5d2b620fbc6f14c8",
-  "backend/results/ablation/20260929T064213Z-6ea6c3b2/recall_at_k_by_bm25_weight.png": "c8b66ddb69de6b84d7ed9a0b296751b6006eaafab8954eea04a7caf5cea882f8",
-  "backend/results/ablation/20260929T064213Z-6ea6c3b2/recall_at_k_vs_bm25_weight_by_k.png": "86de4b525157af68ff62c827f44ee7a65f01937cd038e305988080955bd0cc3d",
-  "backend/results/ablation/20260929T064213Z-6ea6c3b2/statistical_summary.json": "4a7c24be074b889f82a3880980f8b6927265fb0422d0b625e5a2d869cc099bb9",
-  "backend/results/ablation/20261007T033754Z-14285065/arm_vs_popularity_baseline.csv": "19a86a35317509c65f70562995c5abbb50548db96f734189d85f70d859cdb570",
-  "backend/results/ablation/20261007T033754Z-14285065/configuration.json": "33bc4df5e6ec3fc1271a2733d9b038e2a860cc7dbb066c44da556fe381223c40",
-  "backend/results/ablation/20261007T033754Z-14285065/hit_at_k_by_bm25_weight.png": "1bda378eed12eaf50845f189801cd69d3b09547ec0d6e3ac2acb43210013fbce",
-  "backend/results/ablation/20261007T033754Z-14285065/hit_at_k_vs_bm25_weight_by_k.png": "b85e98287287af5e6c1a7e88987bd390e90479124228363b60801e4fd79aa368",
-  "backend/results/ablation/20261007T033754Z-14285065/mrr_at_k_vs_bm25_weight_by_arm.png": "9e9217634d675bed8de17ef9cf12b0b420a5d0f56aed063d13d4e5bbc889ce80",
-  "backend/results/ablation/20261007T033754Z-14285065/per_query_results.jsonl": "406480b22c99d74d983351b0c1ab04c3a771fcd0433a144e59f1820f45479fb6",
-  "backend/results/ablation/20261007T033754Z-14285065/recall_at_k_by_bm25_weight.png": "2b4c83c5d02719bf96fc909a90053540881660473282a8c67fb3bd538a51832f",
-  "backend/results/ablation/20261007T033754Z-14285065/recall_at_k_vs_bm25_weight_by_k.png": "3724560000b00c0b02a7afbc5875263a1d350e8f6cd97b8951e550f4dc6f559b",
-  "backend/results/ablation/20261007T033754Z-14285065/statistical_summary.json": "c69053b13525bbab7496e942c1f5321e80ea51cb5f06f0f20353c2f576f33775",
-  "backend/results/ablation/20261007T034213Z-9e6e83b6/arm_vs_popularity_baseline.csv": "d9d214740084269533d6e8160b5fd52963cb911c95e128ef039b031af163a4bd",
-  "backend/results/ablation/20261007T034213Z-9e6e83b6/configuration.json": "d7901d87f84bf9c98555d8d118a17948ec2b46cd5d21a19f488b91a57513bac9",
-  "backend/results/ablation/20261007T034213Z-9e6e83b6/hit_at_k_by_bm25_weight.png": "3623a8d149ee05b05c1e38b283034dcf5a545fdb85ec9bb23d0335858251236a",
-  "backend/results/ablation/20261007T034213Z-9e6e83b6/hit_at_k_vs_bm25_weight_by_k.png": "1774ffada3b232c442e713f3f83220d70aede71d3bd7890cbd42a5a8080b0d9b",
-  "backend/results/ablation/20261007T034213Z-9e6e83b6/mrr_at_k_vs_bm25_weight_by_arm.png": "fc818d1f8711f180b2ef50ee990da3b999030a176b3646e87ecae07b0d4c6edd",
-  "backend/results/ablation/20261007T034213Z-9e6e83b6/per_query_results.jsonl": "1a6b593fd5687cbae780303f5c4391a49b7027e2a7ff91952a836d4f9a6d7ae9",
-  "backend/results/ablation/20261007T034213Z-9e6e83b6/recall_at_k_by_bm25_weight.png": "f7a128df6c60ce2274d3c690b20e200af872eb48cfa7ed89e7c05e7f6223023d",
-  "backend/results/ablation/20261007T034213Z-9e6e83b6/recall_at_k_vs_bm25_weight_by_k.png": "bb2650beb83a570cb83cd98c3b66709f1d9b3728f47d76d057baaa48d4b3533d",
-  "backend/results/ablation/20261007T034213Z-9e6e83b6/statistical_summary.json": "46d92bdfa5b98891f2c74850fb58c89764cdf14c9278cdbb2e66476f082df790",
-  "backend/results/ablation/README.md": "44862862597a93bbd8e4230e039c9f9169bb762a1334d87229a92ab9a777b1f9",
-  "backend/results/four_area_review_20261007.log": "e10a32422a0610de861d730bf2dc914c14e3a25394d202d537f8c2da55612c2f",
-  "backend/results/model_ablation_20260929T064712Z/model_ablation_report.png": "c171c7113217681d1df480fa8114c169b41c96579917470ff99dc8e8d2dd936c",
-  "backend/results/model_ablation_20260929T064712Z/model_ablation_results.json": "35155badebba628b0e9ef092ed4594f4688938d3e11d70e7618518a703e22ce2",
-  "data/clinical_concepts.yaml": "36e592256e859a2b2345d2a8aee3c92cfba45c1fb4fd03155a257961b3e928c8",
+  "backend/results/ablation_holdout_20261015.log": "f1a3209ba5868183e3c815defb36215246a60f6ad6b72d487f1fb786890de6da",
+  "backend/results/corpus_ingest_20261014.log": "1288348eaaff578c87b902451aa0672cecb03cdf72df2f1423de908707705d52",
+  "backend/results/triage_review_queue_20261014.log": "674be98b66885229f7d4840cb576e37afb0406cbe3d5a9c078d3ff8d6045a87f",
+  "data/clinical_concepts.yaml": "ad4d0033ee51d02e43926633650a82c435db0284151a924e253c39fb9d8df01e",
   "data/excerpt_guidelines/Comprehensive Newborn Care Protocols (Ministry of Health Kenya, Nov 2022)_pages_47_48.pdf": "29e8a7cf6a3fcba1e120c79c5acba6b5f59472cebaed7ec7d80fa3ff92af9011",
   "data/excerpt_guidelines/Ministry of Health National Antibiotic Use Guidelines (November 2024)_pages_11-20_33-38_45-52.pdf": "96d82251f63391c1b663a054bc55dd33e89113d34c0e60eab44adb4b425b658b",
   "data/excerpt_guidelines/NICE Neonatal infection - antibiotics for prevention and treatment (May 2026)_FULL.pdf": "ccb393cd0732a2a5f4719604bbcd24e57ec0f8aff8f1ac627483f77507c67209",
@@ -150,6 +66,7 @@
   "data/guideline_sources/README.md": "d76145400c944f23b79d4e182fa0effc6e64f5853d49df4cb06d36b914f2bf80",
   "data/guideline_sources/WHO recommendations for management of serious bacterial infections in infants aged 0\u201359 days (WHO Dec 2024)_FULL.pdf": "a157d328e62c06783fedc814c93aae227ce008e97a49558061b5c83cdc406b22",
   "data/ingest_artifacts/archived_results_after_reset_20261001T032835Z.json": "6bb38e42bd3e947366428e22808b00dc93b92887b0cf9c2df7bce89e316b4d43",
+  "data/ingest_artifacts/confirmed_chunks_pre_reset_20261014.json": "45a274b560b57576bd5d05cef418b37135037126e397c98cfe85a6f020e199cc",
   "data/ingest_artifacts/four_area_generation_20261006.log": "fd7de362554a36b9e42d9e1c11351da640e24d8f97097dffe6dc9e63316541ae",
   "data/ingest_artifacts/four_area_trial1_20261005T124038Z.json": "33acb1273d00f9a3468403aee0d6faad584dd1a35c9312f332f1546caa6e7f11",
   "data/ingest_artifacts/gold_before_exclusion_20261002T064707Z.json": "36a44603b20f5827466f76ce00876fca2f701395f30122a0326d3b70776707c8",
@@ -164,21 +81,22 @@
   "data/ingest_artifacts/gold_remap_20261005T055912Z.json": "239f6ab7fb317c59f223e14aa7e527efdd8fe5a6b5241a4047a71ff0d33d5004",
   "data/ingest_artifacts/gold_text_before_reset_20260930.json": "bd7fc3619626212e40bbfd461376b0b99ea131699f463232dcf1cf51684d9a07",
   "data/ingest_artifacts/unified_ablation_four_area_20261007.log": "efbbaed34eba4158e83a1efc8e3a1683b0fc26bfd0cb7f186bf63481dcfc7064",
-  "data/patient_records/deidentified/newborn_nbu_2021/DATASET.md": "1ab17c9edccb69dbc17cc697f8dfbb9f10c88003ac12c3cc9de8f87dfd9ab2fe",
-  "data/patient_records/deidentified/newborn_nbu_2021/field_mapping.yaml": "cfcff9bbe0fd84d0a3c96bcd7ef886c9d743a2184942842cc92d3ad902dd4ad5",
-  "data/patient_records/deidentified/newborn_nbu_2021/rag_dataset.csv": "d0f1a269e69ff48793195b263c69cbc2884e1baca511e257dfdbd17d342c6c3e",
-  "data/patient_records/deidentified/newborn_nbu_2021/records.normalized.json": "b927545c12e4d5af0313bb4c615c988865faca27f38802f34acc1560bc66177d",
+  "data/patient_records/deidentified/newborn_nbu_2021/DATASET.md": "42baa0664b9986e2568b1214760d90eca2d33aab2455db4c875077e4f82328a5",
+  "data/patient_records/deidentified/newborn_nbu_2021/field_mapping.yaml": "6222d90d03da65478f5cd5aba03e7e990ec096dacf86192886ee5fbf007ef202",
+  "data/patient_records/deidentified/newborn_nbu_2021/rag_dataset.csv": "728bca7968f536233a7cb1530d61ef9725116b956c22d4605e0998a27a63b82a",
+  "data/patient_records/deidentified/newborn_nbu_2021/records.normalized.json": "439be5fd021e137cdcf13a6550660f1e3496fc87bb7c5bad73bc6e72d212f1a5",
   "data/patient_records/synthetic/patients.csv": "bacbe87bdac781735d931ee9b311f7f13137d61ef7c9957da46ecd48165129e8",
   "data/patient_records/synthetic/patients.json": "c6e25e8cf52c8bf82bba1a881fc6c345d7f5a936bb452b2c7548cad20306a125",
   "data/query_areas.yaml": "55793e6eb1bc633ab8dc6fa636f755f7297c3f67e37782f9b915c9b5b5d78a2b",
-  "data/reviewer_consent.yaml": "ddb9d992d1c3cb32083e3a79864c6e2725d2b711dab0d2af850100fdfb85e5b8"
+  "data/reviewer_consent.yaml": "ddb9d992d1c3cb32083e3a79864c6e2725d2b711dab0d2af850100fdfb85e5b8",
+  "data/triage_mortality.yaml": "9493255674f9f8d48a7547ad1c56ab4a2d891092df2213445f75d40a0b80468c"
  },
  "known_gaps": {
   "questions_missing_source_record": 0,
-  "well_supported_questions_without_gold": 191
+  "well_supported_questions_without_gold": 84
  },
  "manifest_version": 1,
- "pinned_at": "2026-10-13T09:04:53.737460+00:00",
+ "pinned_at": "2026-10-16T05:55:03.043095+00:00",
  "settings": {
   "embedding_model_id": "BAAI/bge-large-en-v1.5",
   "irr_min_raters": 3,
@@ -189,17 +107,13 @@
  },
  "summary": {
   "patient_records_by_dataset": {
-   "newborn_nbu_2021": 5260
+   "newborn_nbu_2021": 1500
   },
   "questions_by_template": {
-   "deterministic-v1": 313,
-   "four-area-v1": 12,
-   "four-area-v2": 455,
-   "v1": 116
+   "four-area-v2": 1644
   },
   "results_by_queue_state": {
-   "archived": 238,
-   "open": 40
+   "open": 800
   }
  }
 }

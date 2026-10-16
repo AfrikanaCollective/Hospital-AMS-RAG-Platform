@@ -3796,3 +3796,22 @@ not retroactively. When in doubt, log it.
 - **Still to do:** ablation holdout from the remaining 1,300 records (after the queue finishes, so it cannot pick a queue record), then `make provenance`.
 - **Flagged, not changed:** the deployment still uses `SECRETS_BACKEND=file` with the dev KEK ("DEV KEY — not for real data") while holding operator-attested de-identified data, as before the reset.
 - **Reversible?:** n/a (operations record).
+
+### 303. Review queue and ablation holdout regenerated; provenance re-pinned
+- **Date / phase:** 2026-10-16. Completes the rebuild recorded in #302.
+- **Requirement ID(s):** ARCH-046, PRD-114, PRD-112, ARCH-043, PRD-072.
+- **What was done:**
+  - **Review queue** (`--per-category 40 --seed 20261014`) finished 2026-10-15 ~14:01 UTC, `EXIT=0`, "created 780 new review item(s)" on top of the 20 smoke items. 800 items over 200 distinct records, 40 per triage category, all four areas per record, a `Result` on every item (queue state `open`). 40 escalated (Critical 5, Substantial 8, Moderate 6, Low 11, Minimal 10). The triage-agreement payload (`triage_mortality_sha256`) is on exactly the 200 assessment items. No gateway errors or tracebacks in the log.
+  - **Ablation holdout** (`generate_ablation_holdout_questions --per-area 200 --seed 20261015`, four-area mode) ran 2026-10-15 14:03 to 2026-10-16 05:54 UTC, `EXIT=0`, 844 questions from 844 distinct records, 0 overlapping the review queue's 200. Every area reached 200 usable questions; `antibiotic_course` needed 244 records because 44 answers cited nothing (they still use up their record but don't count, #264). Three `429 Too Many Requests` gateway responses at 19:59 were retried successfully. The seed 20261015 was my choice (the run date); the operator gave none.
+  - **`make provenance`** pinned at commit `69c3bb1` with `git_dirty: true` (the only uncommitted files were the two run logs). Summary: 1,500 records; 1,644 `four-area-v2` questions; 800 open results. `provenance-check` passes. Known gap `well_supported_questions_without_gold: 84` = the 44 holdout `antibiotic_course` questions above plus 40 review-queue items (39 `antibiotic_course`, 1 `assessment`) whose answer cited nothing gold-able; the queue items stay rateable.
+- **Still open (unchanged):** `SECRETS_BACKEND=file` dev KEK with de-identified data (#302); escalation reasons are not stored on results; `difficulty breathing` synonyms await the operator (#301).
+- **Reversible?:** n/a (operations record).
+
+### 304. Ablation holdout topped up with the unused records, near-duplicates excluded
+- **Date / phase:** 2026-10-16. Operator: "Include the 456 records in the ablation pool"; after being told the diversity filter would reject most of them, "Do not include near duplicates and its okay use the 20261016 for this run".
+- **Requirement ID(s):** PRD-112, ARCH-043.
+- **Context:** after #303, 456 of the 1,500 records were used by neither pool (Critical 109, Substantial 74, Moderate 86, Low 78, Minimal 109). A dry run of the near-duplicate filter (`qgen_dedup_threshold` 0.8, seeded with the 1,044 already-used records) rejected 320 and accepted 136. The exact number accepted depends on the order records are tried in, so the live run may differ slightly.
+- **Decision:** the filter stays on. Run `generate_ablation_holdout_questions --per-area 250 --seed 20261016`. The target of 250 is set above what the remaining records can reach, so the run tries every eligible record once and then stops short of the target. The run's stop-short warning is therefore expected.
+- **Judgment call (mine; the operator did not answer the area question):** extra records keep the existing allocation: each goes to the area with the fewest usable questions (#264).
+- **Result:** pending; log `backend/results/ablation_holdout_topup_20261016.log`. Afterwards re-pin provenance.
+- **Reversible?:** yes, until an ablation run uses them: the added questions are the ablation-holdout rows created after the #303 provenance pin (2026-10-16 05:55 UTC).

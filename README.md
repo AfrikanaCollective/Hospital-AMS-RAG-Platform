@@ -33,7 +33,7 @@ evaluation workflow.
 | **8** | Unified hierarchical (Level 1 × 2 × 3) ablation, superseding Phases 6/7's separate tools; Level 3 restructured (2026-09-23) to a single BM25/SapBERT weighted-rank sweep, MedCPT/RRF dropped, primary metric Recall@K; every delta now carries a bootstrap p-value, plus a full Recall@k×weight grid and a post-hoc best-weight-vs-BM25 test (DEVIATIONS #202) | ✅ implemented + run live (approved via [UNIFIED-ABLATION-PROPOSAL.md](UNIFIED-ABLATION-PROPOSAL.md); offline-verified + live-smoke-tested against the real corpus after both the restructure and the statistics extension — see DEVIATIONS #192–#202); **full-scale re-run complete (2026-09-25, `results/ablation/20260925T064650Z-81570c93/`, 1,589 real calibration questions, 699,160 rows)** — the ablation-holdout pool tops out at 1,992/2,500 (a genuine diversity-filter saturation wall, not a transient failure) and the operator accepted this run as final rather than relaxing the filter (DEVIATIONS #203–#205); Level 3 grid reduced to 6 weights {0.0, 0.2, …, 1.0} on 2026-09-25 and this run's summary + figures re-derived at that grid (DEVIATIONS #207) |
 | **9** | Layout-aware guideline ingestion (`PRD-113` / `ARCH-044`): Docling + pdfplumber + local RapidOCR, header/footer removal, font-fused headings, cell-structured tables, flowchart decision logic from vector geometry, attested text corrections, admin review gate for OCR'd numbers, corpus re-ingested with gold-id remap | ✅ 9a + 9b implemented (approved 2026-09-28, see [LAYOUT-INGESTION-PROPOSAL.md](LAYOUT-INGESTION-PROPOSAL.md); DEVIATIONS #213-#216); 9c (vision model) not built — gateway image support unverified |
 
-**Data reset (2026-10-14, DEVIATIONS.md #298-#305).** Every patient-derived
+**Data reset (2026-10-14, DEVIATIONS.md #298-#306, #309).** Every patient-derived
 artifact before then (questions, review items, ratings, ablation runs under
 `backend/results/`) was development-only and was dropped with a full reset of
 the Postgres/Qdrant/Redis volumes. `newborn_nbu_2021` is now a 1,500-patient
@@ -42,7 +42,14 @@ Rebuilt state (2026-10-16): the triage-stratified review queue (ARCH-046)
 holds 800 open items from 200 records (40 per triage category x 4 areas), and
 the ablation holdout holds 980 questions (233-234 usable per area) from records
 the queue does not use. The other 320 records are near-duplicates and are in
-neither pool (DEVIATIONS.md #304-#305). No ablation runs have been made since the reset.
+neither pool (DEVIATIONS.md #304-#305). First post-reset unified ablation:
+`results/ablation/20261021T064655Z-addedb5c` (933 usable questions; as before
+the reset, no arm beats the popularity baseline because gold sets are
+concentrated, DEVIATIONS.md #306). Rescored against the attested per-area
+reference sets (DEVIATIONS.md #309): more BM25 weight helps every arm, pure
+BM25 is best or tied, and present_only/raw at `bm25_weight=1.0` has the
+highest MRR@12 (0.805; Recall@12 0.418, where 12 results can reach about 0.73
+on average because the antibiotic-course set has 37 chunks).
 Provenance is re-pinned in `data/PROVENANCE.json`.
 
 Phase 1 delivers a **navigable skeleton**: folder structure, stub modules,
@@ -1581,6 +1588,7 @@ cd ../frontend && npm install && npm run dev
 | `make gen-data` | synthetic patient records (fallback); domain via `RECORD_DOMAIN` (default `neonatal`) |
 | `make ingest-deid DATASET=<dir>` | map an attested de-identified dataset onto `record.py` (ARCH-039); refuses without a complete `DATASET.md` attestation |
 | `make triage-review-queue [ARGS=...]` | triage-stratified review queue: 40 records per triage category x 4 query areas, triage-agreement question on assessment items (ARCH-046) |
+| `make area-reference-review [ARGS=--port N]` | export the retrievable passages from `api`, then serve the local page (http://127.0.0.1:8765) to curate and attest `data/area_reference_sets.yaml` (DEVIATIONS #307-#308) |
 | `make provenance` | pin the data state into `data/PROVENANCE.json` (tracked): the git commit and model/review settings, a SHA-256 of every data file (guideline PDFs and manifest, attested YAML inputs, patient dataset files, ingest artifacts, ablation outputs), and a digest of each table the evaluation rests on (guideline versions and chunks, patients and records, eval questions, results, ratings, IRR scores, archives) over the rows that existed at the pin. Hashes, counts and ids only, no record content. Re-pin after a deliberate data change and commit the manifest with it (PRD-072, DEVIATIONS #295) |
 | `make provenance-check` | re-derive the same state and compare: a changed or missing pinned file or row, an active guideline version whose file no longer matches its ingest hash, a gold chunk or open-result citation that no longer resolves, or a known gap that grew fails (exit 1); rows added since the pin (new ratings, new questions) and unsettled `DATASET.md` fields are reported. Read-only; runs in the `api` container |
 | `make prepare-guidelines` | validate the operator-provided guideline corpus + `manifest.json` (ARCH-038); `fetch-guidelines` is a deprecated alias |
@@ -1689,6 +1697,26 @@ All config is via environment variables / `.env` (secrets via
 - `data/triage_mortality.yaml` — operator-attested mortality per triage
   category, shown only in the reviewers' triage-agreement question (ARCH-046);
   a local statistic, never guideline content and never in an answer.
+- `data/area_reference_sets.yaml` — curated fixed reference set per query
+  area: the guideline passages that answer each area's question, matched by
+  chunk-text hash (DEVIATIONS.md #307). Attested 2026-10-21 (DEVIATIONS.md #309); code uses it
+only while attested. Drafted
+  by `python -m scripts.draft_area_reference_sets` from the passages the
+  ablation-holdout answers cited (`include: true` pre-set where at least 50%
+  of the area's answers cited it). Curate and attest it on the local review
+  page: `make area-reference-review`, then open http://127.0.0.1:8765
+  (DEVIATIONS.md #308). The page shows every candidate with its full text
+  (tables keep their layout), lets you include or exclude each one, add any
+  other retrievable passage or table, mark each area reviewed, and attest; it
+  saves straight to the file (in place, so the running `api` container sees
+  the change without a restart), and any save without attesting resets the
+  attestation to `TODO_CONFIRM`. It runs on the host (Python standard library
+  + PyYAML, nothing to install) and binds to 127.0.0.1 only. Once attested,
+  rescore any unified-ablation run without re-running retrieval:
+  `docker compose exec api python -m scripts.score_area_reference results/ablation/<run_id>`
+  (writes `area_reference_scores.csv` + `area_reference_summary.json` into
+  the run directory). This measures whether retrieval finds the passages that
+  answer the area's question; it does not measure patient-specific retrieval.
 - `data/excerpt_guidelines/` — **the guideline corpus. You supply this.** Drop
   real clinical-guideline PDFs here, then copy
   `data/excerpt_guidelines/manifest.example.json` to `manifest.json` and fill in

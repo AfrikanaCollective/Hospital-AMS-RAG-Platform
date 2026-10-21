@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Area Reference Review</title>
+<!-- Served by scripts/area_reference_review.py (DEVIATIONS.md #308). -->
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --ink: #1c2330; --muted: #5d6879; --line: #dde2ea;
+  --accent: #1f6feb; --accent-ink: #ffffff; --ok: #1a7f37; --ok-bg: #e6f4ea;
+  --warn: #9a6700; --warn-bg: #fff4d6; --bad: #c62828; --bad-bg: #fdecec;
+  --bar: #c9d6ea; --bar-fill: #1f6feb; --code: #f0f2f5;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1319; --panel: #171c24; --ink: #e4e8ee; --muted: #9aa5b5; --line: #2a313c;
+    --accent: #4c8dff; --accent-ink: #0b0e13; --ok: #4ac26b; --ok-bg: #12301c;
+    --warn: #d6a43a; --warn-bg: #33290f; --bad: #ff6b6b; --bad-bg: #3a1717;
+    --bar: #2a3442; --bar-fill: #4c8dff; --code: #10151c;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink);
+  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+header { position: sticky; top: 0; z-index: 5; background: var(--panel);
+  border-bottom: 1px solid var(--line); padding: 10px 16px; }
+.top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+h1 { font-size: 16px; margin: 0; }
+.pill { font-size: 12px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+.pill.ok { background: var(--ok-bg); color: var(--ok); border-color: transparent; }
+.pill.warn { background: var(--warn-bg); color: var(--warn); border-color: transparent; }
+.spacer { flex: 1; }
+nav { display: flex; gap: 6px; margin-top: 10px; overflow-x: auto; }
+nav button { border: 1px solid var(--line); background: transparent; color: var(--ink);
+  padding: 6px 10px; border-radius: 8px; cursor: pointer; white-space: nowrap; font: inherit; }
+nav button.active { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+nav .tick { color: var(--ok); font-weight: 700; }
+nav button.active .tick { color: inherit; }
+main { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 16px; padding: 16px; max-width: 1500px; margin: 0 auto; }
+@media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+section.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; min-width: 0; }
+h2 { font-size: 15px; margin: 0 0 6px; }
+.question { color: var(--muted); margin: 0 0 10px; }
+.toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 10px; }
+button.btn { font: inherit; border: 1px solid var(--line); background: var(--panel); color: var(--ink);
+  padding: 5px 10px; border-radius: 7px; cursor: pointer; }
+button.btn:hover { border-color: var(--accent); }
+button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+button:disabled { opacity: .5; cursor: not-allowed; }
+select, input[type=text], input[type=search], input[type=date] { font: inherit; color: var(--ink); background: var(--panel);
+  border: 1px solid var(--line); border-radius: 7px; padding: 5px 8px; min-width: 0; }
+.card { border: 1px solid var(--line); border-radius: 8px; padding: 10px; margin-bottom: 8px; }
+.card.inc { border-left: 4px solid var(--ok); }
+.card.exc { border-left: 4px solid var(--line); opacity: .85; }
+.card-head { display: flex; gap: 10px; align-items: flex-start; }
+.card-head label { display: flex; gap: 6px; align-items: center; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.meta { flex: 1; min-width: 0; }
+.title { font-weight: 600; overflow-wrap: anywhere; }
+.sub { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.badge { font-size: 11px; padding: 1px 6px; border-radius: 4px; background: var(--code); color: var(--muted); margin-left: 4px; }
+.badge.table, .badge.flowchart, .badge.figure { background: var(--warn-bg); color: var(--warn); }
+.badge.added { background: var(--ok-bg); color: var(--ok); }
+.share { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); margin-top: 4px; }
+.share .bar { width: 120px; height: 6px; background: var(--bar); border-radius: 3px; overflow: hidden; }
+.share .bar i { display: block; height: 100%; background: var(--bar-fill); }
+.excerpt { margin: 6px 0 0; color: var(--ink); overflow-wrap: anywhere; }
+pre.full { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--code); padding: 8px; border-radius: 6px;
+  margin: 6px 0 0; font: 12.5px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; max-height: 420px; overflow: auto; }
+a.link { color: var(--accent); cursor: pointer; font-size: 12px; text-decoration: none; }
+.warnline { color: var(--warn); font-size: 12px; }
+.reviewed { display: flex; gap: 8px; align-items: center; padding: 10px; border-radius: 8px; background: var(--code); margin-top: 6px; }
+.attest { max-width: 1500px; margin: 0 auto 32px; padding: 0 16px; }
+.attest .panel { display: grid; gap: 10px; }
+.fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
+.fields label { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
+.checks { display: grid; gap: 4px; font-size: 13px; }
+.checks .ok { color: var(--ok); } .checks .no { color: var(--bad); }
+#msg { padding: 8px 10px; border-radius: 7px; display: none; }
+#msg.ok { display: block; background: var(--ok-bg); color: var(--ok); }
+#msg.bad { display: block; background: var(--bad-bg); color: var(--bad); }
+.empty { color: var(--muted); padding: 12px 0; }
+.count { color: var(--muted); font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="top">
+    <h1>Area reference sets</h1>
+    <span id="status" class="pill">loading…</span>
+    <span id="dirty" class="pill warn" hidden>unsaved changes</span>
+    <span class="spacer"></span>
+    <button class="btn" id="saveDraft">Save draft</button>
+  </div>
+  <nav id="tabs"></nav>
+</header>
+
+<main>
+  <section class="panel">
+    <h2 id="areaTitle"></h2>
+    <p class="question">Does the passage answer: <em id="areaQuestion"></em></p>
+    <div class="toolbar">
+      <select id="show" aria-label="Show">
+        <option value="all">All candidates</option>
+        <option value="inc">Included</option>
+        <option value="exc">Excluded</option>
+      </select>
+      <button class="btn" id="incAll">Include all</button>
+      <button class="btn" id="excAll">Exclude all</button>
+      <span class="count" id="areaCount"></span>
+    </div>
+    <div id="candidates"></div>
+    <label class="reviewed"><input type="checkbox" id="reviewed"> I have reviewed every candidate in this area</label>
+  </section>
+
+  <section class="panel">
+    <h2>Add a passage</h2>
+    <p class="question">Every retrievable passage and table not already listed for this area.</p>
+    <div class="toolbar">
+      <input type="search" id="q" placeholder="Search text or heading" style="flex:1">
+      <select id="type" aria-label="Type">
+        <option value="">All types</option>
+        <option value="table">Tables</option>
+        <option value="prose">Prose</option>
+        <option value="flowchart">Flowcharts</option>
+        <option value="figure">Figures</option>
+      </select>
+      <select id="doc" aria-label="Document"><option value="">All documents</option></select>
+    </div>
+    <div class="count" id="corpusCount"></div>
+    <div id="corpus"></div>
+  </section>
+</main>
+
+<div class="attest">
+  <section class="panel">
+    <h2>Attest</h2>
+    <div class="checks" id="checks"></div>
+    <div class="fields">
+      <label>Name<input type="text" id="by"></label>
+      <label>Role<input type="text" id="role"></label>
+      <label>Date<input type="date" id="date"></label>
+    </div>
+    <label><input type="checkbox" id="confirm"> I attest that, in every area, the included passages answer that area's question and the excluded ones do not.</label>
+    <div class="toolbar">
+      <button class="btn primary" id="saveAttest">Save and attest</button>
+    </div>
+    <div id="msg"></div>
+  </section>
+</div>
+
+<script>
+"use strict";
+const LABELS = { assessment: "Assessment", investigations: "Investigations",
+  severity_classification: "Severity classification", antibiotic_course: "Antibiotic course" };
+let state = null, current = "assessment", dirty = false, attested = false;
+const open = new Set();  // "area:hash" or "corpus:hash" with full text shown
+const $ = (id) => document.getElementById(id);
+const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
+
+function corpusBy(hash) { return state.corpusByHash.get(hash); }
+function share(entry, area) { const c = entry && entry.cited_by[area]; return c && c[1] ? c[0] / c[1] : 0; }
+function setDirty(v) { dirty = v; $("dirty").hidden = !v; renderStatus(); }
+
+function renderStatus() {
+  const s = $("status");
+  if (attested && !dirty) { s.className = "pill ok"; s.textContent = "attested"; }
+  else if (attested && dirty) { s.className = "pill warn"; s.textContent = "attested — changes will need re-attesting"; }
+  else { s.className = "pill warn"; s.textContent = "draft — not attested"; }
+}
+
+function renderTabs() {
+  const nav = $("tabs"); nav.replaceChildren();
+  for (const area of Object.keys(LABELS)) {
+    const a = state.areas[area], inc = a.passages.filter(p => p.include).length;
+    const b = el("button", area === current ? "active" : "");
+    if (a.reviewed) b.append(el("span", "tick", "✓ "));
+    b.append(`${LABELS[area]} · ${inc}/${a.passages.length}`);
+    b.onclick = () => { current = area; render(); };
+    nav.append(b);
+  }
+}
+
+function fullText(key, text, parent) {
+  const link = el("a", "link", open.has(key) ? "Hide full text" : "Show full text");
+  link.onclick = () => { open.has(key) ? open.delete(key) : open.add(key); render(); };
+  parent.append(link);
+  if (open.has(key)) parent.append(el("pre", "full", text));
+}
+
+function shareLine(entry, area, fallback) {
+  const line = el("div", "share");
+  const bar = el("span", "bar"), fill = el("i");
+  fill.style.width = `${Math.round(share(entry, area) * 100)}%`; bar.append(fill);
+  line.append(bar, entry ? `${entry.cited_by[area][0]} of ${entry.cited_by[area][1]} ${LABELS[area].toLowerCase()} answers cite it` : (fallback || ""));
+  return line;
+}
+
+function renderCandidates() {
+  const a = state.areas[current], show = $("show").value, box = $("candidates");
+  $("areaTitle").textContent = LABELS[current];
+  $("areaQuestion").textContent = a.question;
+  const inc = a.passages.filter(p => p.include).length;
+  $("areaCount").textContent = `${inc} included of ${a.passages.length}`;
+  $("reviewed").checked = a.reviewed;
+  box.replaceChildren();
+  const rows = a.passages.filter(p => show === "all" || (show === "inc") === p.include);
+  if (!rows.length) box.append(el("div", "empty", "Nothing to show."));
+  for (const p of rows) {
+    const entry = corpusBy(p.text_sha256);
+    const card = el("div", "card " + (p.include ? "inc" : "exc"));
+    const head = el("div", "card-head");
+    const lab = el("label"); const cb = el("input"); cb.type = "checkbox"; cb.checked = p.include;
+    cb.onchange = () => { p.include = cb.checked; setDirty(true); render(); };
+    lab.append(cb, "Include");
+    const meta = el("div", "meta");
+    const title = el("div", "title", entry ? entry.heading || "(no heading)" : p.heading || "(no heading)");
+    if (entry) title.append(el("span", "badge " + entry.chunk_type, entry.chunk_type));
+    if (p.added_by_operator) title.append(el("span", "badge added", "added by you"));
+    meta.append(title, el("div", "sub", entry
+      ? `${entry.document} · p. ${entry.page}${entry.page_end && entry.page_end !== entry.page ? "–" + entry.page_end : ""}`
+      : `${p.document || ""} · p. ${p.page ?? "?"}`));
+    meta.append(shareLine(entry, current, p.cited_by));
+    if (entry) { meta.append(el("p", "excerpt", entry.excerpt)); fullText(`${current}:${p.text_sha256}`, entry.text, meta); }
+    else meta.append(el("div", "warnline", "Not in the current corpus export: this passage is no longer retrievable. Exclude it."));
+    head.append(lab, meta);
+    if (p.added_by_operator) {
+      const rm = el("button", "btn", "Remove");
+      rm.onclick = () => { a.passages = a.passages.filter(x => x !== p); setDirty(true); render(); };
+      head.append(rm);
+    }
+    card.append(head); box.append(card);
+  }
+}
+
+function renderCorpus() {
+  const a = state.areas[current], q = $("q").value.trim().toLowerCase();
+  const type = $("type").value, doc = $("doc").value;
+  const listed = new Set(a.passages.map(p => p.text_sha256));
+  const rows = state.corpus.filter(e => !listed.has(e.text_sha256)
+    && (!type || e.chunk_type === type) && (!doc || e.document === doc)
+    && (!q || (e.heading + " " + e.text).toLowerCase().includes(q)));
+  $("corpusCount").textContent = `${rows.length} passage(s)`;
+  const box = $("corpus"); box.replaceChildren();
+  for (const e of rows) {
+    const card = el("div", "card");
+    const head = el("div", "card-head");
+    const meta = el("div", "meta");
+    const title = el("div", "title", e.heading || "(no heading)");
+    title.append(el("span", "badge " + e.chunk_type, e.chunk_type));
+    meta.append(title, el("div", "sub", `${e.document} · p. ${e.page}`), shareLine(e, current));
+    meta.append(el("p", "excerpt", e.excerpt));
+    fullText(`corpus:${e.text_sha256}`, e.text, meta);
+    const add = el("button", "btn", "Add");
+    add.title = `Add to ${LABELS[current]} as included`;
+    add.onclick = () => {
+      a.passages.push({ include: true, text_sha256: e.text_sha256, added_by_operator: true });
+      a.reviewed = false; setDirty(true); render();
+    };
+    head.append(meta, add); card.append(head); box.append(card);
+  }
+}
+
+function renderChecks() {
+  const box = $("checks"); box.replaceChildren();
+  let ok = true;
+  for (const area of Object.keys(LABELS)) {
+    const a = state.areas[area], inc = a.passages.filter(p => p.include).length;
+    const good = a.reviewed && inc > 0; ok = ok && good;
+    const line = el("div", good ? "ok" : "no",
+      `${good ? "✓" : "✗"} ${LABELS[area]}: ${a.reviewed ? "reviewed" : "not reviewed"}, ${inc} included`);
+    box.append(line);
+  }
+  const fields = $("by").value.trim() && $("role").value.trim() && /^\d{4}-\d{2}-\d{2}$/.test($("date").value);
+  $("saveAttest").disabled = !(ok && fields && $("confirm").checked);
+}
+
+function render() { renderTabs(); renderCandidates(); renderCorpus(); renderChecks(); renderStatus(); }
+
+function payload(attest) {
+  const areas = {};
+  for (const [name, a] of Object.entries(state.areas))
+    areas[name] = { reviewed: a.reviewed, passages: a.passages };
+  return { attest, areas, attestation: { by: $("by").value.trim(), role: $("role").value.trim(), date: $("date").value } };
+}
+
+async function save(attest) {
+  const msg = $("msg"); msg.className = ""; msg.textContent = "";
+  const res = await fetch("/api/save", { method: "POST",
+    headers: { "Content-Type": "application/json", "X-Area-Review": "1" }, body: JSON.stringify(payload(attest)) });
+  const out = await res.json().catch(() => ({}));
+  if (!res.ok) { msg.className = "bad"; msg.textContent = out.error || `Save failed (${res.status})`; return; }
+  attested = attest; setDirty(false);
+  if (!attest) $("confirm").checked = false;
+  msg.className = "ok";
+  msg.textContent = attest ? `Saved and attested: ${out.saved}` : `Draft saved: ${out.saved} (attestation fields set to TODO_CONFIRM)`;
+  renderChecks();
+}
+
+async function init() {
+  state = await (await fetch("/api/state")).json();
+  state.corpusByHash = new Map(state.corpus.map(e => [e.text_sha256, e]));
+  const docs = [...new Set(state.corpus.map(e => e.document))].sort();
+  for (const d of docs) { const o = el("option", null, d.length > 70 ? d.slice(0, 70) + "…" : d); o.value = d; $("doc").append(o); }
+  const at = state.attestation, real = (v) => v && !String(v).includes("TODO_CONFIRM");
+  attested = real(at.by) && real(at.role) && real(at.date);
+  $("by").value = real(at.by) ? at.by : "Timothy Tuti";
+  $("role").value = real(at.role) ? at.role : "Primary Investigator";
+  $("date").value = real(at.date) ? at.date : new Date().toISOString().slice(0, 10);
+  render();
+}
+
+$("show").onchange = renderCandidates;
+for (const id of ["q", "type", "doc"]) $(id).oninput = renderCorpus;
+for (const id of ["by", "role", "date", "confirm"]) $(id).oninput = renderChecks;
+$("confirm").onchange = renderChecks;
+$("reviewed").onchange = () => { state.areas[current].reviewed = $("reviewed").checked; setDirty(true); render(); };
+$("incAll").onclick = () => { state.areas[current].passages.forEach(p => p.include = true); setDirty(true); render(); };
+$("excAll").onclick = () => { state.areas[current].passages.forEach(p => p.include = false); setDirty(true); render(); };
+$("saveDraft").onclick = () => save(false);
+$("saveAttest").onclick = () => save(true);
+window.addEventListener("beforeunload", (e) => { if (dirty) { e.preventDefault(); e.returnValue = ""; } });
+init();
+</script>
+</body>
+</html>

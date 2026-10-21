@@ -3824,3 +3824,69 @@ not retroactively. When in doubt, log it.
 - **Unused records:** 320, all near-duplicates of a record already in a pool (Critical 82, Substantial 46, Moderate 62, Low 51, Minimal 79).
 - **Provenance:** re-pinned at `b4fe4d5` with `git_dirty: true` (only the top-up log was uncommitted); 1,780 `four-area-v2` questions; `provenance-check` passes; known gap `well_supported_questions_without_gold: 87` (47 holdout + 40 review queue, #303).
 - **Reversible?:** n/a (operations record).
+
+### 306. First unified ablation on the post-reset holdout
+- **Date / phase:** 2026-10-21. Operator: "run the ablation on the new pool".
+- **Requirement ID(s):** PRD-112, ARCH-043.
+- **Run:** `docker compose exec -e MODEL_ABLATION_BACKEND=local api python -m scripts.run_unified_ablation --run-id 20261021T064655Z-addedb5c`, default grid (K 2-20 step 2, BM25 weight 0.0-1.0 step 0.2, minmax fusion). `EXIT=0`, about 5 minutes. Output in `backend/results/ablation/20261021T064655Z-addedb5c/`; log `backend/results/unified_ablation_20261021T064655Z-addedb5c.log`. 933 questions (every usable holdout question: assessment 234, others 233 each) x 4 arms x 6 weights x 10 K = 223,920 rows. `SAPBERT_MODEL_ID` still logs as unverified.
+- **Two failed launches first (nothing written):** the operator's commit at 09:01 local recreated `backend/results/` on the host. The running `api` container still had the deleted directory bind-mounted, and the new directory (uid 1000, mode 775) was not writable by the container's uid 10001. Fixed by `docker compose restart api` and the documented dev-only `chmod -R a+rwX backend/results` (#270). The two unused run ids (`20261021T063506Z-32368654`, `20261021T064618Z-45668c75`) never created a directory.
+- **Results (Recall@12):** Level 1 present-only minus all-assessed -0.019 [-0.023, -0.015]. Level 2 enrichment: +0.003 (n.s.) on present-only, -0.015 on all-assessed. Level 3 pure BM25 minus pure SapBERT: +0.11 to +0.26 on every arm; best weight is 1.0 (pure BM25).
+- **Popularity baseline (#272, #278):** as on every pre-reset run (#271), no arm beats the query-blind baseline. At K=12, all 24 arms are significantly below it on recall and MRR (baseline Recall 0.667, MRR 0.803). Hit@12 is not significantly different for 3 arms.
+- **Gold-set concentration, the cause found in #271, still holds:** 51 distinct gold chunks across 933 questions (mean 6.3 per gold set, 488 distinct sets). Within each area the top chunk is in 89-99% of gold sets (investigations 99%, severity 97%). The gold-set specificity decision (paused 2026-10-07) is still open, and these numbers should not be quoted as a retrieval-quality result until it is made.
+- **Reversible?:** n/a (operations record).
+
+### 307. Curated fixed reference sets per query area (draft, awaiting attestation)
+- **Date / phase:** 2026-10-21. Operator: "Create curated fixed reference sets per area", after #306 showed every arm below the popularity baseline because the per-question gold sets (the system's own citations) concentrate on a few passages per area.
+- **Requirement ID(s):** PRD-112, ARCH-043.
+- **What was done:**
+  - `app/eval/area_reference.py`: fail-closed loader for `data/area_reference_sets.yaml` (attestation fields filled, exactly the four areas, at least one `include: true` passage per area, `include` an explicit boolean); `resolve_reference_sets` maps passages to current chunk ids; `score_rows` scores per-query rows against the area set (Recall/MRR/Hit@k, 95% bootstrap CI, plus the same metric against the run's own gold for comparison).
+  - `scripts/draft_area_reference_sets.py`: writes the draft from the ablation-holdout answers' citations, retrievable chunks only, most-cited first, with document, page, heading, text hash, share of the area's answers citing it, and a 240-character excerpt. Refuses to overwrite an attested file. `--list-corpus` writes all 153 retrievable chunks for adding passages no answer cited (`backend/results/area_reference_corpus_listing_20261021.yaml`).
+  - `scripts/score_area_reference.py RUN_DIR`: rescores an existing run without re-running retrieval.
+  - `docker-compose.yml`: `data/area_reference_sets.yaml` mounted read-only into `api` (takes effect at the next `api` recreate; the draft was produced by copying the new code into the running container).
+  - Draft written: assessment 18 candidates (8 pre-included), investigations 14 (6), severity_classification 17 (4), antibiotic_course 28 (8).
+- **Judgment calls (mine):**
+  - **Passages are matched by sha256 of chunk text, not chunk id,** because chunk ids change on every re-ingest (same reasoning as #301's carry-over by title).
+  - **`include: true` pre-set where at least 50% of the area's answers cited the passage** (the "core" in my 2026-10-21 analysis). A starting point for the operator, not a decision; the attestation fields stay `TODO_CONFIRM`, so nothing scores until the operator curates and signs.
+  - **The popularity baseline is not removed and no no-patient-details comparison is built yet:** the operator answered only the first of my four questions (curated sets), so those changes wait.
+  - **Excerpts of guideline text are committed in the draft** (240 characters each; public guidelines, no patient data).
+- **What this measures:** whether retrieval, given a patient-specific query, surfaces the passages that answer the area's question. It cannot measure patient-specific retrieval, since every question in an area has the same answer. Against a fixed per-area set the popularity baseline learns the answer by construction, so it is not a meaningful comparator for these scores.
+- **Tests:** `tests/test_area_reference.py` (8).
+- **Reversible?:** yes (new files only; the compose mount line can be removed).
+
+### 308. Local review page for the area reference sets
+- **Date / phase:** 2026-10-21. Operator: "I would like a webpage to review the candidates in data/area_reference_sets.yaml, add missing passages from the passages/tables. … the web-page should allow me to also attest all excerpts/candidates".
+- **Requirement ID(s):** PRD-112, ARCH-043.
+- **What was done:**
+  - `scripts/area_reference_review.py` + `scripts/area_reference_review.html`: a small local server and page. Per area: the area's question, every candidate with its share of answers citing it, an excerpt and the full text (tables and flowcharts keep their line layout), include/exclude per passage, include-all/exclude-all, a filter, and a "reviewed" tick. A side panel searches every other retrievable passage (by text or heading, type, document) and adds it to the area as included (`added_by_operator: true`, removable). An attest section lists what's still missing, prefills "Timothy Tuti" / "Primary Investigator" / today, and needs a confirmation tick.
+  - `scripts/draft_area_reference_sets.py --export-corpus PATH`: writes all 153 retrievable chunks as JSON (full text, type, pages, citation counts per area) without touching the draft. This replaces the excerpt-only `--list-corpus` YAML from #307, which was deleted before being committed.
+  - `make area-reference-review`: runs the export in `api`, then the server on the host.
+- **Judgment calls (mine):**
+  - **Local page, not a platform page or a hosted artifact:** the output is a repository config file that the `api` container mounts read-only, so writing it from the API would need a new write path into operator config; a hosted page couldn't write the file at all. The server runs on the host with the standard library and the PyYAML already in the host's Python (nothing installed), and binds to 127.0.0.1 only. POSTs need a custom header, which forces a CORS preflight the server never answers, so other sites can't post to it from the browser.
+  - **Attesting needs every area ticked reviewed, at least one included passage per area, name, role and a YYYY-MM-DD date.** Adding a passage clears that area's "reviewed" tick.
+  - **"Save draft" always writes `TODO_CONFIRM` attestation fields,** so a file changed after signing is never left signed. Re-attesting is one click.
+  - **Each area's `reviewed` flag is stored in the YAML** so progress survives between sessions. The loader ignores it.
+  - **The corpus export lives in `data/ingest_artifacts/` (gitignored):** it holds full guideline text and is regenerated on demand.
+- **Verified:** 6 new tests (`tests/test_area_reference.py`, 14 total) for the save rules, including that an attested save passes `load_area_reference_sets`. A live run against a scratch copy of the draft returned 403 for a POST without the header, and an attesting save produced a file the platform loader accepted. Headless Chrome rendered the page at 1400px and 390px wide from the real draft; the JS passes `node --check`. Interactive clicking was not tested, because the Chrome extension was not connected.
+- **Reversible?:** yes (new files and one make target).
+
+### 309. Area reference sets attested; run rescored; review page saves in place
+- **Date / phase:** 2026-10-21. Operator: "I have attested the reference sets, rescore the run", then "fix the save issue and log the results".
+- **Requirement ID(s):** PRD-112, ARCH-043.
+- **Attested sets** (`data/area_reference_sets.yaml`, Timothy Tuti, Primary Investigator, 2026-10-21): included passages assessment 18 of 24 (6 added by the operator), investigations 13 of 14, severity_classification 9 of 17, antibiotic_course 35 of 37 (10 added). Two antibiotic passages match two chunks each by text hash, so that set resolves to 37 chunks.
+- **Save issue found and fixed:** the first rescore read the file as unattested. The review page saved through a temp file and `os.replace`, which gives the file a new inode; `api` bind-mounts the single file, and a single-file mount stays on the original inode, so the container kept the pre-attestation copy. Worked around by restarting `api` (no job was running). Fixed in `scripts/area_reference_review.py::write_document`: the file is rewritten in place (text serialised first, then write + truncate). Judgment call: in-place over mounting the whole `data/` directory, because the narrower read-only mount stays as it is; the cost is losing atomicity, acceptable for an operator-only file written by one local page. Test `test_a_save_keeps_the_file_inode_so_the_api_mount_sees_it`; also checked live that an in-place write is visible through a single-file `:ro` mount in a running container.
+- **Rescore of run `20261021T064655Z-addedb5c`** (`scripts.score_area_reference`; 933 queries per arm and weight, 233-234 per area; `area_reference_scores.csv`, `area_reference_summary.json` in the run directory). Recall@12 / MRR@12 from `bm25_weight` 0.0 to 1.0 (95% CI about ±0.01 recall, ±0.02 MRR):
+
+  | Arm | Recall@12 w=0.0 → 1.0 | MRR@12 w=0.0 → 1.0 |
+  |---|---|---|
+  | all_assessed / enriched | 0.274 → 0.391 | 0.633 → 0.753 |
+  | all_assessed / raw | 0.236 → 0.431 | 0.623 → 0.758 |
+  | present_only / enriched | 0.287 → 0.368 (peak 0.369 at 0.8) | 0.563 → 0.743 |
+  | present_only / raw | 0.224 → 0.418 | 0.598 → 0.805 |
+
+  - Both measures rise with BM25 weight in every arm; pure BM25 is best or tied.
+  - Enrichment helps at low BM25 weight and hurts at 1.0; the Level 2 ranking flips with the weight.
+  - Hit@12 is 1.000 for every arm and weight, so it separates arms only at small K.
+  - Recall@12 is capped: with 37 antibiotic chunks, 12 results hold at most a third, and the mean ceiling over the four areas is about 0.73. The best recall (0.431) is about 59% of that.
+  - Against each question's own gold set the same run scored higher recall and lower MRR (e.g. present_only/raw w=1.0: 0.544 / 0.549); the area sets reward ranking the area's passages early, not matching one answer's citations.
+- **What this does not show:** patient-specific retrieval (every question in an area has the same reference set), and the popularity baseline is not a valid comparator here (#307). Nothing is acted on; production `hybrid.retrieve()` is untouched.
+- **Reversible?:** yes.

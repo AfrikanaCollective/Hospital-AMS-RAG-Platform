@@ -1,0 +1,947 @@
+# Curated fixed reference sets per query area (PRD-112, ARCH-043;
+# DEVIATIONS.md #307). Drafted by scripts.draft_area_reference_sets from the
+# chunks the ablation-holdout answers cited; the operator curates and attests.
+#
+# Each area lists the guideline passages that answer that area's question.
+# Every question in an area shares the area's wording template, so one set
+# per area replaces the per-question gold sets (the system's own citations)
+# when scoring a unified-ablation run (scripts.score_area_reference).
+#
+# To curate: set `include` to true for each passage that answers the area's
+# question and false for one that doesn't. `include: true` was pre-set where
+# at least 50% of the area's answers cited the passage; that is a
+# starting point only. To add a passage no answer cited, copy its entry from
+# the --list-corpus output. Passages are matched by `text_sha256`; the other
+# fields are for reading only.
+#
+# Code may use this file only while every attestation field is filled in
+# (no TODO_CONFIRM) and every area has at least one included passage.
+
+attested_by: Timothy Tuti
+attested_role: Primary Investigator
+attested_date: '2026-10-21'
+areas:
+  assessment:
+    reviewed: true
+    passages:
+    - include: true
+      document: WHO recommendations for management of serious bacterial infections in infants aged 0–59
+        days — excerpt, pp. 17-19, 76-77
+      page: 18
+      heading: Suspected sepsis in young infants aged 0–59 days in hospital
+      text_sha256: f4674d640135806b1a51d2ef0d9bdd4ee7520fb87cb2999d33138898b030b47b
+      excerpt: 'WHO defines suspected sepsis in a hospitalized infant aged 0–59 days as the presence of
+        one or more of the following clinical signs: • ■ not feeding well or not able to feed at all •
+        ■ movement only when stimulated or no movement at all • ■...'
+      cited_by: 209 of 234 answers (89%)
+    - include: true
+      document: 'Neonatal infection: antibiotics for prevention and treatment'
+      page: 20
+      heading: Assessment and risk management after birth
+      text_sha256: dbe84bd46c341632647ae495ea1208dd233525cb62b165267bf1b4ceda914221
+      excerpt: • 1.10.1 If there are any risk factors for early-onset neonatal infection (see box 1 on
+        risk- factors for early-onset neonatal infection), or if there are clinical indicators of possible
+        early-onset neonatal infection (see box 2 on clinical...
+      cited_by: 194 of 234 answers (83%)
+    - include: true
+      document: 'Comprehensive Newborn Care Protocols: Integrating Technologies with Clinical Pathways
+        — excerpt, pp. 47-48'
+      page: 47
+      heading: Antibiotic Prophylaxis for newly born
+      text_sha256: a2a57ffe12a4e9665cd0763fd70a699174e81ff4e19f2521c440bf2537e51957
+      excerpt: 'Prophylactic antibiotic should be given as soon as possible after birth to all newborns
+        (term and preterms) with any one of the following risk factors: • Membrane rupture more than >18
+        hours before delivery • A mother with fever (Temperatur...'
+      cited_by: 188 of 234 answers (80%)
+    - include: true
+      document: 'National Antibiotic Use Guidelines: Empiric Treatment and Surgical Prophylaxis — excerpt,
+        pp. 11-20, 33-38, 45-52'
+      page: 33
+      heading: 'Categorization:'
+      text_sha256: 34e502aaaa9963077c05c87e6a6aaf785b033c62a87463691b7ce9f950e06d86
+      excerpt: 'Neonate at risk of sepsis: Neonate with risk factors for sepsis including prolonged rupture
+        of membranes (PROM) > 18 hours, maternal fever > 38°C, suspected or confirmed chorioamnionitis,
+        mother treated for infection during labour or 24 hou...'
+      cited_by: 178 of 234 answers (76%)
+    - include: true
+      document: 'National Antibiotic Use Guidelines: Empiric Treatment and Surgical Prophylaxis — excerpt,
+        pp. 11-20, 33-38, 45-52'
+      page: 33
+      heading: 'Symptoms:'
+      text_sha256: 29301555e1beaa917c6fd3e36d9d263ef172ec3cb1c10f1389ba6c4db84dda10
+      excerpt: 'One of: Temperature instability (temp > 38.0°C or lower than 35.5°C), convulsions, apnoea,
+        inability to feed, central cyanosis or SPO2 <90%, bulging anterior fontanelle, persistent vomiting,
+        movement only when stimulated, irritability, leth...'
+      cited_by: 159 of 234 answers (68%)
+    - include: true
+      document: 'Neonatal infection: antibiotics for prevention and treatment'
+      page: 19
+      heading: Identification and assessment before birth
+      text_sha256: b4f6af4113e688d7d35eb2392b9e4824964bb425aa9dd6014fa79b8923a26820
+      excerpt: • 1.9.1 For women, trans men and non-binary people in labour, identify and assess any risk
+        factors for early-onset neonatal infection (see box 1 on risks factors for early- onset neonatal
+        infection). Throughout labour, monitor for any new r...
+      cited_by: 156 of 234 answers (67%)
+    - include: true
+      document: 'Comprehensive Newborn Care Protocols: Integrating Technologies with Clinical Pathways
+        — excerpt, pp. 47-48'
+      page: 47
+      heading: Assessing for possible Bacterial Infection
+      text_sha256: 62eecaaf1e77ec97f2b72193edb6ed6ddfb2a759d4761ab9865515e110a38792
+      excerpt: '[n1] Has ONE of the following • Unconscious • Convulsions • Unable to feed at all • Apnoea
+        • Unable to cry • Cyanosis • Bulging fontanelle • or Persistent vomiting [n2] Severe neonatal
+        sepsis • Admit in category A • Do blood cultures & LP •...'
+      cited_by: 129 of 234 answers (55%)
+    - include: true
+      document: WHO recommendations for management of serious bacterial infections in infants aged 0–59
+        days — excerpt, pp. 17-19, 76-77
+      page: 17
+      heading: Clinical signs of critical illness in young infants aged 0–59 days in non-hospital settings
+      text_sha256: db3913d3843ee342c731e31036dcfc9a272dcc0e7b9a711fdec39fbaa11f687c
+      excerpt: 'WHO defines critical illness in an infant aged 0–59 days as the presence of one or more
+        of the following clinical signs: • ■ not able to feed at all • ■ no movement at all • ■ convulsions
+        Note: These signs are part of the WHO 7-sign IMCI al...'
+      cited_by: 118 of 234 answers (50%)
+    - include: true
+      document: 'Neonatal infection: antibiotics for prevention and treatment'
+      page: 21
+      heading: 'Other clinical indicators:'
+      text_sha256: 3333cc0e0b07dd1db05b5068f71805f236cc42c8aa300f393a664f725124a9db
+      excerpt: • altered behaviour or responsiveness • altered muscle tone (for example, floppiness) •
+        feeding difficulties (for example, feed refusal) • feed intolerance, including vomiting, excessive
+        gastric aspirates and abdominal distension • abnormal...
+      cited_by: 113 of 234 answers (48%)
+    - include: true
+      document: WHO recommendations for management of serious bacterial infections in infants aged 0–59
+        days — excerpt, pp. 17-19, 76-77
+      page: 17
+      heading: Clinical signs of possible serious bacterial infection (PSBI) in young infants aged 0–59
+        days in non-hospital settings
+      text_sha256: 3efe8814f4d15e19b8087383b53ad5a4da6deb249665a4d786d7ec48f3261b84
+      excerpt: 'WHO defines PSBI in an infant aged 0–59 days as the presence of one or more of the following
+        clinical signs: • ■ not feeding well or not able to feed at all • ■ movement only when stimulated
+        or no movement at all • ■ high body temperature (...'
+      cited_by: 61 of 234 answers (26%)
+    - include: true
+      document: WHO recommendations for management of serious bacterial infections in infants aged 0–59
+        days — excerpt, pp. 17-19, 76-77
+      page: 17
+      heading: Clinical signs of clinical severe infection in young infants aged 0–59 days in non-hospital
+        settings
+      text_sha256: 4932dce67a2f505011c4b8c144024d8a6a39963b3c5a98d5410b0c30734d2b95
+      excerpt: 'WHO defines clinical severe infection in an infant aged 0–59 days as the presence of one
+        or more of the following clinical signs: • ■ not feeding well • ■ movement only when stimulated
+        • ■ high body temperature (≥ 38 °C) • ■ low body temper...'
+      cited_by: 20 of 234 answers (9%)
+    - include: false
+      document: 'National Antibiotic Use Guidelines: Empiric Treatment and Surgical Prophylaxis — excerpt,
+        pp. 11-20, 33-38, 45-52'
+      page: 33
+      heading: NEONATAL SEPSIS IN INFANTS < 60 DAYS
+      text_sha256: 776ee148258ec806d437666cac5391e952307c89a35204e555b3b38f25b69e8e
+      excerpt: 'Definition: Acute life-threatening infection characterized by organ dysfunction in new
+        born infants < 60 days Early onset neonatal sepsis (EONNS): < 72 hours Late onset neonatal sepsis
+        (LONNS): > 72 hour after birth Diagnosis:'
+      cited_by: 15 of 234 answers (6%)
+    - include: false
+      document: 'Neonatal infection: antibiotics for prevention and treatment'
+      page: 26
+      heading: Assessing or reviewing babies
+      text_sha256: 765ccb9e8e6096dc2017d71b8749a8f16484d1edadb27192f36a229d8848aaae
+      excerpt: 'Table 2: Clinical indicators of possible late-onset neonatal infection (observations and
+        events in the baby) This table has been adapted from the high-risk criteria in table 1 of NICE''s
+        guideline on suspected sepsis in under 16s. For a shor...'
+      cited_by: 7 of 234 answers (3%)
+    - include: false
+      document: 'National Antibiotic Use Guidelines: Empiric Treatment and Surgical Prophylaxis — excerpt,
+        pp. 11-20, 33-38, 45-52'
+      page: 35
+      heading: 'Treatment failure:'
+      text_sha256: 0f9ac9848a6cc001e963a10a385323ddfbb2179ae9111b510afbf28009aefd53
+      excerpt: If baby is not improving, or is deteriorating having been on antibiotics for at least 48-72
+        hours, do complete clinical re-evaluation, repeat hemogram, blood culture, CRP and appropriate
+        investigations before switching antibiotics.
+      cited_by: 7 of 234 answers (3%)
+    - include: true
+      document: WHO recommendations for management of serious bacterial infections in infants aged 0–59
+        days — excerpt, pp. 17-19, 76-77
+      page: 18
+      heading: Suspected meningitis in young infants aged 0–59 days in hospital
+      text_sha256: a5ab9e7d215a11b3ad7f95d6f8b87633172c10bf523ec3c0d0cd66999ce58f40
+      excerpt: 'WHO defines suspected meningitis in a hospitalized infant aged 0–59 days as the presence
+        of one or more of the following clinical signs: • ■ drowsiness or unconsciousness • ■ lethargy
+        • ■ convulsions • ■ bulging fontanelle • ■ irritability ...'
+      cited_by: 5 of 234 answers (2%)
+    - include: false
+      document: 'National Antibiotic Use Guidelines: Empiric Treatment and Surgical Prophylaxis — excerpt,
+        pp. 11-20, 33-38, 45-52'
+      page: 35
+      heading: 'Duration of therapy:'
+      text_sha256: b83ad7468c62897a3a5c86c7b09ecfe2d81bd8d78b4e29b56f8d68f3201addd6
+      excerpt: 'Neonate at risk of sepsis: stop IV antibiotics after 48 hours if all signs of possible
+        sepsis have resolved, neonate is feeding well, and LP if done is normal. Discharge without antibiotics.
+        Follow-up at 48 hours at nearest facility. Neonat...'
+      cited_by: 3 of 234 answers (1%)
+    - include: false
+      document: 'Comprehensive Newborn Care Protocols: Integrating Technologies with Clinical Pathways
+        — excerpt, pp. 47-48'
+      page: 47
+      heading: Assessing for possible Bacterial Infection
+      text_sha256: 527567a3d9af4b61d6863ed1073b74a5dc6aa11b172eb9f7a3e97db1d3a68f48
+      excerpt: • Metronidazole or clindamycin may be added when necrotizing enterocolitis is suspected
+        • Cloxacillin and gentamicin – in suspected staphylococcal septicemia; neonates with signs of
+        sepsis and also has :extensive skin pustules, abscess or o...
+      cited_by: 2 of 234 answers (1%)
+    - include: false
+      document: 'Neonatal infection: antibiotics for prevention and treatment'
+      page: 26
+      heading: Assessing or reviewing babies
+      text_sha256: 94d077370271ea46cdf3b298829c3f897d72618b7edd5b98f7ef8eedd80000b4
+      excerpt: 'Category: Behaviour Indicators: Parent or care-giver concern for change in behaviour Appears
+        ill to a healthcare professional Does not wake, or if roused does not stay awake Weak high-pitched
+        or continuous cry Category: Respiratory Indicato...'
+      cited_by: 1 of 234 answers (0%)
+    - include: true
+      document: 'National Antibiotic Use Guidelines: Empiric Treatment and Surgical Prophylaxis — excerpt,
+        pp. 11-20, 33-38, 45-52'
+      page: 36
+      heading: 'Clinical features:'
+      text_sha256: 2427c2eb8a8b8a94be8bc3d6cb8b47de31e97e30454bf3ab90b8e4d08d2c5b4a
+      excerpt: 'Fever, rigors, altered mental status, hypotension, chills, malaise, nausea, vomiting,
+        diarrhea, confusion The presence of two or more of the following is suggestive of a blood stream
+        infection: Hyperthermia (>38 ℃) or hypothermia of (<36℃) ...'
+      cited_by: 0 of 234 answers (0%)
+      added_by_operator: true
+    - include: true
+      document: WHO recommendations for management of serious bacterial infections in infants aged 0–59
+        days — excerpt, pp. 17-19, 76-77
+      page: 19
+      heading: Suspected pneumonia in young infants aged 0–59 days in hospital
+      text_sha256: 76a1f88647fefa277dc0450acbc50a6e25601ed08d312fbfb8b92ad6e2643efa
+      excerpt: 'WHO defines suspected pneumonia in a hospitalized infant aged 0–59 days as the presence
+        of one or more of the following clinical signs: • ■ fast breathing (≥ 60 breaths per minute) in
+        infants aged 0–6 days • ■ fast breathing (≥ 60 breaths p...'
+      cited_by: 0 of 234 answers (0%)
+      added_by_operator: true
+    - include: true
+      document: WHO recommendations for management of serious bacterial infections in infants aged 0–59
+        days — excerpt, pp. 17-19, 76-77
+      page: 19
+      heading: Suspected staphylococcal pneumonia in young infants aged 0–59 days in hospital
+      text_sha256: 3a429fd6ce6b7ea4ee555715e8be5af3b48f80dc3a7c53531ed0ad7aa8e2269e
+      excerpt: WHO defines suspected staphylococcal pneumonia in a hospitalized infant aged 0–59 days
+        as the presence of one or more of the following clinical signs of pneumonia listed above, plus
+        one or more of the following clinical signs of staphylococ...
+      cited_by: 0 of 234 answers (0%)
+      added_by_operator: true
+    - include: true
+      document: WHO recommendations for management of serious bacterial infections in infants aged 0–59
+        days — excerpt, pp. 17-19, 76-77
+      page: 18
+      heading: Suspected staphylococcal sepsis in young infants aged 0–59 days in hospital
+      text_sha256: e2346da406cd670e078b5b922871e6c462b9138b542bbb9c5619c34c94ca1f20
+      excerpt: WHO defines suspected staphylococcal sepsis in a hospitalized infant aged 0–59 days as
+        the presence of one or more of the following clinical signs of sepsis listed above, plus one or
+        more of the following clinical signs of staphylococcal in...
+      cited_by: 0 of 234 answers (0%)
+      added_by_operator: true
+    - include: true
+      document: WHO recommendations for management of serious bacterial infections in infants aged 0–59
+        days — excerpt, pp. 17-19, 76-77
+      page: 18
+      heading: Fast breathing as the only clinical sign of illness in young infants aged 7–59 days in
+        non-hospital settings
+      text_sha256: 3c0d5448589c1a6b0411727c9226d2a72905452173f4c457cfa1436e1f14d367
+      excerpt: 'WHO defines fast breathing in an infant aged 7–59 days as: • ■ ≥ 60 breaths per minute'
+      cited_by: 0 of 234 answers (0%)
+      added_by_operator: true
+    - include: true
+      document: WHO recommendations for management of serious bacterial infections in infants aged 0–59
+        days — excerpt, pp. 17-19, 76-77
+      page: 18
+      heading: Fast breathing as the only clinical sign of illness in young infants aged 0–6 days in non-hospital
+        settings
+      text_sha256: 5872256ccb46cdb4f7b786c39ddc1a1aca241ca6550796431f0cbae1583f969c
+      excerpt: 'WHO defines fast breathing in an infant aged 0–6 days as: • ■ ≥ 60 breaths per minute
+        Note: This sign is part of the WHO 7-sign IMCI algorithm.'
+      cited_by: 0 of 234 answers (0%)
+      added_by_operator: true
+  investigations:
+    reviewed: true
+    passages:
+    - include: true
+      document: 'Neonatal infection: antibiotics for prevention and treatment'
+      page: 28
+      heading: Cultures, microscopy and C-reactive protein
+      text_sha256: 08335e1aa7ba33f99487ed3a144e3a0cdf954fbcb45f75d9307ce79de15e351f
+      excerpt: • 1.13.1 When starting antibiotic treatment in babies who may have neonatal infection,
+        perform a blood culture before giving the first dose. [2021] • 1.13.2 Measure baseline C-reactive
+        protein concentration when starting antibiotic treatmen...
+      cited_by: 231 of 233 answers (99%)
+    - include: true
+      document: 'Neonatal infection: antibiotics for prevention and treatment'
+      page: 34
+      heading: C-reactive protein and lumbar puncture
+      text_sha256: 8f29c25fb939363809ff02cbaa06f4e0cda277a1d771364b62a850b5bcb4a164
+      excerpt: • 1.17.1 In babies given antibiotics because of risk factors for infection or clinical
+        indicators of possible late-onset neonatal infection, measure the C reactive protein concentration
+        18 to 24 hours after starting antibiotics. [2021] • 1....
+      cited_by: 213 of 233 answers (91%)
+    - include: true
+      document: 'National Antibiotic Use Guidelines: Empiric Treatment and Surgical Prophylaxis — excerpt,
+        pp. 11-20, 33-38, 45-52'
+      page: 33
+      heading: 'Categorization:'
+      text_sha256: 34e502aaaa9963077c05c87e6a6aaf785b033c62a87463691b7ce9f950e06d86
+      excerpt: 'Neonate at risk of sepsis: Neonate with risk factors for sepsis including prolonged rupture
+        of membranes (PROM) > 18 hours, maternal fever > 38°C, suspected or confirmed chorioamnionitis,
+        mother treated for infection during labour or 24 hou...'
+      cited_by: 194 of 233 answers (83%)
+    - include: true
+      document: 'National Antibiotic Use Guidelines: Empiric Treatment and Surgical Prophylaxis — excerpt,
+        pp. 11-20, 33-38, 45-52'
+      page: 35
+      heading: 'Treatment failure:'
+      text_sha256: 0f9ac9848a6cc001e963a10a385323ddfbb2179ae9111b510afbf28009aefd53
+      excerpt: If baby is not improving, or is deteriorating having been on antibiotics for at least 48-72
+        hours, do complete clinical re-evaluation, repeat hemogram, blood culture, CRP and appropriate
+        investigations before switching antibiotics.
+      cited_by: 183 of 233 answers (79%)
+    - include: true
+      document: 'National Antibiotic Use Guidelines: Empiric Treatment and Surgical Prophylaxis — excerpt,
+        pp. 11-20, 33-38, 45-52'
+      page: 16
+      heading: Procalcitonin (PCT)
+      text_sha256: 90926f4d97fd183ef766f7f3ab34d86693accde281455a20fe4b66a4d34a3389
+      excerpt: PCT measurement aids in the diagnosis of sepsis and to guide and monitor antibiotic therapy.
+        PCT is used in pediatrics to support the diagnosis of sepsis in newborns, infants, and children.
+        A cutoff value of 0.5 ng/ml showed high sensitivit...
+      cited_by: 176 of 233 answers (76%)
+    - include: true
+      document: 'Neonatal infection: antibiotics for prevention and treatment'
+      page: 29
+      heading: Lumbar puncture
+      text_sha256: 20a81d8cf2ea5857bb928ad59a70956df59456d7aa3172721029ddf42b6f74d4
+      excerpt: '• 1.14.1 If it is safe to do so, perform a lumbar puncture to obtain a cerebrospinal fluid
+        sample when: • there is a strong clinical suspicion of neonatal infection or • there are clinical
+        symptoms or signs suggesting meningitis. [2021] • 1...'
+      cited_by: 175 of 233 answers (75%)
+    - include: true
+      document: 'Comprehensive Newborn Care Protocols: Integrating Technologies with Clinical Pathways
+        — excerpt, pp. 47-48'
+      page: 47
+      heading: Assessing for possible Bacterial Infection
+      text_sha256: 62eecaaf1e77ec97f2b72193edb6ed6ddfb2a759d4761ab9865515e110a38792
+      excerpt: '[n1] Has ONE of the following • Unconscious • Convulsions • Unable to feed at all • Apnoea
+        • Unable to cry • Cyanosis • Bulging fontanelle • or Persistent vomiting [n2] Severe neonatal
+        sepsis • Admit in category A • Do blood cultures & LP •...'
+      cited_by: 89 of 233 answers (38%)
+    - include: true
+      document: 'Comprehensive Newborn Care Protocols: Integrating Technologies with Clinical Pathways
+        — excerpt, pp. 47-48'
+      page: 47
+      heading: Antibiotic Prophylaxis for newly born
+      text_sha256: a2a57ffe12a4e9665cd0763fd70a699174e81ff4e19f2521c440bf2537e51957
+      excerpt: 'Prophylactic antibiotic should be given as soon as possible after birth to all newborns
+        (term and preterms) with any one of the following risk factors: • Membrane rupture more than >18
+        hours before delivery • A mother with fever (Temperatur...'
+      cited_by: 34 of 233 answers (15%)
+    - include: true
+      document: 'Neonatal infection: antibiotics for prevention and treatment'
+      page: 32
+      heading: Principles guiding antibiotic decisions
+      text_sha256: a57d87fd3994f812c3d6f970fbc42acb275352b072f34b5e49fd911d421d5907
+      excerpt: • 1.15.1 Do not routinely give antibiotic treatment to babies without risk factors for
+        infection or clinical indicators or laboratory evidence of possible infection. [2012] • 1.15.2
+        If a baby needs antibiotic treatment, give this as soon as...
+      cited_by: 24 of 233 answers (10%)
+    - include: true
+      document: 'National Antibiotic Use Guidelines: Empiric Treatment and Surgical Prophylaxis — excerpt,
+        pp. 11-20, 33-38, 45-52'
+      page: 35
+      heading: 'Duration of therapy:'
+      text_sha256: b83ad7468c62897a3a5c86c7b09ecfe2d81bd8d78b4e29b56f8d68f3201addd6
+      excerpt: 'Neonate at risk of sepsis: stop IV antibiotics after 48 hours if all signs of possible
+        sepsis have resolved, neonate is feeding well, and LP if done is normal. Discharge without antibiotics.
+        Follow-up at 48 hours at nearest facility. Neonat...'
+      cited_by: 9 of 233 answers (4%)
+    - include: false
+      document: WHO recommendations for management of serious bacterial infections in infants aged 0–59
+        days — excerpt, pp. 17-19, 76-77
+      page: 18
+      heading: Suspected sepsis in young infants aged 0–59 days in hospital
+      text_sha256: f4674d640135806b1a51d2ef0d9bdd4ee7520fb87cb2999d33138898b030b47b
+      excerpt: 'WHO defines suspected sepsis in a hospitalized infant aged 0–59 days as the presence of
+        one or more of the following clinical signs: • ■ not feeding well or not able to feed at all •
+        ■ movement only when stimulated or no movement at all • ■...'
+      cited_by: 7 of 233 answers (3%)
+    - include: true
+      document: 'Neonatal infection: antibiotics for prevention and treatment'
+      page: 37
+      heading: Treatment duration for intravenous antibiotics
+      text_sha256: a78d0e3eb13cf66016dd4748c5c1aa4ede2bc65afcca75e73554e140ddaec429
+      excerpt: • 1.21.1 Give intravenous antibiotic treatment for a total of 7 days for babies with a
+        positive blood culture or negative blood culture if sepsis has been strongly suspected. [2012]
+        • 1.21.2 Consider continuing intravenous antibiotic treatm...
+      cited_by: 2 of 233 answers (1%)
+    - include: true
+      document: 'National Antibiotic Use Guidelines: Empiric Treatment and Surgical Prophylaxis — excerpt,
+        pp. 11-20, 33-38, 45-52'
+      page: 16
+      heading: C-Reactive Protein (CRP)
+      text_sha256: 4f647914cc54934684435968b66697fad1d68a3584338fea106c8db7de81188f
+      excerpt: CRP is the most widely studied and used acute-phase protein. It increases between 4 and
+        6 hours after exposure to an infectious process or tissue damage, with a half- life of 19 hours,
+        peaks at between 36 and 50 hours, and then decreases wi...
+      cited_by: 2 of 233 answers (1%)
+    - include: true
+      document: 'Neonatal infection: antibiotics for prevention and treatment'
+      page: 35
+      heading: Umbilical infections
+      text_sha256: 19a6958bae719cda846440759914ff5fd28686c7acd9e4c367c59450c75c39a9
+      excerpt: '• 1.19.1 In babies with clinical signs of umbilical infection, such as a purulent discharge
+        or signs of periumbilical cellulitis (for example, redness, increased skin warmth or swelling):
+        • perform a blood culture and • take a swab sample f...'
+      cited_by: 1 of 233 answers (0%)
+  severity_classification:
+    reviewed: true
+    passages:
+    - include: true
+      document: 'National Antibiotic Use Guidelines: Empiric Treatment and Surgical Prophylaxis — excerpt,
+        pp. 11-20, 33-38, 45-52'
+      page: 33
+      heading: 'Categorization:'
+      text_sha256: 34e502aaaa9963077c05c87e6a6aaf785b033c62a87463691b7ce9f950e06d86
+      excerpt: 'Neonate at risk of sepsis: Neonate with risk factors for sepsis including prolonged rupture
+        of membranes (PROM) > 18 hours, maternal fever > 38°C, suspected or confirmed chorioamnionitis,
+        mother treated for infection during labour or 24 hou...'
+      cited_by: 225 of 233 answers (97%)
+    - include: true
+      document: WHO recommendations for management of serious bacterial infections in infants aged 0–59
+        days — excerpt, pp. 17-19, 76-77
+      page: 18
+      heading: Suspected sepsis in young infants aged 0–59 days in hospital
+      text_sha256: f4674d640135806b1a51d2ef0d9bdd4ee7520fb87cb2999d33138898b030b47b
+      excerpt: 'WHO defines suspected sepsis in a hospitalized infant aged 0–59 days as the presence of
+        one or more of the following clinical signs: • ■ not feeding well or not able to feed at all •
+        ■ movement only when stimulated or no movement at all • ■...'
+      cited_by: 222 of 233 answers (95%)
+    - include: true
+      document: 'Comprehensive Newborn Care Protocols: Integrating Technologies with Clinical Pathways
+        — excerpt, pp. 47-48'
+      page: 47
+      heading: Assessing for possible Bacterial Infection
+      text_sha256: 62eecaaf1e77ec97f2b72193edb6ed6ddfb2a759d4761ab9865515e110a38792
+      excerpt: '[n1] Has ONE of the following • Unconscious • Convulsions • Unable to feed at all • Apnoea
+        • Unable to cry • Cyanosis • Bulging fontanelle • or Persistent vomiting [n2] Severe neonatal
+        sepsis • Admit in category A • Do blood cultures & LP •...'
+      cited_by: 216 of 233 answers (93%)
+    - include: true
+      document: 'National Antibiotic Use Guidelines: Empiric Treatment and Surgical Prophylaxis — excerpt,
+        pp. 11-20, 33-38, 45-52'
+      page: 33
+      heading: NEONATAL SEPSIS IN INFANTS < 60 DAYS
+      text_sha256: 776ee148258ec806d437666cac5391e952307c89a35204e555b3b38f25b69e8e
+      excerpt: 'Definition: Acute life-threatening infection characterized by organ dysfunction in new
+        born infants < 60 days Early onset neonatal sepsis (EONNS): < 72 hours Late onset neonatal sepsis
+        (LONNS): > 72 hour after birth Diagnosis:'
+      cited_by: 170 of 233 answers (73%)
+    - include: true
+      document: WHO recommendations for management of serious bacterial infections in infants aged 0–59
+        days — excerpt, pp. 17-19, 76-77
+      page: 18
+      heading: Suspected meningitis in young infants aged 0–59 days in hospital
+      text_sha256: a5ab9e7d215a11b3ad7f95d6f8b87633172c10bf523ec3c0d0cd66999ce58f40
+      excerpt: 'WHO defines suspected meningitis in a hospitalized infant aged 0–59 days as the presence
+        of one or more of the following clinical signs: • ■ drowsiness or unconsciousness • ■ lethargy
+        • ■ convulsions • ■ bulging fontanelle • ■ irritability ...'
+      cited_by: 104 of 233 answers (45%)
+    - include: true
+      document: 'Neonatal infection: antibiotics for prevention and treatment'
+      page: 19
+      heading: Identification and assessment before birth
+      text_sha256: b4f6af4113e688d7d35eb2392b9e4824964bb425aa9dd6014fa79b8923a26820
+      excerpt: • 1.9.1 For women, trans men and non-binary people in labour, identify and assess any risk
+        factors for early-onset neonatal infection (see box 1 on risks factors for early- onset neonatal
+        infection). Throughout labour, monitor for any new r...
+      cited_by: 84 of 233 answers (36%)
+    - include: false
+      document: 'Neonatal infection: antibiotics for prevention and treatment'
+      page: 25
+      heading: Assessing or reviewing babies
+      text_sha256: 3e2f65c786dcc6f6ba8d41471996c1f1bd10ddd67d7480ca90dfd4f7abde8e61
+      excerpt: '• 1.12.1 When assessing or reviewing a baby: • check for possible clinical indicators
+        of late-onset neonatal infection as shown in table 2 on clinical indicators of possible late-onset
+        neonatal infection • take into account that prematurity...'
+      cited_by: 43 of 233 answers (18%)
+    - include: true
+      document: WHO recommendations for management of serious bacterial infections in infants aged 0–59
+        days — excerpt, pp. 17-19, 76-77
+      page: 18
+      heading: Suspected staphylococcal sepsis in young infants aged 0–59 days in hospital
+      text_sha256: e2346da406cd670e078b5b922871e6c462b9138b542bbb9c5619c34c94ca1f20
+      excerpt: WHO defines suspected staphylococcal sepsis in a hospitalized infant aged 0–59 days as
+        the presence of one or more of the following clinical signs of sepsis listed above, plus one or
+        more of the following clinical signs of staphylococcal in...
+      cited_by: 35 of 233 answers (15%)
+    - include: true
+      document: WHO recommendations for management of serious bacterial infections in infants aged 0–59
+        days — excerpt, pp. 17-19, 76-77
+      page: 17
+      heading: Clinical signs of clinical severe infection in young infants aged 0–59 days in non-hospital
+        settings
+      text_sha256: 4932dce67a2f505011c4b8c144024d8a6a39963b3c5a98d5410b0c30734d2b95
+      excerpt: 'WHO defines clinical severe infection in an infant aged 0–59 days as the presence of one
+        or more of the following clinical signs: • ■ not feeding well • ■ movement only when stimulated
+        • ■ high body temperature (≥ 38 °C) • ■ low body temper...'
+      cited_by: 24 of 233 answers (10%)
+    - include: false
+      document: 'Neonatal infection: antibiotics for prevention and treatment'
+      page: 53
+      heading: Care setting
+      text_sha256: a619d31a777eb00c3fb21bd69ba8a696f33dce40fb5ae1813d276bb226bbdaf3
+      excerpt: • 1.37.1 Using clinical judgement, consider completing a course of intravenous antibiotics
+        outside of hospital (for example, at home or through visits to a midwifery-led unit) in babies
+        who are well and for whom there are no ongoing concern...
+      cited_by: 23 of 233 answers (10%)
+    - include: true
+      document: 'Neonatal infection: antibiotics for prevention and treatment'
+      page: 21
+      heading: 'Other clinical indicators:'
+      text_sha256: 3333cc0e0b07dd1db05b5068f71805f236cc42c8aa300f393a664f725124a9db
+      excerpt: • altered behaviour or responsiveness • altered muscle tone (for example, floppiness) •
+        feeding difficulties (for example, feed refusal) • feed intolerance, including vomiting, excessive
+        gastric aspirates and abdominal distension • abnormal...
+      cited_by: 14 of 233 answers (6%)
+    - include: false
+      document: WHO recommendations for management of serious bacterial infections in infants aged 0–59
+        days — excerpt, pp. 17-19, 76-77
+      page: 17
+      heading: Clinical signs of possible serious bacterial infection (PSBI) in young infants aged 0–59
+        days in non-hospital settings
+      text_sha256: 3efe8814f4d15e19b8087383b53ad5a4da6deb249665a4d786d7ec48f3261b84
+      excerpt: 'WHO defines PSBI in an infant aged 0–59 days as the presence of one or more of the following
+        clinical signs: • ■ not feeding well or not able to feed at all • ■ movement only when stimulated
+        or no movement at all • ■ high body temperature (...'
+      cited_by: 12 of 233 answers (5%)
+    - include: false
+      document: 'National Antibiotic Use Guidelines: Empiric Treatment and Surgical Prophylaxis — excerpt,
+        pp. 11-20, 33-38, 45-52'
+      page: 33
+      heading: 'Symptoms:'
+      text_sha256: 29301555e1beaa917c6fd3e36d9d263ef172ec3cb1c10f1389ba6c4db84dda10
+      excerpt: 'One of: Temperature instability (temp > 38.0°C or lower than 35.5°C), convulsions, apnoea,
+        inability to feed, central cyanosis or SPO2 <90%, bulging anterior fontanelle, persistent vomiting,
+        movement only when stimulated, irritability, leth...'
+      cited_by: 9 of 233 answers (4%)
+    - include: false
+      document: 'Neonatal infection: antibiotics for prevention and treatment'
+      page: 26
+      heading: Assessing or reviewing babies
+      text_sha256: 765ccb9e8e6096dc2017d71b8749a8f16484d1edadb27192f36a229d8848aaae
+      excerpt: 'Table 2: Clinical indicators of possible late-onset neonatal infection (observations and
+        events in the baby) This table has been adapted from the high-risk criteria in table 1 of NICE''s
+        guideline on suspected sepsis in under 16s. For a shor...'
+      cited_by: 5 of 233 answers (2%)
+    - include: false
+      document: 'Neonatal infection: antibiotics for prevention and treatment'
+      page: 9
+      heading: Babies at increased risk of neonatal infection
+      text_sha256: 6e764470c1cf059b4726f14fefcdb5efdcbeb067a7dc1cd01e46805cf0302d22
+      excerpt: '• 1.1.1 If clinical concerns about possible neonatal infection arise at any point: • talk
+        to the baby''s parents and carers, explaining the reason for concern, and explain what neonatal
+        infection is • discuss the options for management that ...'
+      cited_by: 3 of 233 answers (1%)
+    - include: false
+      document: 'Neonatal infection: antibiotics for prevention and treatment'
+      page: 26
+      heading: Assessing or reviewing babies
+      text_sha256: 94d077370271ea46cdf3b298829c3f897d72618b7edd5b98f7ef8eedd80000b4
+      excerpt: 'Category: Behaviour Indicators: Parent or care-giver concern for change in behaviour Appears
+        ill to a healthcare professional Does not wake, or if roused does not stay awake Weak high-pitched
+        or continuous cry Category: Respiratory Indicato...'
+      cited_by: 1 of 233 answers (0%)
+    - include: false
+      document: 'Comprehensive Newborn Care Protocols: Integrating Technologies with Clinical Pathways
+        — excerpt, pp. 47-48'
+      page: 47
+      heading: Antibiotic Prophylaxis for newly born
+      text_sha256: a2a57ffe12a4e9665cd0763fd70a699174e81ff4e19f2521c440bf2537e51957
+      excerpt: 'Prophylactic antibiotic should be given as soon as possible after birth to all newborns
+        (term and preterms) with any one of the following risk factors: • Membrane rupture more than >18
+        hours before delivery • A mother with fever (Temperatur...'
+      cited_by: 1 of 233 answers (0%)
+  antibiotic_course:
+    reviewed: true
+    passages:
+    - include: true
+      document: 'Comprehensive Newborn Care Protocols: Integrating Technologies with Clinical Pathways
+        — excerpt, pp. 47-48'
+      page: 47
+      heading: Antibiotic Prophylaxis for newly born
+      text_sha256: a2a57ffe12a4e9665cd0763fd70a699174e81ff4e19f2521c440bf2537e51957
+      excerpt: 'Prophylactic antibiotic should be given as soon as possible after birth to all newborns
+        (term and preterms) with any one of the following risk factors: • Membrane rupture more than >18
+        hours before delivery • A mother with fever (Temperatur...'
+      cited_by: 219 of 233 answers (94%)
+    - include: true
+      document: 'Neonatal infection: antibiotics for prevention and treatment'
+      page: 41
+      heading: Treatment duration
+      text_sha256: 675fd44ab3990a2c7ce65bf9685421366153921be99643032d45e525112fd5a3
+      excerpt: '• 1.25.1 Give antibiotic treatment for 7 days for babies with a positive blood culture.
+        Consider continuing antibiotic treatment for more than 7 days if: • the baby has not yet fully
+        recovered or • longer treatment is needed because of the ...'
+      cited_by: 195 of 233 answers (84%)
+    - include: true
+      document: 'National Antibiotic Use Guidelines: Empiric Treatment and Surgical Prophylaxis — excerpt,
+        pp. 11-20, 33-38, 45-52'
+      page: 35
+      heading: 'Treatment failure:'
+      text_sha256: 0f9ac9848a6cc001e963a10a385323ddfbb2179ae9111b510afbf28009aefd53
+      excerpt: If baby is not improving, or is deteriorating having been on antibiotics for at least 48-72
+        hours, do complete clinical re-evaluation, repeat hemogram, blood culture, CRP and appropriate
+        investigations before switching antibiotics.
+      cited_by: 179 of 233 answers (77%)
+    - include: true
+      document: 'Neonatal infection: antibiotics for prevention and treatment'
+      page: 36
+      heading: Choice and dosage of intravenous antibiotics
+      text_sha256: ce3f44db4aa4640c6af2517f8394aaf64313abba83153ef9f38912e8bda14d4a
+      excerpt: • 1.20.1 Use intravenous benzylpenicillin sodium with gentamicin as the first-choice antibiotic
+        regimen for empirical treatment of suspected early-onset infection, unless microbiological surveillance
+        data show local bacterial resistance pat...
+      cited_by: 178 of 233 answers (76%)
+    - include: true
+      document: 'National Antibiotic Use Guidelines: Empiric Treatment and Surgical Prophylaxis — excerpt,
+        pp. 11-20, 33-38, 45-52'
+      page: 35
+      heading: 'Duration of therapy:'
+      text_sha256: b83ad7468c62897a3a5c86c7b09ecfe2d81bd8d78b4e29b56f8d68f3201addd6
+      excerpt: 'Neonate at risk of sepsis: stop IV antibiotics after 48 hours if all signs of possible
+        sepsis have resolved, neonate is feeding well, and LP if done is normal. Discharge without antibiotics.
+        Follow-up at 48 hours at nearest facility. Neonat...'
+      cited_by: 157 of 233 answers (67%)
+    - include: true
+      document: 'National Antibiotic Use Guidelines: Empiric Treatment and Surgical Prophylaxis — excerpt,
+        pp. 11-20, 33-38, 45-52'
+      page: 34
+      heading: 'First line:'
+      text_sha256: 26e67b1ba00b51c8e9059a5bc67d2161457f66ea5b0a960c711f04ecd8d07a64
+      excerpt: 'Benzylpenicillin 50,000 IU/kg IV 6 hourly ACCESS PLUS Gentamicin 7.5mg/kg IV 24 hourly
+        ACCESS If Staphylococcus is suspected: Flucloxacillin 50mg/kg IV 8 hourly ACCESS PLUS Gentamicin
+        7.5 mg/kg IV 24 hourly ACCESS If necrotizing enterocolit...'
+      cited_by: 146 of 233 answers (63%)
+    - include: true
+      document: WHO recommendations for management of serious bacterial infections in infants aged 0–59
+        days — excerpt, pp. 17-19, 76-77
+      page: 76
+      heading: B.2 Suspected sepsis in young infants aged 0–59 days in hospital settings
+      text_sha256: 085f8f1034341215dc35d964532f48a8b611dd580052dbcff6e774c8ccb04c8b
+      excerpt: Ampicillin IM/IV for a total of at least 10 days • ■ 50 mg/kg/dose every 12 hours (first
+        week of life) • ■ 50 mg/kg/dose every 8 hours (> first week of life) Plus Gentamicin IM/IV for
+        a total of at least 10 days • ■ 5 mg/kg once a day (firs...
+      cited_by: 120 of 233 answers (52%)
+    - include: true
+      document: 'Neonatal infection: antibiotics for prevention and treatment'
+      page: 40
+      heading: Choice of antibiotics
+      text_sha256: 494e1a8256756fdc45052917af68cb1adda0bfe4355baafa2ef9212a61a50618
+      excerpt: '• 1.23.1 For babies with suspected late-onset neonatal infection who are already in a
+        neonatal unit: • give a combination of narrow-spectrum antibiotics (such as intravenous flucloxacillin
+        plus gentamicin) as first-line treatment • use loca...'
+      cited_by: 119 of 233 answers (51%)
+    - include: true
+      document: WHO recommendations for management of serious bacterial infections in infants aged 0–59
+        days — excerpt, pp. 17-19, 76-77
+      page: 77
+      heading: B.4 Suspected meningitis in young infants aged 0–59 days in hospital settings
+      text_sha256: ad726bb200947a7dad3c13485574e420698113705c51f433902eaa5838d80da7
+      excerpt: Ampicillin IM/IV for a total of at least 3 weeks • ■ 50 mg/kg/dose every 12 hours (first
+        week of life) • ■ 50 mg/kg/dose every 8 hours (> first week of life) Or Cefotaxime IM/IV for a
+        total of at least 3 weeks • ■ 50 mg/kg/dose every 12 hou...
+      cited_by: 110 of 233 answers (47%)
+    - include: true
+      document: 'Neonatal infection: antibiotics for prevention and treatment'
+      page: 32
+      heading: Principles guiding antibiotic decisions
+      text_sha256: a57d87fd3994f812c3d6f970fbc42acb275352b072f34b5e49fd911d421d5907
+      excerpt: • 1.15.1 Do not routinely give antibiotic treatment to babies without risk factors for
+        infection or clinical indicators or laboratory evidence of possible infection. [2012] • 1.15.2
+        If a baby needs antibiotic treatment, give this as soon as...
+      cited_by: 107 of 233 answers (46%)
+    - include: true
+      document: WHO recommendations for management of serious bacterial infections in infants aged 0–59
+        days — excerpt, pp. 17-19, 76-77
+      page: 77
+      heading: B.3 Suspected staphylococcal sepsis in young infants aged 0–59 days in hospital settings
+      text_sha256: f6c028554ea70eed850fc0e54f05f4d3628cb5ec8cdf5ee747d421296a3fc1fd
+      excerpt: Cloxacillin IM/IV for a total of at least 10 days • ■ 50 mg/kg/dose every 12 hours (first
+        week of life) • ■ 50 mg/kg/dose every 8 hours (> first week of life) Plus Gentamicin IM/IV for
+        a total of at least 10 days • ■ 5 mg/kg once a day (fir...
+      cited_by: 95 of 233 answers (41%)
+    - include: true
+      document: WHO recommendations for management of serious bacterial infections in infants aged 0–59
+        days — excerpt, pp. 17-19, 76-77
+      page: 76
+      heading: A.3 Clinical severe infection in young infants aged 0–59 days in non-hospital settings
+      text_sha256: 0cac7e4ec77aa5a3e5677b8f88e6839dc53eee03027207fdfdbfcd548ca93d37
+      excerpt: Amoxicillin oral for a total of at least 7 days • ■ 50 mg/kg/dose every 12 hours (first
+        week of life) • ■ 50 mg/kg/dose every 8 hours (> first week of life) Plus Gentamicin IM/IV for
+        a total of at least 7 days, or 2 days if 7 days is not po...
+      cited_by: 72 of 233 answers (31%)
+    - include: true
+      document: 'Neonatal infection: antibiotics for prevention and treatment'
+      page: 37
+      heading: Treatment duration for intravenous antibiotics
+      text_sha256: a78d0e3eb13cf66016dd4748c5c1aa4ede2bc65afcca75e73554e140ddaec429
+      excerpt: • 1.21.1 Give intravenous antibiotic treatment for a total of 7 days for babies with a
+        positive blood culture or negative blood culture if sepsis has been strongly suspected. [2012]
+        • 1.21.2 Consider continuing intravenous antibiotic treatm...
+      cited_by: 25 of 233 answers (11%)
+    - include: true
+      document: 'National Antibiotic Use Guidelines: Empiric Treatment and Surgical Prophylaxis — excerpt,
+        pp. 11-20, 33-38, 45-52'
+      page: 34
+      heading: 'Second line:'
+      text_sha256: 6fb7eabb2cd5c00291d5d452d6fb7e3427e32e7e8434491b8931a9fd241de60e
+      excerpt: 'Cefepime 50mg/kg 8 hourly W ATCH OR Piperacillin/Tazobactam W ATCH Postmenstrual age up
+        to 30 weeks: 100 mg/kg (piperacillin component) IV every 8 hours Postmenstrual age over 30 weeks:
+        80 mg/kg (piperacillin component) IV every 6 hours'
+      cited_by: 20 of 233 answers (9%)
+    - include: true
+      document: 'Comprehensive Newborn Care Protocols: Integrating Technologies with Clinical Pathways
+        — excerpt, pp. 47-48'
+      page: 48
+      heading: Antibiotic doses for Newborns aged 0-6days
+      text_sha256: d739d5d1ae8eb2b6a9fe05616a0adc0146ba42a1f008998def37cccd525a44f2
+      excerpt: 'Intravenous / Intramuscular antibiotics aged <7 days Weight (kg): 1.00 Penicillin (50,000
+        i.u/kg) · I.V / I.M 12 hrly: 50,000 Ampicillin / Flucloxacillin /cloxacillin (50mg/kg) · I.V /
+        I.M 12 hrly: 50 Gentamycin (3mg/kg < 2kg, 5mg/kg > 2kg)...'
+      cited_by: 12 of 233 answers (5%)
+    - include: true
+      document: 'Comprehensive Newborn Care Protocols: Integrating Technologies with Clinical Pathways
+        — excerpt, pp. 47-48'
+      page: 48
+      heading: Antibiotic doses for Newborns aged 0-6days
+      text_sha256: 31f211f71f3dd3dc76e6aa6a7a6b81576bee603a0d7c45dfe0c421aa3d0b41ea
+      excerpt: 'Intravenous / Intramuscular antibiotics aged <7 days Weight (kg): 2.50 Penicillin (50,000
+        i.u/kg) · I.V / I.M 12 hrly: 150,000 Ampicillin / Flucloxacillin /cloxacillin (50mg/kg) · I.V
+        / I.M 12 hrly: 125 Gentamycin (3mg/kg < 2kg, 5mg/kg > 2k...'
+      cited_by: 11 of 233 answers (5%)
+    - include: true
+      document: 'Comprehensive Newborn Care Protocols: Integrating Technologies with Clinical Pathways
+        — excerpt, pp. 47-48'
+      page: 48
+      heading: Antibiotic doses for Newborns aged 0-6days
+      text_sha256: 8379218c9335d081e215428adf4523ac3ff139c78af44947269e6beeabdb8466
+      excerpt: 'Intravenous / Intramuscular antibiotics aged <7 days Weight (kg): 2.00 Penicillin (50,000
+        i.u/kg) · I.V / I.M 12 hrly: 100,000 Ampicillin / Flucloxacillin /cloxacillin (50mg/kg) · I.V
+        / I.M 12 hrly: 100 Gentamycin (3mg/kg < 2kg, 5mg/kg > 2k...'
+      cited_by: 6 of 233 answers (3%)
+    - include: true
+      document: 'Comprehensive Newborn Care Protocols: Integrating Technologies with Clinical Pathways
+        — excerpt, pp. 47-48'
+      page: 48
+      heading: Antibiotic doses for Newborns aged 7 days & over
+      text_sha256: 13a3c3a9ff42b51ab5bd3d6473a2c075fb866085df3fa0dfb578e9b65b350e18
+      excerpt: 'Intravenous / Intramuscular antibiotic doses Neonates aged ≥ 7 days Weight (kg): 2.5 Penicillin*
+        (50,000 i.u/kg) · I.V / I.M · 6 hrly: 125,000 Ampicillin or Flucloxacillin 50mg/kg /Cloxacillin
+        · I.V / I.M · 8 hrly: 125 Gentamycin 7.5 mg/kg ...'
+      cited_by: 3 of 233 answers (1%)
+    - include: true
+      document: 'Comprehensive Newborn Care Protocols: Integrating Technologies with Clinical Pathways
+        — excerpt, pp. 47-48'
+      page: 48
+      heading: Antibiotic doses for Newborns aged 7 days & over
+      text_sha256: 2e653fb42ec66ae728f79d547286189402cf9276b90f0854f30f2064c7bba85a
+      excerpt: 'Intravenous / Intramuscular antibiotic doses Neonates aged ≥ 7 days Weight (kg): 3.0 Penicillin*
+        (50,000 i.u/kg) · I.V / I.M · 6 hrly: 150,000 Ampicillin or Flucloxacillin 50mg/kg /Cloxacillin
+        · I.V / I.M · 8 hrly: 150 Gentamycin 7.5 mg/kg ...'
+      cited_by: 3 of 233 answers (1%)
+    - include: false
+      document: 'National Antibiotic Use Guidelines: Empiric Treatment and Surgical Prophylaxis — excerpt,
+        pp. 11-20, 33-38, 45-52'
+      page: 33
+      heading: 'Categorization:'
+      text_sha256: 34e502aaaa9963077c05c87e6a6aaf785b033c62a87463691b7ce9f950e06d86
+      excerpt: 'Neonate at risk of sepsis: Neonate with risk factors for sepsis including prolonged rupture
+        of membranes (PROM) > 18 hours, maternal fever > 38°C, suspected or confirmed chorioamnionitis,
+        mother treated for infection during labour or 24 hou...'
+      cited_by: 3 of 233 answers (1%)
+    - include: true
+      document: 'Comprehensive Newborn Care Protocols: Integrating Technologies with Clinical Pathways
+        — excerpt, pp. 47-48'
+      page: 48
+      heading: Antibiotic doses for Newborns aged 0-6days
+      text_sha256: 1d8b2a700a67a5169eee00bf8eeada05459c133941aada78894c9e1662894240
+      excerpt: 'Intravenous / Intramuscular antibiotics aged <7 days Weight (kg): 1.75 Penicillin (50,000
+        i.u/kg) · I.V / I.M 12 hrly: 100,000 Ampicillin / Flucloxacillin /cloxacillin (50mg/kg) · I.V
+        / I.M 12 hrly: 85 Gentamycin (3mg/kg < 2kg, 5mg/kg > 2kg...'
+      cited_by: 3 of 233 answers (1%)
+    - include: true
+      document: 'Comprehensive Newborn Care Protocols: Integrating Technologies with Clinical Pathways
+        — excerpt, pp. 47-48'
+      page: 48
+      heading: Antibiotic doses for Newborns aged 0-6days
+      text_sha256: 35d73439f9e77b346cbc32342746d2d823ef09fb826eb5ea8701c116df2f1df6
+      excerpt: 'Intravenous / Intramuscular antibiotics aged <7 days Weight (kg): 3.00 Penicillin (50,000
+        i.u/kg) · I.V / I.M 12 hrly: 150,000 Ampicillin / Flucloxacillin /cloxacillin (50mg/kg) · I.V
+        / I.M 12 hrly: 150 Gentamycin (3mg/kg < 2kg, 5mg/kg > 2k...'
+      cited_by: 2 of 233 answers (1%)
+    - include: true
+      document: 'Comprehensive Newborn Care Protocols: Integrating Technologies with Clinical Pathways
+        — excerpt, pp. 47-48'
+      page: 48
+      heading: Antibiotic doses for Newborns aged 0-6days
+      text_sha256: 527036364542c08a17c9df689e1e7284c7f9c674c145423c76fbedab83435d0c
+      excerpt: 'Intravenous / Intramuscular antibiotics aged <7 days Weight (kg): 1.50 Penicillin (50,000
+        i.u/kg) · I.V / I.M 12 hrly: 75,000 Ampicillin / Flucloxacillin /cloxacillin (50mg/kg) · I.V /
+        I.M 12 hrly: 75 Gentamycin (3mg/kg < 2kg, 5mg/kg > 2kg)...'
+      cited_by: 1 of 233 answers (0%)
+    - include: true
+      document: WHO recommendations for management of serious bacterial infections in infants aged 0–59
+        days — excerpt, pp. 17-19, 76-77
+      page: 77
+      heading: B.5 Suspected pneumonia in young infants aged 0–59 days in hospital settings
+      text_sha256: 2cabe3968934639b7d1d5176ad380d81273588c6e42e2e10950b02b8556e3165
+      excerpt: Ampicillin IM/IV for a total of at least 7 days • ■ 50 mg/kg/dose every 12 hours (first
+        week of life) • ■ 50 mg/kg/dose every 8 hours (> first week of life) Plus Gentamicin IM/IV for
+        a total of at least 7 days • ■ 5 mg/kg once a day (first ...
+      cited_by: 1 of 233 answers (0%)
+    - include: false
+      document: 'Neonatal infection: antibiotics for prevention and treatment'
+      page: 21
+      heading: 'Other clinical indicators:'
+      text_sha256: 3333cc0e0b07dd1db05b5068f71805f236cc42c8aa300f393a664f725124a9db
+      excerpt: • altered behaviour or responsiveness • altered muscle tone (for example, floppiness) •
+        feeding difficulties (for example, feed refusal) • feed intolerance, including vomiting, excessive
+        gastric aspirates and abdominal distension • abnormal...
+      cited_by: 1 of 233 answers (0%)
+    - include: true
+      document: 'Comprehensive Newborn Care Protocols: Integrating Technologies with Clinical Pathways
+        — excerpt, pp. 47-48'
+      page: 48
+      heading: Antibiotic doses for Newborns aged 7 days & over
+      text_sha256: 6ff231bdb7c4ea57e81b436005e8c10ede7da1ade41d040674a83a00a81665a2
+      excerpt: 'Intravenous / Intramuscular antibiotic doses Neonates aged ≥ 7 days Weight (kg): 4.0 Penicillin*
+        (50,000 i.u/kg) · I.V / I.M · 6 hrly: 200,000 Ampicillin or Flucloxacillin 50mg/kg /Cloxacillin
+        · I.V / I.M · 8 hrly: 200 Gentamycin 7.5 mg/kg ...'
+      cited_by: 1 of 233 answers (0%)
+    - include: true
+      document: WHO recommendations for management of serious bacterial infections in infants aged 0–59
+        days — excerpt, pp. 17-19, 76-77
+      page: 76
+      heading: A.5 Fast breathing as the only clinical sign of illness in young infants aged 7–59 days
+        in non-hospital settings
+      text_sha256: 5bec872c0005e3a4c5911983cc2ef39b54a734613a6405ffdf9961bff550026b
+      excerpt: Amoxicillin oral for at least 7 days • ■ 50 mg/kg/dose every 12 hours
+      cited_by: 1 of 233 answers (0%)
+    - include: true
+      document: 'Comprehensive Newborn Care Protocols: Integrating Technologies with Clinical Pathways
+        — excerpt, pp. 47-48'
+      page: 48
+      heading: Antibiotic doses for Newborns aged 7 days & over
+      text_sha256: f3f0c288650a95e1a3ef925f676215dd897708aaa0633a039161fd034e15c046
+      excerpt: 'Intravenous / Intramuscular antibiotic doses Neonates aged ≥ 7 days Weight (kg): 5.0 Penicillin*
+        (50,000 i.u/kg) · I.V / I.M · 6 hrly: 250,000 Ampicillin or Flucloxacillin 50mg/kg /Cloxacillin
+        · I.V / I.M · 8 hrly: 250 Gentamycin 7.5 mg/kg ...'
+      cited_by: 0 of 233 answers (0%)
+      added_by_operator: true
+    - include: true
+      document: 'Comprehensive Newborn Care Protocols: Integrating Technologies with Clinical Pathways
+        — excerpt, pp. 47-48'
+      page: 48
+      heading: Antibiotic doses for Newborns aged 7 days & over
+      text_sha256: 2f5a6767968676737b333460fd3153efa94336a6056bf0189d334c590a458168
+      excerpt: '* Metronidazole: 15 mg/kg IV as a single loading dose, then 7.5 mg/kg/dose every 8 hours
+        Ceftriaxone for meningitis or severe infection Loading dose of 100 mg/kg once, then 80 mg/kg every
+        24 hours'
+      cited_by: 0 of 233 answers (0%)
+      added_by_operator: true
+    - include: true
+      document: 'Comprehensive Newborn Care Protocols: Integrating Technologies with Clinical Pathways
+        — excerpt, pp. 47-48'
+      page: 47
+      heading: Assessing for possible Bacterial Infection
+      text_sha256: 527567a3d9af4b61d6863ed1073b74a5dc6aa11b172eb9f7a3e97db1d3a68f48
+      excerpt: • Metronidazole or clindamycin may be added when necrotizing enterocolitis is suspected
+        • Cloxacillin and gentamicin – in suspected staphylococcal septicemia; neonates with signs of
+        sepsis and also has :extensive skin pustules, abscess or o...
+      cited_by: 0 of 233 answers (0%)
+      added_by_operator: true
+    - include: true
+      document: 'Comprehensive Newborn Care Protocols: Integrating Technologies with Clinical Pathways
+        — excerpt, pp. 47-48'
+      page: 48
+      heading: Antibiotic doses for Newborns aged 0-6days
+      text_sha256: b87ab6b11cc7082aac211d7c858cec9893ba46ff940ae96ffc8b9779bd8094ef
+      excerpt: 'Intravenous / Intramuscular antibiotics aged <7 days Weight (kg): 1.25 Penicillin (50,000
+        i.u/kg) · I.V / I.M 12 hrly: 75,000 Ampicillin / Flucloxacillin /cloxacillin (50mg/kg) · I.V /
+        I.M 12 hrly: 60 Gentamycin (3mg/kg < 2kg, 5mg/kg > 2kg)...'
+      cited_by: 0 of 233 answers (0%)
+      added_by_operator: true
+    - include: true
+      document: 'Comprehensive Newborn Care Protocols: Integrating Technologies with Clinical Pathways
+        — excerpt, pp. 47-48'
+      page: 48
+      heading: Antibiotic doses for Newborns aged 0-6days
+      text_sha256: 8bcfbfe6ddd83048d3197b0e9fd7ed3a7bc97af61e5e2f340bf40e058bde4dea
+      excerpt: • Gentamycin – Dose already adjusted for weigh and age IN DAYS • Gentamycin used OD should
+        be given IM or as a slow IV push – over 2-3 mins. • Penicillin dosing is 12hrly in babies aged
+        < 7days and 6hrly for those aged 7days and over • If a...
+      cited_by: 0 of 233 answers (0%)
+      added_by_operator: true
+    - include: true
+      document: 'Comprehensive Newborn Care Protocols: Integrating Technologies with Clinical Pathways
+        — excerpt, pp. 47-48'
+      page: 48
+      heading: Antibiotic doses for Newborns aged 0-6days
+      text_sha256: 7cd758a958a55c989597b7a6dbb56a1672417ba052dbb7aea98cf6ddbad70aa3
+      excerpt: 'Intravenous / Intramuscular antibiotics aged <7 days Weight (kg): 4.00 Penicillin (50,000
+        i.u/kg) · I.V / I.M 12 hrly: 200,000 Ampicillin / Flucloxacillin /cloxacillin (50mg/kg) · I.V
+        / I.M 12 hrly: 200 Gentamycin (3mg/kg < 2kg, 5mg/kg > 2k...'
+      cited_by: 0 of 233 answers (0%)
+      added_by_operator: true
+    - include: true
+      document: 'National Antibiotic Use Guidelines: Empiric Treatment and Surgical Prophylaxis — excerpt,
+        pp. 11-20, 33-38, 45-52'
+      page: 37
+      heading: Hospital Acquired BSI
+      text_sha256: fd837fc1e3f13cf16801764176ad5d07450c77f8a9087917b30946c5d0630977
+      excerpt: Piperacillin+ Tazobactam 4.5g IV 6 hourly W ATCH
+      cited_by: 0 of 233 answers (0%)
+      added_by_operator: true
+    - include: true
+      document: 'National Antibiotic Use Guidelines: Empiric Treatment and Surgical Prophylaxis — excerpt,
+        pp. 11-20, 33-38, 45-52'
+      page: 47
+      heading: Empiric Therapy
+      text_sha256: 770d487b162cf81216d84351c4d387aed731b04a040781e152c1f3791f725dad
+      excerpt: 'Incision and drainage (if there is an abscess) plus: Flucloxacillin 500mg- 1g 1000mg PO
+        6 hourly/2g IV 6 hourly ACCESS OR Clindamycin 600mg PO 8 hourly /900mg IV 8 hourly W ATCH OR Doxycycline
+        100mg PO 12 hourly ACCESS Switch to oral medica...'
+      cited_by: 0 of 233 answers (0%)
+      added_by_operator: true
+    - include: true
+      document: 'National Antibiotic Use Guidelines: Empiric Treatment and Surgical Prophylaxis — excerpt,
+        pp. 11-20, 33-38, 45-52'
+      page: 47
+      heading: Empiric Therapy
+      text_sha256: efe47e1c14d74fc925d048ce8214034114630aa76c0b69fe801c02f5f50a4770
+      excerpt: Drainage of the abscess is the mainstay of treatment PLUS Amoxicillin+ Clavulanic acid
+        1.2g IV 8 hourly ACCESS OR Amoxicillin+ Clavulanic acid 1g PO 8 hourly ACCESS OR Cefalexin 500
+        mg PO 8 hourly ACCESS OR Flucloxacillin 500mg- 1000mg PO 6...
+      cited_by: 0 of 233 answers (0%)
+      added_by_operator: true
+    - include: true
+      document: WHO recommendations for management of serious bacterial infections in infants aged 0–59
+        days — excerpt, pp. 17-19, 76-77
+      page: 77
+      heading: B.6 Suspected staphylococcal pneumonia in young infants aged 0–59 days in hospital settings
+      text_sha256: be0389acb3f009ad45b6e87982d27ffca506bd08fbba62bafeb699884d4af8df
+      excerpt: Cloxacillin IM/IV for a total of at least 7 days • ■ 50 mg/kg/dose every 12 hours (first
+        week of life) • ■ 50 mg/kg/dose every 8 hours (> first week of life) Plus Gentamicin IM/IV for
+        a total of at least 7 days • ■ 5 mg/kg once a day (first...
+      cited_by: 0 of 233 answers (0%)
+      added_by_operator: true

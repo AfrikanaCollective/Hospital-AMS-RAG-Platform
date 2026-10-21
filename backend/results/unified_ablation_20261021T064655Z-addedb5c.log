@@ -1,0 +1,40 @@
+/app/app/retrieval/vectorstore.py:91: UserWarning: Api key is used with an insecure connection.
+  else QdrantClient(url=url, api_key=api_key or None)
+2026-10-21 06:46:56 [warning  ] SAPBERT_MODEL_ID='cambridgeltl/SapBERT-from-PubMedBERT-fulltext' is an UNVERIFIED placeholder (repo id and pooling method not re-checked against the model's current card — PHASE2-EMBEDDING-ABLATION-PROPOSAL.md §6). Confirm before trusting a real (non-stub) run's numbers, then set the corresponding *_VERIFIED=true.
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Loading weights:   0%|          | 0/199 [00:00<?, ?it/s]Loading weights: 100%|██████████| 199/199 [00:00<00:00, 5039.28it/s]
+2026-10-21 06:47:14 [warning  ] SECRETS_BACKEND=file: using a local DEV KEY at ./secrets/dev_kek.bin. DEV KEY — not for real data. This deployment must not touch real PHI.
+[unified-ablation] 223920 per-query-result row(s) across 10 k value(s) and 6 bm25_weight value(s)...
+[unified-ablation] wrote results/ablation/20261021T064655Z-addedb5c/configuration.json
+[unified-ablation] wrote results/ablation/20261021T064655Z-addedb5c/per_query_results.jsonl
+[unified-ablation] Level 1 delta (present-only - all-assessed) Recall@12: -0.019 [-0.023, -0.015], p=0.0000
+[unified-ablation] Level 2 delta (present_only, enriched - raw) Recall@12: +0.003 [-0.005, +0.011], p=0.4968
+[unified-ablation] Level 2 delta (all_assessed, enriched - raw) Recall@12: -0.015 [-0.021, -0.009], p=0.0000
+[unified-ablation] Level 3 delta (present_only/raw, bm25_weight=1.0 - bm25_weight=0.0) Recall@12: +0.228 [+0.215, +0.241], p=0.0000
+[unified-ablation] Level 3 delta (present_only/enriched, bm25_weight=1.0 - bm25_weight=0.0) Recall@12: +0.110 [+0.100, +0.120], p=0.0000
+[unified-ablation] Level 3 delta (all_assessed/raw, bm25_weight=1.0 - bm25_weight=0.0) Recall@12: +0.258 [+0.248, +0.268], p=0.0000
+[unified-ablation] Level 3 delta (all_assessed/enriched, bm25_weight=1.0 - bm25_weight=0.0) Recall@12: +0.143 [+0.133, +0.153], p=0.0000
+[unified-ablation] Level 3 full grid: Recall@k computed for 6 bm25_weight value(s) x 10 k value(s) = 60 points (pooled across Level 1 x Level 2) -- see statistical_summary.json
+[unified-ablation] Does BM25 weighting help at all? best bm25_weight=1.0 (selected AFTER seeing the data) vs. bm25_weight=1.0 (pure BM25), Recall@12: +0.000 [+0.000, +0.000], p=1.0000 -- POST-HOC: the weight was picked as the max of 6 empirical means, so this CI/p-value understates the true uncertainty of 'does the best of these weights beat BM25' (multiple-comparisons / winner's-curse caveat -- see BestWeightVsBM25's own docstring).
+[unified-ablation] Popularity baseline (query-blind, leave-one-out) @12: Recall 0.667, MRR 0.803, Hit 1.000
+[unified-ablation]   recall@12: 0/24 arm(s) significantly above the baseline, 24 below; best all_assessed/raw/w=1.0 -0.062 [-0.073, -0.050]
+[unified-ablation]   mrr@12: 0/24 arm(s) significantly above the baseline, 24 below; best present_only/raw/w=1.0 -0.254 [-0.279, -0.229]
+[unified-ablation]   hit@12: 0/24 arm(s) significantly above the baseline, 21 below; best present_only/raw/w=0.4 -0.003 [-0.008, +0.000]
+[unified-ablation] wrote results/ablation/20261021T064655Z-addedb5c/statistical_summary.json
+[popularity-baseline] K=2: baseline Recall 0.187, MRR 0.787, Hit 0.931; arms: recall 0 above / 24 below, mrr 0 above / 24 below, hit 0 above / 24 below
+[popularity-baseline] K=4: baseline Recall 0.356, MRR 0.797, Hit 0.966; arms: recall 0 above / 24 below, mrr 0 above / 24 below, hit 0 above / 24 below
+[popularity-baseline] K=6: baseline Recall 0.457, MRR 0.801, Hit 0.985; arms: recall 0 above / 24 below, mrr 0 above / 24 below, hit 0 above / 17 below
+[popularity-baseline] K=8: baseline Recall 0.544, MRR 0.802, Hit 0.995; arms: recall 0 above / 24 below, mrr 0 above / 24 below, hit 0 above / 20 below
+[popularity-baseline] K=10: baseline Recall 0.603, MRR 0.803, Hit 0.999; arms: recall 0 above / 24 below, mrr 0 above / 24 below, hit 0 above / 21 below
+[popularity-baseline] K=12: baseline Recall 0.667, MRR 0.803, Hit 1.000; arms: recall 0 above / 24 below, mrr 0 above / 24 below, hit 0 above / 21 below
+[popularity-baseline] K=14: baseline Recall 0.732, MRR 0.803, Hit 1.000; arms: recall 0 above / 24 below, mrr 0 above / 24 below, hit 0 above / 19 below
+[popularity-baseline] K=16: baseline Recall 0.781, MRR 0.803, Hit 1.000; arms: recall 0 above / 24 below, mrr 0 above / 24 below, hit 0 above / 18 below
+[popularity-baseline] K=18: baseline Recall 0.819, MRR 0.803, Hit 1.000; arms: recall 0 above / 24 below, mrr 0 above / 24 below, hit 0 above / 11 below
+[popularity-baseline] K=20: baseline Recall 0.856, MRR 0.803, Hit 1.000; arms: recall 0 above / 24 below, mrr 0 above / 24 below, hit 0 above / 6 below
+[unified-ablation] wrote results/ablation/20261021T064655Z-addedb5c/arm_vs_popularity_baseline.csv
+[unified-ablation] wrote results/ablation/20261021T064655Z-addedb5c/recall_at_k_by_bm25_weight.png
+[unified-ablation] wrote results/ablation/20261021T064655Z-addedb5c/recall_at_k_vs_bm25_weight_by_k.png
+[unified-ablation] wrote results/ablation/20261021T064655Z-addedb5c/hit_at_k_by_bm25_weight.png
+[unified-ablation] wrote results/ablation/20261021T064655Z-addedb5c/hit_at_k_vs_bm25_weight_by_k.png
+[unified-ablation] wrote results/ablation/20261021T064655Z-addedb5c/mrr_at_k_vs_bm25_weight_by_arm.png
+EXIT=0

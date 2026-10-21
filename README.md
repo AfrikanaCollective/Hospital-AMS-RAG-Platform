@@ -33,15 +33,16 @@ evaluation workflow.
 | **8** | Unified hierarchical (Level 1 × 2 × 3) ablation, superseding Phases 6/7's separate tools; Level 3 restructured (2026-09-23) to a single BM25/SapBERT weighted-rank sweep, MedCPT/RRF dropped, primary metric Recall@K; every delta now carries a bootstrap p-value, plus a full Recall@k×weight grid and a post-hoc best-weight-vs-BM25 test (DEVIATIONS #202) | ✅ implemented + run live (approved via [UNIFIED-ABLATION-PROPOSAL.md](UNIFIED-ABLATION-PROPOSAL.md); offline-verified + live-smoke-tested against the real corpus after both the restructure and the statistics extension — see DEVIATIONS #192–#202); **full-scale re-run complete (2026-09-25, `results/ablation/20260925T064650Z-81570c93/`, 1,589 real calibration questions, 699,160 rows)** — the ablation-holdout pool tops out at 1,992/2,500 (a genuine diversity-filter saturation wall, not a transient failure) and the operator accepted this run as final rather than relaxing the filter (DEVIATIONS #203–#205); Level 3 grid reduced to 6 weights {0.0, 0.2, …, 1.0} on 2026-09-25 and this run's summary + figures re-derived at that grid (DEVIATIONS #207) |
 | **9** | Layout-aware guideline ingestion (`PRD-113` / `ARCH-044`): Docling + pdfplumber + local RapidOCR, header/footer removal, font-fused headings, cell-structured tables, flowchart decision logic from vector geometry, attested text corrections, admin review gate for OCR'd numbers, corpus re-ingested with gold-id remap | ✅ 9a + 9b implemented (approved 2026-09-28, see [LAYOUT-INGESTION-PROPOSAL.md](LAYOUT-INGESTION-PROPOSAL.md); DEVIATIONS #213-#216); 9c (vision model) not built — gateway image support unverified |
 
-**Data reset (2026-10-14, DEVIATIONS.md #298-#303).** Every patient-derived
+**Data reset (2026-10-14, DEVIATIONS.md #298-#305).** Every patient-derived
 artifact before then (questions, review items, ratings, ablation runs under
 `backend/results/`) was development-only and was dropped with a full reset of
 the Postgres/Qdrant/Redis volumes. `newborn_nbu_2021` is now a 1,500-patient
 export. The Phase 6-8 ablation results quoted above no longer exist on disk.
 Rebuilt state (2026-10-16): the triage-stratified review queue (ARCH-046)
 holds 800 open items from 200 records (40 per triage category x 4 areas), and
-the ablation holdout holds 844 questions (200 usable per area) from records
-the queue does not use. No ablation runs have been made since the reset.
+the ablation holdout holds 980 questions (233-234 usable per area) from records
+the queue does not use. The other 320 records are near-duplicates and are in
+neither pool (DEVIATIONS.md #304-#305). No ablation runs have been made since the reset.
 Provenance is re-pinned in `data/PROVENANCE.json`.
 
 Phase 1 delivers a **navigable skeleton**: folder structure, stub modules,

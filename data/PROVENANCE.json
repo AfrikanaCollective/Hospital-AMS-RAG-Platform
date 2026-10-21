@@ -1,6 +1,6 @@
 {
  "code": {
-  "git_commit": "69c3bb169ca14e3b676a7af11a8da9f9b64a13bd",
+  "git_commit": "b4fe4d50786e85062db86715ae2639c91c7f45c6",
   "git_dirty": true
  },
  "database": {
@@ -17,8 +17,8 @@
    "sha256": "fd868f724c9247607cd3ece6fc69c57796adc7c0fd1a9fb69be3838067ce3214"
   },
   "eval.eval_question": {
-   "count": 1644,
-   "sha256": "924961c915cac542ed6a81b459810b7c39fcc73fc07ffa00bf92e6f873c5b563"
+   "count": 1780,
+   "sha256": "d9540b1780f8e87a7ca24b4909ba488a3a676d18607ae8b3b1a66ffb62f38139"
   },
   "eval.irr_score": {
    "count": 0,
@@ -51,6 +51,7 @@
  },
  "files": {
   "backend/results/ablation_holdout_20261015.log": "f1a3209ba5868183e3c815defb36215246a60f6ad6b72d487f1fb786890de6da",
+  "backend/results/ablation_holdout_topup_20261016.log": "649612d93582810623980596330d481ed7eda5035d9d763118c1f6902e76e1c2",
   "backend/results/corpus_ingest_20261014.log": "1288348eaaff578c87b902451aa0672cecb03cdf72df2f1423de908707705d52",
   "backend/results/triage_review_queue_20261014.log": "674be98b66885229f7d4840cb576e37afb0406cbe3d5a9c078d3ff8d6045a87f",
   "data/clinical_concepts.yaml": "ad4d0033ee51d02e43926633650a82c435db0284151a924e253c39fb9d8df01e",
@@ -93,10 +94,10 @@
  },
  "known_gaps": {
   "questions_missing_source_record": 0,
-  "well_supported_questions_without_gold": 84
+  "well_supported_questions_without_gold": 87
  },
  "manifest_version": 1,
- "pinned_at": "2026-10-16T05:55:03.043095+00:00",
+ "pinned_at": "2026-10-16T10:29:53.725769+00:00",
  "settings": {
   "embedding_model_id": "BAAI/bge-large-en-v1.5",
   "irr_min_raters": 3,
@@ -110,7 +111,7 @@
    "newborn_nbu_2021": 1500
   },
   "questions_by_template": {
-   "four-area-v2": 1644
+   "four-area-v2": 1780
   },
   "results_by_queue_state": {
    "open": 800

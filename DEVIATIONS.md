@@ -3815,3 +3815,12 @@ not retroactively. When in doubt, log it.
 - **Judgment call (mine; the operator did not answer the area question):** extra records keep the existing allocation: each goes to the area with the fewest usable questions (#264).
 - **Result:** pending; log `backend/results/ablation_holdout_topup_20261016.log`. Afterwards re-pin provenance.
 - **Reversible?:** yes, until an ablation run uses them: the added questions are the ablation-holdout rows created after the #303 provenance pin (2026-10-16 05:55 UTC).
+
+### 305. Ablation holdout top-up result; provenance re-pinned
+- **Date / phase:** 2026-10-16. Result of the run decided in #304.
+- **Requirement ID(s):** PRD-112, ARCH-043, PRD-072.
+- **What happened:** `--per-area 250 --seed 20261016` ran 07:58 to 10:27 UTC, `EXIT=0`, 136 new questions (the dry-run figure in #304), no gateway errors. It stopped below target after 800 attempts, as #304 expected: every unused record was tried once, and the 320 near-duplicates were skipped.
+- **Pool now:** 980 questions from 980 distinct records, 0 overlapping the review queue. Usable (non-empty gold) per area: assessment 234, investigations 233, severity_classification 233, antibiotic_course 233 (280 questions, 47 cite nothing). By triage category: Critical 178, Substantial 214, Moderate 198, Low 209, Minimal 181.
+- **Unused records:** 320, all near-duplicates of a record already in a pool (Critical 82, Substantial 46, Moderate 62, Low 51, Minimal 79).
+- **Provenance:** re-pinned at `b4fe4d5` with `git_dirty: true` (only the top-up log was uncommitted); 1,780 `four-area-v2` questions; `provenance-check` passes; known gap `well_supported_questions_without_gold: 87` (47 holdout + 40 review queue, #303).
+- **Reversible?:** n/a (operations record).

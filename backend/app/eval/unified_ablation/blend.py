@@ -21,9 +21,19 @@ makes (just returning scores instead of only a sorted ranking), and raw
 cosine scores mirroring `_cosine_rank`'s own query-vector normalization
 exactly (same reason — that function only returns the sorted ranking, and
 a weighted blend needs the underlying scores).
+
+**Okapi BM25 (DEVIATIONS.md #311):** the collection's sparse search is
+TF x IDF with no length normalisation or term saturation
+(`app.retrieval.sparse`), so long chunks that repeat common words outrank
+shorter, more specific ones. `OkapiBM25` scores the same indexed term counts
+(read back from Qdrant, so tokenisation is identical) with the standard
+formula, for the `okapi_bm25_sapbert` Level-3 condition.
 """
 
 from __future__ import annotations
+
+import math
+from collections.abc import Mapping
 
 import numpy as np
 
@@ -33,20 +43,106 @@ from app.retrieval.sparse import query_sparse_vector
 from app.retrieval.vectorstore import QdrantVectorStore
 
 
+def lexical_query_vector(
+    question_text: str, *, emphasis: str | None = None, weight: float = 1.0
+) -> dict:
+    """The lexical query: each distinct term once (`query_sparse_vector`),
+    with every term that also occurs in `emphasis` (the area question)
+    weighted `weight` instead of 1.0 (DEVIATIONS.md #312). Repeating the
+    area question in the text alone would change nothing here, because the
+    query is term-presence. With `emphasis=None` or `weight=1.0` this is
+    exactly `query_sparse_vector`."""
+    q = query_sparse_vector(question_text)
+    if emphasis is None or weight == 1.0:
+        return q
+    emphasised = set(query_sparse_vector(emphasis)["indices"])
+    return {
+        "indices": q["indices"],
+        "values": [
+            weight if i in emphasised else v for i, v in zip(q["indices"], q["values"], strict=True)
+        ],
+    }
+
+
 def bm25_raw_scores(
-    store: QdrantVectorStore, question_text: str, chunk_ids: list[str]
+    store: QdrantVectorStore,
+    question_text: str,
+    chunk_ids: list[str],
+    *,
+    query_vector: dict | None = None,
 ) -> dict[str, float]:
     """Raw (un-normalized) BM25 score per chunk that scored at all, full
     corpus depth. A chunk sharing no term with the query is simply absent
     from the result — `min_max_normalize`/`ScoredChunk` construction fills
     the gap with 0.0 the same way `fetch_candidate_scores` already does for
     its own two channels, not something this function needs to do itself."""
-    sparse = query_sparse_vector(question_text)
+    sparse = query_vector or query_sparse_vector(question_text)
     hits = store.single_vector_search(
         using="sparse", query=sparse, limit=len(chunk_ids), flt=CORPUS_FILTER
     )
     corpus_ids = set(chunk_ids)
     return {h["chunk_id"]: h["score"] for h in hits if h["chunk_id"] in corpus_ids}
+
+
+# The textbook defaults (Robertson & Zaragoza 2009), not tuned on this corpus.
+OKAPI_K1 = 1.2
+OKAPI_B = 0.75
+
+
+class OkapiBM25:
+    """Okapi BM25 over a fixed corpus of term-count vectors (the
+    `doc_sparse_vector` term indices and counts indexed in Qdrant). Statistics
+    (document frequency, average length) come from the corpus given, i.e.
+    the retrievable chunks only. IDF is the non-negative form
+    `ln((N - n + 0.5) / (n + 0.5) + 1)`, the same one Qdrant's `Modifier.IDF`
+    uses, so the two scorers differ only in the term-frequency part."""
+
+    def __init__(
+        self,
+        term_counts: Mapping[str, Mapping[int, float]],
+        *,
+        k1: float = OKAPI_K1,
+        b: float = OKAPI_B,
+    ) -> None:
+        self._tf = {cid: dict(tc) for cid, tc in term_counts.items()}
+        self._len = {cid: sum(tc.values()) for cid, tc in self._tf.items()}
+        n_docs = len(self._tf)
+        self._avg_len = (sum(self._len.values()) / n_docs) if n_docs else 0.0
+        df: dict[int, int] = {}
+        for tc in self._tf.values():
+            for term in tc:
+                df[term] = df.get(term, 0) + 1
+        self._idf = {t: math.log((n_docs - n + 0.5) / (n + 0.5) + 1) for t, n in df.items()}
+        self.k1 = k1
+        self.b = b
+
+    def scores(self, question_text: str, *, query_vector: dict | None = None) -> dict[str, float]:
+        """Score per chunk sharing at least one term with the query; the
+        others are absent, as in `bm25_raw_scores`. Query terms count once
+        each (`query_sparse_vector` is term-presence) unless `query_vector`
+        gives them weights (`lexical_query_vector`, DEVIATIONS.md #312); a
+        term's contribution is multiplied by its weight."""
+        q = query_vector or query_sparse_vector(question_text)
+        terms = [(t, w) for t, w in zip(q["indices"], q["values"], strict=True) if t in self._idf]
+        out: dict[str, float] = {}
+        for cid, tc in self._tf.items():
+            norm = self.k1 * (1 - self.b + self.b * self._len[cid] / self._avg_len)
+            score = 0.0
+            for t, w in terms:
+                f = tc.get(t)
+                if f:
+                    score += w * self._idf[t] * f * (self.k1 + 1) / (f + norm)
+            if score:
+                out[cid] = score
+        return out
+
+
+def fetch_okapi_bm25(store: QdrantVectorStore, chunk_ids: list[str]) -> OkapiBM25:
+    """`OkapiBM25` over the indexed term counts of `chunk_ids` (the
+    retrievable corpus, `CORPUS_FILTER`)."""
+    vectors = store.sparse_vectors(flt=CORPUS_FILTER)
+    wanted = set(chunk_ids)
+    return OkapiBM25({cid: v for cid, v in vectors.items() if cid in wanted})
 
 
 def cosine_raw_scores(

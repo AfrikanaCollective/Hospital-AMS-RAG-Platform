@@ -3890,3 +3890,161 @@ not retroactively. When in doubt, log it.
   - Against each question's own gold set the same run scored higher recall and lower MRR (e.g. present_only/raw w=1.0: 0.544 / 0.549); the area sets reward ranking the area's passages early, not matching one answer's citations.
 - **What this does not show:** patient-specific retrieval (every question in an area has the same reference set), and the popularity baseline is not a valid comparator here (#307). Nothing is acted on; production `hybrid.retrieve()` is untouched.
 - **Reversible?:** yes.
+
+### 310. Unified ablation re-run on the same pool: identical results
+- **Date / phase:** 2026-10-21. Operator: "Regenarate ablation pool results".
+- **Requirement ID(s):** PRD-112, ARCH-043.
+- **Judgment call (mine):** read as re-running the unified ablation on the existing 933-question holdout pool with the #306 settings, then rescoring against the attested area sets (#309); the holdout questions themselves were not regenerated.
+- **Run:** `docker compose exec -e MODEL_ABLATION_BACKEND=local api python -m scripts.run_unified_ablation --run-id 20261021T120131Z-17e3b328`, `EXIT=0`, then `scripts.score_area_reference` on it. Configuration identical to `20261021T064655Z-addedb5c` apart from ids and timestamp (same `query_areas`/`clinical_concepts` hashes, seed 1234, grid, fusion).
+- **Result:** all 223,920 per-query rows are identical to `20261021T064655Z-addedb5c` once run/experiment ids are ignored, and every area-reference score matches exactly (max absolute difference 0.0). The figures in #309 stand for both runs; retrieval in the ablation is deterministic on an unchanged corpus.
+- **Reversible?:** yes (new run directory only).
+
+### 311. Why own-gold MRR is low; two ablation arms added (area question only, Okapi BM25)
+- **Date / phase:** 2026-10-21. Operator: "The ablation plot in mrr_at_k_vs_bm25_weight_by_arm.png is very low. Investigate why MRR are that low", then "add the two ablation arms and log it".
+- **Requirement ID(s):** PRD-112, ARCH-043.
+- **Investigation (run `20261021T120131Z-17e3b328`, present_only/raw, scored against each question's own gold set).** Reconstructed the run's lexical ranking offline from the term counts stored in Qdrant; it reproduced all 100 queries checked and the run's MRR@8 (0.548) exactly. Causes found:
+  - **Patient details swamp the area question.** Each query is one sentence of area question plus vitals and signs; those clinical words match a few long passages everywhere. Across 933 queries only 7 distinct chunks reach rank 1. "Other clinical indicators" (p21, 3,345 characters) is rank 1 for 100% of assessment and severity queries and 62% of investigations queries; "Babies at increased risk of neonatal infection" (p9, 3,415 characters, cited by no answer) for 73% of antibiotic-course queries. In severity classification the passage 97% of answers cite (p33 "Categorization") never reaches rank 1 (median rank 8).
+  - **The "BM25" channel is TF x IDF**, with no length normalisation or term-frequency saturation (`app/retrieval/sparse.py` says so), so long chunks repeating common words keep gaining score. Qdrant computes its IDF over the whole collection (297 points, including superseded versions), not only the 153 retrievable chunks.
+  - **SapBERT alone (weight 0) never puts a cited passage first** for antibiotic-course or investigations queries.
+  - Offline, own-gold MRR@8: full query + TF x IDF 0.548; full query + Okapi BM25 0.475; area question only + TF x IDF 0.595; area question only + Okapi BM25 0.915. Neither change helps alone; together they nearly close the gap. The area question alone gives one ranking per area, so the gold sets are mostly determined by the area, not the patient (as in #306).
+- **What was added:**
+  - **`area_question` Level-1 condition:** the area's question with no patient details (`question_gen.areas.build_area_question_only`, the first line of `build_area_question`). Four-area questions only, `raw` only.
+  - **`okapi_bm25_sapbert` Level-3 condition:** the lexical channel scored with Okapi BM25 (`unified_ablation.blend.OkapiBM25`, `fetch_okapi_bm25`) from the term counts indexed in Qdrant (`QdrantVectorStore.sparse_vectors`, ablation-only, read-only), so tokenisation is identical. `bm25_sapbert` keeps its name and is the original TF x IDF scorer, so earlier runs stay comparable.
+  - `ALL_ARMS` 4 -> 10. A run is now 600 rows per question (559,800 for 933 questions, ~1.7 GB of `per_query_results.jsonl`).
+  - Statistics: `summary.core_rows` keeps the Level 1/2/3 summaries and the popularity baseline on the original arms, so they mean what they did. New `summarize_added_arms` gives paired deltas (area_question vs each patient-detail raw arm, per scorer; Okapi vs TF x IDF, per arm) at every weight, Recall and MRR at the headline K, in `added_arms_comparisons.csv` and `statistical_summary.json["added_arms"]`.
+  - Figures: each figure is drawn once per scorer (Okapi set suffixed `_okapi_bm25`); the area-question arm is a fifth panel (figures grow to 18 x 27 cm so panels keep their size) or a fifth, dashed line on the MRR figure. `scripts.score_area_reference` keeps the scorers apart (`level3` column).
+- **Judgment calls (mine):**
+  - **No enriched area-question arm:** enrichment adds the record's concepts, which would bring patient details back.
+  - **Okapi parameters k1 = 1.2, b = 0.75** (textbook defaults, not tuned), statistics over the 153 retrievable chunks only, IDF in the same non-negative form Qdrant uses, so the scorers differ only in the term-frequency part. Production `hybrid.retrieve()` and the sparse index are untouched.
+  - **Popularity baseline and Level 1/2/3 statistics stay on the original arms;** the new arms are compared in their own table rather than widening every existing report.
+  - **Okapi is computed in memory** from Qdrant's stored counts rather than as a second Qdrant index: no ingestion change and no new collection.
+- **Run `20261021T123116Z-151cd3fa`** (`EXIT=0`, 559,800 rows, 933 questions). The original arms' rows are byte-identical to `20261021T120131Z-17e3b328` apart from the experiment id. At K=12, own gold / attested area sets (#309):
+
+  | Arm (raw) | Scorer | Best own-gold MRR@12 (weight) | Own-gold Recall@12 at that weight | Area-set MRR@12 at w=1.0 |
+  |---|---|---|---|---|
+  | present_only | TF x IDF | 0.549 (1.0) | 0.544 | 0.805 |
+  | present_only | Okapi | 0.618 (0.6) | 0.592 | 0.799 |
+  | all_assessed | TF x IDF | 0.527 (1.0) | 0.605 | 0.758 |
+  | all_assessed | Okapi | 0.613 (0.6) | 0.608 | 0.661 |
+  | area_question | TF x IDF | 0.599 (0.6) | 0.527 | 0.875 |
+  | area_question | Okapi | **0.909 (0.8)** | **0.658** | **1.000** |
+
+  - Paired at w=1.0, MRR@12: area_question/Okapi beats present_only/Okapi by +0.355 [+0.335, +0.377] and all_assessed/Okapi by +0.442 [+0.418, +0.466]; Okapi beats TF x IDF on the area question by +0.269 [+0.249, +0.289]; all p < 0.0001.
+  - With patient details, Okapi helps only at interior weights (peak MRR@12 ~0.61 at 0.4-0.6) and is worse than TF x IDF at w=1.0 (all_assessed/raw -0.104 [-0.125, -0.083]): length normalisation lets short chunks that share vitals words rise.
+  - The popularity baseline at K=12 is MRR 0.803, Recall 0.667. area_question/Okapi at w=0.8 (MRR 0.909) is the first arm above it on MRR (unpaired comparison of means; the baseline report covers the original arms only). It ranks the same list for every patient in an area, so this says the area question finds the area's core passages better than citation popularity pooled over all areas, not that retrieval uses patient details well.
+- **Tests:** `tests/test_ablation_config.py` (10 arms, no enriched area-question arm, two scorers), `tests/test_unified_ablation_runner.py` (single-topic question keeps the 4 original arms; four-area question with Okapi gives all 10; area-question text has no patient details and is the same for every record), `tests/test_unified_ablation_blend.py` (Okapi ranks a short specific chunk above a long repetitive one where TF x IDF does the reverse; `sparse_vectors`/`fetch_okapi_bm25`), `tests/test_unified_ablation_summary.py` (`core_rows`, added-arm deltas), `tests/test_ablation_figures.py` (one figure set per scorer, five arms), `tests/test_area_reference.py` (scorers scored apart). Full suite 1,147 passed; ruff clean; mypy clean for the changed code apart from the existing missing-stub / untyped-session complaints.
+- **Reversible?:** yes (ablation-only code; no production retrieval, schema or index change).
+
+### 312. Unified ablation: Okapi BM25 by default, area question weighted in the four patient arms
+- **Date / phase:** 2026-10-21. Operator: "The ablation run needs to be updated to only focusing/using area questions only across (a) Present-only / Raw, (b) Present-only / Enriched, (c) All assessed / Raw, (d) All assessed / Enriched. Confirm which fusion method is used. Use Okapi BM25 for all ablations by default." Then, choosing from my options: "Option (ii), keep TF×IDF as option, unified ablation only" (option (ii): keep the patient-detail queries but repeat the area question so it carries more weight).
+- **Requirement ID(s):** PRD-112, ARCH-043.
+- **Fusion (confirmed, unchanged):** `minmax`. `ABLATION_FUSION` is unset in `.env` and the container, so the config default applies: both channels min-max normalised per query, ranked by `w x lexical + (1 - w) x SapBERT`. `rrf` (#227) remains available.
+- **What changed (unified ablation only; the Phase 6/7 tools and production retrieval are untouched):**
+  - **One lexical scorer per run, Okapi BM25 by default.** `ABLATION_LEXICAL_SCORER` (`okapi` | `tfidf`, default `okapi`; `--lexical-scorer`). TF x IDF stays available and with `--area-question-repeats 1` reproduces pre-#311 runs. `level3_condition` still names the scorer (`okapi_bm25_sapbert` / `bm25_sapbert`).
+  - **Area question weighted in the four patient arms.** `ABLATION_AREA_QUESTION_REPEATS` (default 3; `--area-question-repeats`): `build_area_question(..., question_repeats=N)` writes the area question N times before the patient details, and that text is what SapBERT encodes and what `query_text` records. The lexical query is term-presence, so repeating text alone would change nothing there; `blend.lexical_query_vector` instead weights every term that occurs in the area question N times a patient-detail term, for both scorers (Qdrant sparse query values for TF x IDF; a per-term multiplier in `OkapiBM25.scores`). N = 1 gives exactly the earlier query vectors.
+  - **Four arms by default.** The area-question-only arm (#311) is opt-in (`--area-question-arm`), so a default run is present-only/all-assessed x raw/enriched only: 240 rows per question (223,920 for 933).
+  - `summary.core_rows(rows, scorer)` uses the run's scorer; `report_popularity_baseline` reads it from `configuration.json` (`lexical_scorer`; older runs default to TF x IDF). A one-scorer run keeps the plain figure names; the `_okapi_bm25` suffix only appears when a run has both scorers (#311 runs). `configuration.json` records `lexical_scorer`, `lexical_scorer_detail`, `area_question_repeats`, `area_question_weighting`, `area_question_arm`.
+- **Judgment calls (mine):**
+  - **"Repeat the area question" = repeat it in the text for SapBERT, and weight its terms by the same factor in the lexical query.** Literal repetition alone would only affect SapBERT.
+  - **Default N = 3, not tuned.** The area question has roughly 20-25 distinct content words and the patient block 15-40, so 3 lets the area question outweigh the patient details without removing them. Picking N by sweeping it on this pool would be tuning on the evaluation set; it is a flag for any sensitivity check the operator wants.
+  - **Terms shared by the area question and the patient block** (e.g. "newborn", "infection") are weighted N, since they occur in the area question.
+  - **Enrichment is applied to the weighted text unchanged**, so the issue I noted earlier stands: enrichment appends concepts from the whole record, including findings the area doesn't list (antibiotic course). Not changed; flagged.
+- **Run `20261021T131404Z-bd0187a4`** (defaults: Okapi, N = 3, four arms, minmax; `EXIT=0`, 223,920 rows, 933 questions). K = 12, BM25 weight 0.0 -> 1.0:
+
+  | Arm | Own-gold MRR@12 | Own-gold Recall@12 | Area-set MRR@12 |
+  |---|---|---|---|
+  | present_only / raw | 0.368 -> **0.873** | 0.329 -> 0.672 | 0.666 -> 0.999 |
+  | present_only / enriched | 0.366 -> 0.798 (peak 0.818 at 0.6) | 0.385 -> 0.683 | 0.680 -> 0.917 |
+  | all_assessed / raw | 0.371 -> 0.863 (peak 0.868 at 0.8) | 0.353 -> 0.677 (peak 0.698 at 0.6) | 0.656 -> 0.994 |
+  | all_assessed / enriched | 0.382 -> 0.792 (peak 0.816 at 0.6) | 0.377 -> 0.670 | 0.681 -> 0.914 |
+
+  - Best own-gold MRR@12 is 0.873 (present_only/raw, w=1.0), up from 0.549 for the same arm in the TF x IDF, unweighted run `20261021T120131Z-17e3b328`.
+  - **Arms now beat the question-blind popularity baseline** (MRR 0.803, Recall 0.667 at K=12): 4 of 24 arm x weight cells significantly above it on MRR@12 (best present_only/raw w=1.0, +0.070 [+0.047, +0.092]) and 6 of 24 on Recall@12 (best all_assessed/raw w=0.6, +0.031 [+0.020, +0.041]). Every arm was below it in every earlier run.
+  - Level 1 (present-only - all-assessed) Recall@12 -0.012 [-0.015, -0.009]; Level 2 enrichment +0.024 (present_only) / +0.006 (all_assessed) on Recall, pooled over weights. On MRR at high BM25 weight, enrichment lowers MRR (~0.80 vs ~0.87): the appended concept terms carry weight 1 each and pull in other passages.
+  - Best weight vs pure BM25 (post-hoc): w=0.6, +0.001 [-0.004, +0.006], not significant.
+- **Tests:** `tests/test_ablation_config.py` (Okapi default, `tfidf` option, invalid scorer and repeats < 1 rejected), `tests/test_unified_ablation_blend.py` (only area-question terms weighted; weight 1 = unweighted; weighted Okapi and Qdrant TF x IDF scale area terms by N), `tests/test_unified_ablation_runner.py` (Okapi-only run has the four patient arms; Okapi without an index fails; the query carries the area question N times followed by unchanged patient details), `tests/test_unified_ablation_summary.py` (`core_rows` picks the run's scorer), `tests/test_ablation_figures.py` (one-scorer Okapi run keeps plain names). Full suite 1,157 passed; ruff clean; mypy clean for the changed code apart from the existing complaints.
+- **Reversible?:** yes (`--lexical-scorer tfidf --area-question-repeats 1` reproduces the earlier queries; no production change).
+
+### 313. Unified ablation: area-scoped Level-2 enrichment; area-question repeat count tuned on a held-out split
+- **Date / phase:** 2026-10-26. Operator: "1 — run the check, 2 - Fix the enrichment leak, 3 - Tune the area-question repeat count" (the open items from #312).
+- **Requirement ID(s):** PRD-112, ARCH-043.
+- **Check (item 1), on the #312 tree before these changes:** ruff clean; mypy 12 errors, all pre-existing (logging, middleware, deps, eav, missing stubs), none in the changed code; full suite 1,157 passed. After this change: 1,166 passed, ruff clean, mypy unchanged.
+- **Enrichment leak (item 2).** `build_arm_c_query` matched concepts against the whole record, so an antibiotic-course query (age, gestation, weight, care setting only) gained fever/apnoea/tachypnoea terms for findings it never states. Now a four-area query is enriched only from concepts whose field the area's question states: `question_gen/areas.py::area_vocabulary` keeps a concept when its field is one of the area's `record_facts` fields (`_FACT_FIELDS`; `vitals` / `maternal_risk_factors` / `examination_findings` cover their whole section; `weight_kg` covers the area's `weight.prefer_field` / `fallback_field`). `ABLATION_ENRICHMENT_SCOPE` (`area` default | `record`; `--enrichment-scope`) restores the old behaviour; `configuration.json` records `enrichment_scope`. `build_arm_c_query`, the concept file and the single-topic pool are unchanged.
+  - **Judgment calls (mine):** (a) "fields the area states" is the field-level mapping above; concepts on a section the area lists fire whether or not that particular finding was rendered in the line (presence concepts only fire on `True`, which present-only also renders, so the two agree). (b) `encounter.birth_weight_g` concepts (low birth weight, birth weight in kg) stay on antibiotic-course queries, since the weight line falls back to, and mentions, birth weight. (c) The other three areas lose nothing in practice: they list vitals, findings, maternal risk factors, age and gestation, and no concept is on a field they lack except birth weight.
+- **Repeat-count tuning (item 3).** #312 left N = 3 untuned because sweeping N on the pool would tune on the evaluation set. `app/eval/unified_ablation/repeats_tuning.py` + `scripts/tune_area_question_repeats.py` split the four-area pool by `sha256(source_record_id) mod 2` into `tune` (465) and `heldout` (468), score each N on both with the four patient arms at K = 12 over the six BM25 weights (Okapi, minmax, area-scoped enrichment), choose N on `tune`, and report `heldout` paired deltas against N = 1 and the current default.
+  - **Judgment calls (mine):** selection score = a question's own-gold MRR@12 averaged over the four arms and all six weights, then over questions (averaging over weights so N isn't fitted to the weight the Level-3 sweep then reports as best); ties to the smaller N; grid {1, 2, 3, 4, 5, 6, 8}. The script changes no default.
+  - **Run `repeats_tuning_20261026T044222Z-447f45e5`** (EXIT=0). Selection score, tune / heldout: N=1 0.400 / 0.416, N=2 0.556 / 0.549, N=3 0.584 / 0.586, N=4 0.595 / 0.593, N=5 0.595 / 0.594, N=6 0.591 / 0.591, N=8 0.604 / 0.585. Chosen on tune: N = 8. Held-out N=8 - N=1 +0.169 [+0.151, +0.187]; N=8 - N=3 -0.001 [-0.013, +0.010], p = 0.80. Reading: a plateau from N = 3; N = 8 won on tune by noise and does not carry over. Best-weight MRR@12 at N = 3 (tune / heldout): present_only/raw 0.874 / 0.871, present_only/enriched 0.861 / 0.863, all_assessed/raw 0.864 / 0.863, all_assessed/enriched 0.862 / 0.856. Enriched arms were ~0.82 vs raw ~0.87 in the #312 run (whole pool, whole-record enrichment); the area scope closes most of that gap (not a paired comparison).
+  - **Default left at N = 3**: the tuned choice (8) is not better on held-out, and N = 3 sits on the plateau. Changing it is the operator's call.
+- **Tests:** `test_four_area_questions.py` (area_vocabulary per area), `test_unified_ablation_runner.py` (antibiotic-course enrichment drops vitals concepts under `area`, keeps them under `record`; assessment unchanged), `test_ablation_config.py` (scope default/option/invalid), `test_repeats_tuning.py` (stable record-level split, choice from tune only, ties, held-out comparisons, invalid grid).
+- **Run environment:** the compose stack was down (all containers exited 255 at the same time, apparently a host restart). Only `postgres` and `qdrant` were started; the tuning ran in a throwaway `docker compose run --no-deps api` container with `backend/app` and `backend/scripts` mounted read-only over the image's copies. `api`, `proxy`, `frontend`, `worker`, `redis`, `llm-gateway` were left down; the `api` image was not rebuilt.
+- **Reversible?:** yes (`--enrichment-scope record`; N unchanged).
+
+### 314. Correction to #313: the repeat-count tuning and the first N=1 / N=3 runs used stub embeddings
+- **Date / phase:** 2026-10-26. Operator: "Run the full ablation at N=1 and N=3".
+- **Requirement ID(s):** PRD-112, ARCH-043.
+- **What went wrong (mine):** I ran the tuning (#313) and then the full runs `20261026T045103Z-n1-002c8d` (N = 1) and `20261026T045103Z-n3-788a59` (N = 3) with `docker compose run ... api` and did not pass `MODEL_ABLATION_BACKEND=local`. The service default is `stub`, so SapBERT was replaced by deterministic fake embeddings. The 2026-10-21 runs were launched with `local` (their logs have no stub warning). The full-run logs printed the stub warning; `scripts/tune_area_question_repeats.py` had no such warning, so the tuning output looked normal.
+- **Consequences:**
+  - Run `repeats_tuning_20261026T044222Z-447f45e5` is **invalid**: its selection score averages over all BM25 weights, and every weight below 1.0 includes the fake dense channel. The #313 tuning numbers, the "plateau from N = 3" reading, and the enriched-vs-raw comparison drawn from it are withdrawn.
+  - In the two full runs only `bm25_weight = 1.0` rows (pure Okapi BM25, no dense channel) are real; the N = 3 own-gold MRR@12 there, 0.873, equals the #312 run. Everything else in them (Level 1/2 deltas, Level 3 curves, popularity-baseline verdicts, figures) is invalid. The directories are kept; marker files could not be written there (owned by uid 10001), so this entry is the record.
+  - The #313 code changes (area-scoped enrichment, tuning module and script) are unaffected; only its run results are.
+- **Fix:** `tune_area_question_repeats` now prints the stub warning and records `model_ablation_backend` in `tuning.json`. Rerun with `-e MODEL_ABLATION_BACKEND=local`, sequentially in one detached container (`unified-ablation-local`): `20261026T045414Z-n1-0ed22d` (N = 1), `20261026T045414Z-n3-ad9798` (N = 3), then tuning `repeats_tuning_20261026T045414Z-e2d57bda`. Results are recorded in a later entry.
+- **Reversible?:** n/a (correction).
+
+### 315. Real-SapBERT results: full runs at N = 1 and N = 3 (area-scoped enrichment) and repeat-count tuning
+- **Date / phase:** 2026-10-26. Follows #314 (stub reruns). Operator: "Run the full ablation at N=1 and N=3".
+- **Requirement ID(s):** PRD-112, ARCH-043.
+- **Runs** (all `MODEL_ABLATION_BACKEND=local`, no stub warning, EXIT=0; Okapi, minmax, `enrichment_scope=area`, 933 questions, 223,920 rows each): `20261026T045414Z-n1-0ed22d` (N = 1), `20261026T045414Z-n3-ad9798` (N = 3), `repeats_tuning_20261026T045414Z-e2d57bda`.
+- **Own-gold MRR@12 / Recall@12 at the best weight per arm:**
+
+  | Arm | N = 1 | N = 3 |
+  |---|---|---|
+  | present_only / raw | 0.618 (w 0.6) / 0.592 (w 0.6) | 0.873 (w 1.0) / 0.672 (w 1.0) |
+  | present_only / enriched | 0.642 (w 0.6) / 0.571 (w 0.6) | 0.865 (w 0.8) / 0.692 (w 0.6) |
+  | all_assessed / raw | 0.613 (w 0.6) / 0.620 (w 0.4) | 0.868 (w 0.8) / 0.698 (w 0.6) |
+  | all_assessed / enriched | 0.691 (w 0.6) / 0.578 (w 0.6) | 0.860 (w 0.8) / 0.717 (w 0.6) |
+
+- **Level 1 (present-only - all-assessed), Recall@12 pooled:** N = 1 -0.013 [-0.018, -0.009]; N = 3 -0.016 [-0.019, -0.012]. Same direction and size at both N.
+- **Level 2 (enriched - raw), Recall@12 pooled:** N = 1 present_only +0.007 [-0.001, +0.015] (n.s.), all_assessed -0.011 [-0.016, -0.007]; N = 3 present_only +0.029 [+0.024, +0.033], all_assessed +0.018 [+0.015, +0.021]. The all_assessed sign depends on N. At N = 3 the area scope (#313) brings enriched MRR to ~0.86 vs raw ~0.87 (in #312, whole-record enrichment: ~0.80-0.82 vs ~0.87; different runs, not paired).
+- **Popularity baseline @12 (Recall 0.667, MRR 0.803):** N = 1: 0/24 arm x weight cells above on Recall or MRR (all 24 below). N = 3: 8/24 above on Recall (best all_assessed/enriched w 0.6, +0.051 [+0.040, +0.061]), 10/24 above on MRR (best present_only/raw w 1.0, +0.070 [+0.047, +0.092]).
+- **Best weight vs pure BM25 (post-hoc), Recall@12:** N = 1 w 0.4 +0.032 [+0.025, +0.039]; N = 3 w 0.6 +0.013 [+0.007, +0.019]. Dense blending helps more when the patient details carry more weight.
+- **Repeat-count tuning (real SapBERT; replaces the invalid #313 numbers).** Selection score (MRR@12 averaged over arms and weights), tune / heldout: N=1 0.518 / 0.532, N=2 0.653 / 0.665, N=3 0.679 / 0.696, N=4 0.684 / 0.700, N=5 0.683 / 0.699, N=6 0.696 / 0.712, N=8 0.698 / 0.717. Chosen on tune: N = 8 (grid edge). Held-out N=8 - N=3 +0.021 [+0.015, +0.027]; N=8 - N=1 +0.185 [+0.168, +0.201].
+  - **Reading (mine):** the held-out best-weight MRR@12 per arm is flat from N = 4 (0.870-0.874 for every arm at N = 4, 5, 6, 8; 0.860-0.871 at N = 3). The selection score keeps rising to N = 8 because it averages over all weights, and higher N mostly lifts the SapBERT-heavy weights (0.0-0.4), not the best configuration. So the N = 8 choice reflects my selection criterion (#313), not a better best-case retriever, and the grid stops at 8. Default left at N = 3; the operator decides.
+- **Reversible?:** n/a (results).
+
+### 316. Operator decision: keep N = 3
+- **Date / phase:** 2026-10-26. Operator: "Keep N=3, bring the rest of it back up" (after #315).
+- **Requirement ID(s):** PRD-112, ARCH-043.
+- **Decision:** `ABLATION_AREA_QUESTION_REPEATS` stays 3 (no code change). The tuning result (#315, N = 8 on the averaged score) is recorded but not adopted.
+- **Stack:** the containers that stopped in the host restart (`redis`, `llm-gateway`, `api`, `worker`, `frontend`, `proxy`) were restarted as they were (`docker start`, not recreated or rebuilt), so `api`/`worker` still run the 2026-10-21 image; the #313 code (enrichment scope, tuning script) is only in the working tree until the image is rebuilt. It affects the ablation tools only, not the served app.
+- **Reversible?:** yes.
+
+### 317. Ablation results directory cleaned; one current run at N = 3
+- **Date / phase:** 2026-10-26. Operator: "I want to clean the directory and recreate ablation results with N=3", then: keep the four data-generation logs; deleting the tracked `unified_ablation_20261021T064655Z-addedb5c.log` is OK; N = 3 only; area-question arm off.
+- **Requirement ID(s):** PRD-112, ARCH-043.
+- **Deleted from `backend/results/`:** all 10 run directories under `ablation/` (the four 2026-10-21 runs of #306-#312, the four 2026-10-26 full runs of #314-#315, both tuning runs; 6.7 GB, none tracked) and every `unified_ablation_*.log` / `repeats_tuning_*.log` (one tracked: `unified_ablation_20261021T064655Z-addedb5c.log`, now a git deletion). The run IDs quoted in earlier entries no longer exist on disk; their numbers stand as recorded. **Kept** (tracked, data-generation records): `corpus_ingest_20261014.log`, `triage_review_queue_20261014.log`, `ablation_holdout_20261015.log`, `ablation_holdout_topup_20261016.log`.
+- **Current run `20261026T075410Z-e78b8cf6`** (`MODEL_ABLATION_BACKEND=local`, Okapi, minmax, N = 3, `enrichment_scope=area`, four arms, 933 questions; EXIT=0), then `scripts.score_area_reference` (EXIT=0). Identical to `20261026T045414Z-n3-ad9798` (#315): Level 1 -0.016, Level 2 +0.029 / +0.018 (Recall@12); 8/24 cells above the popularity baseline on Recall@12, 10/24 on MRR@12. Area-reference sets at w = 1.0: MRR@12 0.987-0.999, Recall@12 0.450-0.473 across the four arms (at w = 0.0: MRR 0.656-0.699, Recall 0.227-0.274).
+- **Reversible?:** no for the deleted files (not tracked, apart from the one log, which git can restore); every deleted run is reproducible from its recorded configuration.
+
+### 318. By-K figures draw K = 4, 6, 8, 10
+- **Date / phase:** 2026-10-26. Operator: "recall_at_k_vs_bm25_weight_by_k.png should have "Number of context hits, K" as 4, 6, 8, 10".
+- **Requirement ID(s):** PRD-112, ARCH-043.
+- **Change:** `scripts/plot_recall_vs_bm25_weight_by_k.py` default K lines 4,6,8,10,12,14 (#274) -> 4,6,8,10. **Judgment call (mine):** the same default drives `hit_at_k_vs_bm25_weight_by_k.png` (#274 set both together), so the Hit@K figure changes too; `--k-values` / `K_VALUES=` still override either. The sweep's K grid (`ABLATION_K_VALUES`) is unchanged. Figures of run `20261026T075410Z-e78b8cf6` re-rendered (`scripts.plot_ablation_figures`). `tests/test_ablation_figures.py` updated; README and Makefile help updated.
+- **Reversible?:** yes (`--k-values 4,6,8,10,12,14`).
+
+### 319. MRR figure panels K = 4, 6, 8, 10
+- **Date / phase:** 2026-10-26. Operator: "mrr_at_k_vs_bm25_weight_by_arm.png should have the panels "K=4", "K=6", "K=8", "K=10"".
+- **Requirement ID(s):** PRD-112, ARCH-043.
+- **Change:** `scripts/plot_mrr_vs_bm25_weight_by_arm.py` default panels K = 2, 4, 6, 8 (#277) -> 4, 6, 8, 10 (still lettered A-D in K order; `--k-values` overrides). Figures of run `20261026T075410Z-e78b8cf6` re-rendered. `tests/test_ablation_figures.py` and README updated.
+- **Reversible?:** yes (`--k-values 2,4,6,8`).
+
+### 320. Hit@K figures dropped from the run outputs
+- **Date / phase:** 2026-10-26. Operator: "Drop figures .../hit_at_k_by_bm25_weight.png and .../hit_at_k_vs_bm25_weight_by_k.png".
+- **Requirement ID(s):** PRD-112, ARCH-043.
+- **Change:** both files deleted from run `20261026T075410Z-e78b8cf6`, and `scripts/plot_ablation_figures.render_all` (called at the end of every unified-ablation run) no longer draws the Hit@K versions (#269). **Judgment call (mine):** "drop" read as "stop producing them", so they don't return on the next run or re-render; `--metric hit` / `METRIC=hit` on the two standalone plot scripts still draws them, and `hit_at_k` stays in the per-query rows, the statistics and `arm_vs_popularity_baseline.csv`. A run now writes three figures. `tests/test_ablation_figures.py` and README updated.
+- **Reversible?:** yes (restore the `hit_at_k` entry in `_render_scorer`).
+
+### 321. Recall figures: y-axis label "Recall at K"
+- **Date / phase:** 2026-10-26. Operator: "The y-axis label should be "Recall at K"" for `recall_at_k_by_bm25_weight.png` and `recall_at_k_vs_bm25_weight_by_k.png`.
+- **Requirement ID(s):** PRD-112, ARCH-043.
+- **Change:** `scripts/plot_recall_by_bm25_weight.METRIC_LABELS["recall_at_k"]` "Recall@K" -> "Recall at K" (shared by both scripts). Figures of run `20261026T075410Z-e78b8cf6` re-rendered. Test in `tests/test_ablation_figures.py`.
+- **Reversible?:** yes.

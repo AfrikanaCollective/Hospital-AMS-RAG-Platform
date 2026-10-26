@@ -13,26 +13,32 @@ from app.eval.ablation_config import (
     LEVEL2_CONDITIONS,
     LEVEL3_CONDITIONS,
     AblationArm,
+    area_question_repeats,
     bm25_weight_values,
+    enrichment_scope,
     k_values,
+    lexical_scorer,
     mrr_k,
 )
 
 
-def test_all_arms_has_exactly_four_generated_leaf_configurations() -> None:
-    """2 (L1) x 2 (L2) x 1 (L3 -- a single weighted-rank-fusion identity,
-    swept across `bm25_weight_values()` uniformly, not branched by arm)."""
-    assert len(ALL_ARMS) == 4
+def test_all_arms_has_exactly_ten_generated_leaf_configurations() -> None:
+    """(2 patient-detail L1 x 2 L2 + area_question/raw) x 2 lexical scorers
+    (DEVIATIONS.md #311; 4 before)."""
+    assert len(ALL_ARMS) == 10
     assert len(ALL_ARMS) == len(set(ALL_ARMS))  # no duplicates
 
 
-def test_all_arms_covers_every_combination_of_the_three_levels() -> None:
+def test_all_arms_covers_every_combination_except_enriched_area_question() -> None:
+    """Enrichment adds the record's concepts, which would bring patient
+    details back into the area-question arm, so it has no enriched variant."""
     seen = {(a.level1, a.level2, a.level3) for a in ALL_ARMS}
     expected = {
         (l1, l2, l3)
         for l1 in LEVEL1_CONDITIONS
         for l2 in LEVEL2_CONDITIONS
         for l3 in LEVEL3_CONDITIONS
+        if (l1, l2) != ("area_question", "enriched")
     }
     assert seen == expected
 
@@ -49,10 +55,11 @@ def test_arm_is_frozen_and_hashable() -> None:
     assert {arm} == {arm}  # must be hashable to dedupe/set-compare, as the tests above rely on
 
 
-def test_level3_conditions_has_exactly_one_value() -> None:
-    """The single BM25/SapBERT weighted-rank-fusion identity -- `bm25_weight`
-    is the swept parameter, not a set of named arm identities."""
-    assert set(LEVEL3_CONDITIONS) == {"bm25_sapbert"}
+def test_level3_conditions_are_the_two_lexical_scorers() -> None:
+    """The original TF x IDF scorer keeps its `bm25_sapbert` name; Okapi BM25
+    was added beside it (DEVIATIONS.md #311). `bm25_weight` is the swept
+    parameter within each."""
+    assert set(LEVEL3_CONDITIONS) == {"bm25_sapbert", "okapi_bm25_sapbert"}
 
 
 def test_bm25_weight_values_has_six_points_at_0_2_granularity() -> None:
@@ -78,3 +85,50 @@ def test_k_values_and_bm25_weight_values_and_mrr_k_are_settings_driven_not_hardc
         assert mrr_k() == 5
     finally:
         get_settings.cache_clear()
+
+
+def test_okapi_is_the_default_lexical_scorer_and_tfidf_is_an_option(monkeypatch) -> None:  # noqa: ANN001
+    """DEVIATIONS.md #312."""
+    from app.config import get_settings  # noqa: PLC0415
+
+    monkeypatch.delenv("ABLATION_LEXICAL_SCORER", raising=False)
+    get_settings.cache_clear()
+    assert lexical_scorer() == "okapi_bm25_sapbert"
+    monkeypatch.setenv("ABLATION_LEXICAL_SCORER", "tfidf")
+    get_settings.cache_clear()
+    assert lexical_scorer() == "bm25_sapbert"
+    monkeypatch.setenv("ABLATION_LEXICAL_SCORER", "bm25")
+    get_settings.cache_clear()
+    with pytest.raises(ValueError, match="ABLATION_LEXICAL_SCORER"):
+        lexical_scorer()
+    get_settings.cache_clear()
+
+
+def test_area_question_repeats_defaults_to_3_and_must_be_positive(monkeypatch) -> None:  # noqa: ANN001
+    from app.config import get_settings  # noqa: PLC0415
+
+    monkeypatch.delenv("ABLATION_AREA_QUESTION_REPEATS", raising=False)
+    get_settings.cache_clear()
+    assert area_question_repeats() == 3
+    monkeypatch.setenv("ABLATION_AREA_QUESTION_REPEATS", "0")
+    get_settings.cache_clear()
+    with pytest.raises(ValueError, match="ABLATION_AREA_QUESTION_REPEATS"):
+        area_question_repeats()
+    get_settings.cache_clear()
+
+
+def test_enrichment_scope_defaults_to_area_and_record_is_an_option(monkeypatch) -> None:  # noqa: ANN001
+    """DEVIATIONS.md #313."""
+    from app.config import get_settings  # noqa: PLC0415
+
+    monkeypatch.delenv("ABLATION_ENRICHMENT_SCOPE", raising=False)
+    get_settings.cache_clear()
+    assert enrichment_scope() == "area"
+    monkeypatch.setenv("ABLATION_ENRICHMENT_SCOPE", "record")
+    get_settings.cache_clear()
+    assert enrichment_scope() == "record"
+    monkeypatch.setenv("ABLATION_ENRICHMENT_SCOPE", "everything")
+    get_settings.cache_clear()
+    with pytest.raises(ValueError, match="ABLATION_ENRICHMENT_SCOPE"):
+        enrichment_scope()
+    get_settings.cache_clear()

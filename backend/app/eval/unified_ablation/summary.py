@@ -39,6 +39,11 @@ Level 1 x Level 2 x bm25_weight arm. Both question pools concentrate gold
 on a handful of chunks (#271), so an arm only shows real query-driven
 ranking if it beats this.
 
+**Extended 2026-10-21** (DEVIATIONS.md #311): the run also carries an
+`area_question` Level-1 condition and an `okapi_bm25_sapbert` Level-3
+scorer. Every function above is meant for the original arms only
+(`core_rows`); `summarize_added_arms` compares the new ones against them.
+
 Pooling convention (proposal §4 point 4, extended consistently to every
 comparison here — a judgment call, flagged): a comparison names the
 condition(s) it varies; every OTHER free dimension is marginalized by
@@ -56,7 +61,14 @@ from typing import Literal
 
 import numpy as np
 
-from app.eval.ablation_config import Level1Condition, Level2Condition
+from app.eval.ablation_config import (
+    OKAPI_SCORER,
+    PATIENT_LEVEL1,
+    TFIDF_SCORER,
+    Level1Condition,
+    Level2Condition,
+    Level3Condition,
+)
 from app.eval.bootstrap import DEFAULT_BOOTSTRAP_SEED, bootstrap_ci, paired_bootstrap_test
 from app.eval.metrics import hit_at_k, mrr, precision_recall_at_k
 from app.eval.unified_ablation.per_query import PerQueryResult
@@ -110,6 +122,7 @@ def per_query_scores(
     level1: Level1Condition | None = None,
     level2: Level2Condition | None = None,
     bm25_weight: float | None = None,
+    level3: Level3Condition | None = None,
 ) -> dict[str, float]:
     """One score per `query_id`: the mean of `metric` over every row at
     this `k` matching the given filters — `None` leaves that dimension
@@ -124,8 +137,27 @@ def per_query_scores(
             continue
         if bm25_weight is not None and row.bm25_weight != bm25_weight:
             continue
+        if level3 is not None and row.level3_condition != level3:
+            continue
         buckets[row.query_id].append(_metric_value(row, metric))
     return {qid: float(np.mean(scores)) for qid, scores in buckets.items()}
+
+
+def core_rows(
+    rows: list[PerQueryResult], scorer: Level3Condition | None = None
+) -> list[PerQueryResult]:
+    """The patient-detail arms on one lexical scorer (DEVIATIONS.md #311,
+    #312). The Level 1/2/3 summaries and the popularity baseline pool over
+    free dimensions, so they must see one scorer and no area-question rows.
+    `scorer=None` takes the run's only scorer, or TF x IDF when a #311 run
+    has both."""
+    if scorer is None:
+        present = {r.level3_condition for r in rows}
+        only = present.pop() if len(present) == 1 else None
+        scorer = OKAPI_SCORER if only == OKAPI_SCORER else TFIDF_SCORER
+    return [
+        r for r in rows if r.level1_condition in PATIENT_LEVEL1 and r.level3_condition == scorer
+    ]
 
 
 def _arm_score(label: str, scores: dict[str, float], *, rng: np.random.Generator) -> ArmScore:
@@ -523,5 +555,100 @@ def popularity_report_rows(baselines: list[PopularityBaseline]) -> list[dict[str
                         "p_value": d.p_value,
                         "vs_baseline": verdict,
                     }
+                )
+    return out
+
+
+@dataclass(frozen=True)
+class AddedArmComparison:
+    """One paired comparison for the arms added in DEVIATIONS.md #311, at
+    one `bm25_weight` and the headline `k`:
+
+    - `comparison="area_question"`: `area_question/raw` minus a patient-detail
+      `raw` arm (`baseline_level1`), on the same scorer (`level3`).
+    - `comparison="okapi_bm25"`: Okapi BM25 minus the original TF x IDF
+      scorer, same Level-1/Level-2 arm.
+    """
+
+    comparison: str
+    metric: str
+    k: int
+    bm25_weight: float
+    level1: str
+    level2: str
+    level3: str
+    baseline_level1: str
+    baseline_level3: str
+    arm: ArmScore
+    baseline: ArmScore
+    delta: DeltaScore
+
+
+def summarize_added_arms(
+    rows: list[PerQueryResult],
+    *,
+    k: int,
+    weight_values: tuple[float, ...],
+    metrics: tuple[Metric, ...] = ("recall", "mrr"),
+    seed: int = DEFAULT_BOOTSTRAP_SEED,
+) -> list[AddedArmComparison]:
+    """Every area-question and Okapi-vs-TF x IDF comparison the run's rows
+    support (arms absent from the run are skipped)."""
+    rng = np.random.default_rng(seed)
+    rows = [r for r in rows if r.k == k]
+    present = {(r.level1_condition, r.level2_condition, r.level3_condition) for r in rows}
+    okapi: Level3Condition = "okapi_bm25_sapbert"
+    Arm = tuple[Level1Condition, Level2Condition, Level3Condition]
+    pairs: list[tuple[str, Arm, Arm]] = []  # comparison, arm, baseline arm
+    for level3 in (TFIDF_SCORER, okapi):
+        for base_l1 in PATIENT_LEVEL1:
+            pairs.append(
+                ("area_question", ("area_question", "raw", level3), (base_l1, "raw", level3))
+            )
+    all_level1: tuple[Level1Condition, ...] = (*PATIENT_LEVEL1, "area_question")
+    level2s: tuple[Level2Condition, ...] = ("raw", "enriched")
+    for level1 in all_level1:
+        for level2 in level2s:
+            pairs.append(("okapi_bm25", (level1, level2, okapi), (level1, level2, TFIDF_SCORER)))
+    out: list[AddedArmComparison] = []
+    for metric in metrics:
+        for comparison, arm, base in pairs:
+            if arm not in present or base not in present:
+                continue
+            for w in weight_values:
+                a = per_query_scores(
+                    rows,
+                    k=k,
+                    metric=metric,
+                    level1=arm[0],
+                    level2=arm[1],
+                    level3=arm[2],
+                    bm25_weight=w,
+                )
+                b = per_query_scores(
+                    rows,
+                    k=k,
+                    metric=metric,
+                    level1=base[0],
+                    level2=base[1],
+                    level3=base[2],
+                    bm25_weight=w,
+                )
+                la, lb = "/".join(arm) + f"/w={w}", "/".join(base) + f"/w={w}"
+                out.append(
+                    AddedArmComparison(
+                        comparison=comparison,
+                        metric=metric,
+                        k=k,
+                        bm25_weight=w,
+                        level1=arm[0],
+                        level2=arm[1],
+                        level3=arm[2],
+                        baseline_level1=base[0],
+                        baseline_level3=base[2],
+                        arm=_arm_score(la, a, rng=rng),
+                        baseline=_arm_score(lb, b, rng=rng),
+                        delta=_delta_score(la, lb, a, b, rng=rng),
+                    )
                 )
     return out

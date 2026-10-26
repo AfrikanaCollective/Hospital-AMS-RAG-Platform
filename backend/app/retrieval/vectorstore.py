@@ -217,6 +217,34 @@ class QdrantVectorStore:
             wait=True,
         )
 
+    def sparse_vectors(
+        self, *, page_size: int = 256, flt: dict | None = None
+    ) -> dict[str, dict[int, float]]:
+        """Every point's indexed `sparse` term counts, by `chunk_id`
+        ({term index: count}). Ablation only (`unified_ablation.blend
+        .fetch_okapi_bm25`, DEVIATIONS.md #311); production retrieval never
+        calls this."""
+        out: dict[str, dict[int, float]] = {}
+        offset = None
+        while True:
+            batch, offset = self._client.scroll(
+                collection_name=self.collection,
+                limit=page_size,
+                offset=offset,
+                with_payload=["chunk_id"],
+                with_vectors=["sparse"],
+                scroll_filter=_build_filter(flt) if flt else None,
+            )
+            for pt in batch:
+                vec = pt.vector.get("sparse") if isinstance(pt.vector, dict) else None
+                if not isinstance(vec, qm.SparseVector):
+                    continue
+                cid = (pt.payload or {}).get("chunk_id", str(pt.id))
+                out[str(cid)] = dict(zip(vec.indices, vec.values, strict=True))
+            if offset is None:
+                break
+        return out
+
     def scroll_all(self, *, page_size: int = 256, flt: dict | None = None) -> list[dict]:
         """Every point's payload, no vector, no query — a full corpus dump.
 

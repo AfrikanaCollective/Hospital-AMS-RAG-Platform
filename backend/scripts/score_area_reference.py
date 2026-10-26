@@ -79,7 +79,8 @@ def main(argv: list[str] | None = None) -> int:
     for s in scores:
         if s.k == _HEADLINE_K and s.bm25_weight in (0.0, 1.0):
             print(
-                f"[area-reference] {s.level1}/{s.level2}/w={s.bm25_weight} {s.metric}@12 "
+                f"[area-reference] {s.level1}/{s.level2}/{s.level3}/w={s.bm25_weight} "
+                f"{s.metric}@12 "
                 f"{s.mean:.3f} [{s.ci_low:.3f}, {s.ci_high:.3f}] "
                 f"(own gold {s.current_gold_mean:.3f})"
             )

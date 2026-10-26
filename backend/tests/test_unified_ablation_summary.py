@@ -35,6 +35,7 @@ def _row(
     bm25_weight: float,
     recall: float,
     mrr: float | None = None,
+    level3: str = "bm25_sapbert",
 ) -> PerQueryResult:
     return PerQueryResult(
         query_id=query_id,
@@ -42,7 +43,7 @@ def _row(
         experiment_id="exp-1",
         level1_condition=level1,
         level2_condition=level2,
-        level3_condition="bm25_sapbert",
+        level3_condition=level3,
         k=_K,
         bm25_weight=bm25_weight,
         query_text="ignored",
@@ -402,3 +403,62 @@ def test_popularity_scores_from_gold_matches_the_row_based_version() -> None:
     rows = [_gold_row("q1", ["a", "b"]), _gold_row("q2", ["a", "c"]), _gold_row("q3", ["a", "c"])]
     gold = {"q1": {"a", "b"}, "q2": {"a", "c"}, "q3": {"a", "c"}}
     assert popularity_scores_from_gold(gold, k=2) == popularity_baseline_scores(rows, k=2)
+
+
+# ── arms added in DEVIATIONS.md #311 ──
+
+from app.eval.unified_ablation.summary import core_rows, summarize_added_arms  # noqa: E402
+
+
+def _added_arm_rows() -> list[PerQueryResult]:
+    rows = []
+    for q in ("q1", "q2", "q3"):
+        for w in _WEIGHTS:
+            for level3, bump in (("bm25_sapbert", 0.0), ("okapi_bm25_sapbert", 0.2)):
+                for level1, base in (("present_only", 0.3), ("all_assessed", 0.4)):
+                    for level2 in ("raw", "enriched"):
+                        rows.append(
+                            _row(query_id=q, level1=level1, level2=level2, bm25_weight=w,
+                                 recall=base + bump, level3=level3)
+                        )  # fmt: skip
+                rows.append(
+                    _row(query_id=q, level1="area_question", level2="raw", bm25_weight=w,
+                         recall=0.9, level3=level3)
+                )  # fmt: skip
+    return rows
+
+
+def test_core_rows_keeps_only_the_original_arms() -> None:
+    core = core_rows(_added_arm_rows())
+    assert {(r.level1_condition, r.level3_condition) for r in core} == {
+        ("present_only", "bm25_sapbert"),
+        ("all_assessed", "bm25_sapbert"),
+    }
+
+
+def test_original_level1_summary_is_unchanged_by_the_added_arms() -> None:
+    rows = _added_arm_rows()
+    assert summarize_level1(core_rows(rows), k=_K).present_only.mean == pytest.approx(0.3)
+
+
+def test_added_arm_comparisons_have_the_expected_deltas() -> None:
+    out = summarize_added_arms(_added_arm_rows(), k=_K, weight_values=_WEIGHTS, metrics=("recall",))
+    area = [c for c in out if c.comparison == "area_question"]
+    okapi = [c for c in out if c.comparison == "okapi_bm25"]
+    # 2 scorers x 2 patient baselines x 3 weights; 5 arms x 3 weights
+    assert len(area) == 12 and len(okapi) == 15
+    by = {(c.level3, c.baseline_level1): c.delta.mean_delta for c in area if c.bm25_weight == 1.0}
+    assert by[("bm25_sapbert", "present_only")] == pytest.approx(0.6)
+    assert by[("okapi_bm25_sapbert", "all_assessed")] == pytest.approx(0.3)
+    patient = [c for c in okapi if c.level1 != "area_question"]
+    assert all(c.delta.mean_delta == pytest.approx(0.2) for c in patient)
+    assert all(c.delta.n == 3 for c in out)
+
+
+def test_core_rows_takes_the_runs_only_scorer() -> None:
+    """DEVIATIONS.md #312: an Okapi-only run's core rows are its Okapi rows;
+    a #311 run with both scorers defaults to TF x IDF."""
+    rows = [r for r in _added_arm_rows() if r.level3_condition == "okapi_bm25_sapbert"]
+    assert {r.level3_condition for r in core_rows(rows)} == {"okapi_bm25_sapbert"}
+    assert {r.level3_condition for r in core_rows(_added_arm_rows())} == {"bm25_sapbert"}
+    assert {r.level1_condition for r in core_rows(rows)} == {"present_only", "all_assessed"}

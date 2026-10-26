@@ -42,7 +42,7 @@ from app.eval.question_gen.deterministic import (
     _maternal_risk_factors_line,
     _vitals_line,
 )
-from app.records.concepts import Concept, render_value
+from app.records.concepts import Concept, ConceptVocabulary, render_value
 
 AREA_ORDER = ("assessment", "investigations", "severity_classification", "antibiotic_course")
 RECORD_FACTS = frozenset(
@@ -59,6 +59,21 @@ RECORD_FACTS = frozenset(
     }
 )
 _PLACEHOLDER = "TODO_CONFIRM"
+# The record fields each record fact is rendered from (`weight_kg` reads the
+# area's own `weight` spec fields instead). A `vitals` / `maternal_risk_factors`
+# / `examination_findings` entry ending in "." covers the whole section, like
+# the lines `build_area_question` writes for it. DEVIATIONS.md #313.
+_FACT_FIELDS: dict[str, tuple[str, ...]] = {
+    "age_days": ("encounter.day_of_life",),
+    "age_days_with_band": ("encounter.day_of_life",),
+    "gestational_age": ("encounter.gestational_age_weeks",),
+    "care_setting": ("encounter.care_setting",),
+    "presenting_complaint": ("encounter.presenting_complaint",),
+    "weight_kg": (),
+    "maternal_risk_factors": ("maternal_risk_factors.",),
+    "vitals": ("vitals.",),
+    "examination_findings": ("examination_findings.",),
+}
 
 
 class QueryAreasNotAttested(ValueError):
@@ -264,11 +279,53 @@ def reviewer_question_text(text: str) -> str:
     return _WEIGHT_RENDERINGS_RE.sub(r"\1\2", text)
 
 
-def build_area_question(record: dict, area: QueryArea, *, include_absent: bool = True) -> str:
+def build_area_question_only(area: QueryArea) -> str:
+    """The area's question with no patient details: the first line of
+    `build_area_question`, the same for every record in the area. The
+    unified ablation's `area_question` Level-1 condition (DEVIATIONS.md #311)."""
+    return f"{_QUESTION_PREFIX}{area.opening}{_QUESTION_SUFFIX}"
+
+
+def area_fields(area: QueryArea) -> tuple[str, ...]:
+    """The record fields (or "section." prefixes) `area`'s question is built
+    from: its `record_facts` mapped through `_FACT_FIELDS`, plus the weight
+    spec's fields when the area lists `weight_kg`."""
+    fields: list[str] = []
+    for fact in area.record_facts:
+        fields.extend(_FACT_FIELDS[fact])
+    if "weight_kg" in area.record_facts and area.weight is not None:
+        fields.extend((area.weight.prefer_field, area.weight.fallback_field))
+    return tuple(fields)
+
+
+def area_vocabulary(vocabulary: ConceptVocabulary, area: QueryArea) -> ConceptVocabulary:
+    """`vocabulary` without the concepts whose field the area's question
+    doesn't state (DEVIATIONS.md #313), so enrichment only adds terms for
+    facts already in the query: e.g. no fever/apnoea concepts on an
+    antibiotic-course question, which lists age, gestation, weight and care
+    setting but no vitals or findings. Concepts and attestation unchanged."""
+    fields = area_fields(area)
+
+    def covered(field: str) -> bool:
+        return any(field.startswith(f) if f.endswith(".") else field == f for f in fields)
+
+    return ConceptVocabulary(
+        authored_by=vocabulary.authored_by,
+        authored_date=vocabulary.authored_date,
+        concepts=tuple(c for c in vocabulary.concepts if covered(c.field)),
+    )
+
+
+def build_area_question(
+    record: dict, area: QueryArea, *, include_absent: bool = True, question_repeats: int = 1
+) -> str:
     """One area's question for one record: the opening in the standard
     template, then only the facts the area lists. `include_absent=False`
-    drops assessed-absent findings (the ablation's present-only variant)."""
-    lines = [f"{_QUESTION_PREFIX}{area.opening}{_QUESTION_SUFFIX}", ""]
+    drops assessed-absent findings (the ablation's present-only variant).
+    `question_repeats` > 1 writes the opening that many times, so it carries
+    more weight against the patient details (the unified ablation only,
+    DEVIATIONS.md #312); question generation always uses 1."""
+    lines = [build_area_question_only(area), ""] * question_repeats
     if sentence := _patient_sentence(record, area):
         lines.append(sentence)
     weight = (

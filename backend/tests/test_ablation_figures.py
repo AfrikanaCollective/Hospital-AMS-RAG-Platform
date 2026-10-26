@@ -43,15 +43,13 @@ def _write_run(run_dir: Path, ks: tuple[int, ...]) -> None:
             )
 
 
-def test_render_all_writes_recall_and_hit_figures(tmp_path: Path) -> None:
+def test_render_all_writes_recall_and_mrr_figures_only(tmp_path: Path) -> None:
     run_dir = tmp_path / "run"
     _write_run(run_dir, ks=(8, 10, 12, 14))
     written = render_all(run_dir, weights=_WEIGHTS)
     assert {p.name for p in written} == {
         "recall_at_k_by_bm25_weight.png",
         "recall_at_k_vs_bm25_weight_by_k.png",
-        "hit_at_k_by_bm25_weight.png",
-        "hit_at_k_vs_bm25_weight_by_k.png",
         "mrr_at_k_vs_bm25_weight_by_arm.png",
     }
     assert all(p.is_file() and p.stat().st_size > 0 for p in written)
@@ -61,10 +59,7 @@ def test_figures_needing_missing_k_values_are_skipped_not_fatal(tmp_path: Path) 
     run_dir = tmp_path / "run"
     _write_run(run_dir, ks=(1, 3))  # none of the by-K lines or MRR panels
     written = render_all(run_dir, weights=_WEIGHTS)
-    assert [p.name for p in written] == [
-        "recall_at_k_by_bm25_weight.png",
-        "hit_at_k_by_bm25_weight.png",
-    ]
+    assert [p.name for p in written] == ["recall_at_k_by_bm25_weight.png"]
 
 
 def test_read_per_query_keeps_only_the_figure_columns(tmp_path: Path) -> None:
@@ -95,8 +90,8 @@ def test_hit_at_k_is_derived_from_first_relevant_rank_for_older_rows(tmp_path: P
     assert read_per_query(path).hit_at_k.tolist() == [1.0, 0.0, 0.0]
 
 
-def test_by_k_figures_draw_k_lines_4_to_14(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
-    """DEVIATIONS.md #274: both by-K figures draw K = 4, 6, ..., 14."""
+def test_by_k_figures_draw_k_lines_4_to_10(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    """DEVIATIONS.md #274, #318: the by-K figure draws K = 4, 6, 8, 10."""
     from scripts import plot_recall_vs_bm25_weight_by_k as by_k  # noqa: PLC0415
 
     drawn: dict[str, tuple[int, ...]] = {}
@@ -104,7 +99,7 @@ def test_by_k_figures_draw_k_lines_4_to_14(tmp_path: Path, monkeypatch) -> None:
     run_dir = tmp_path / "run"
     _write_run(run_dir, ks=(2, 4, 6, 8, 10, 12, 14))
     render_all(run_dir, weights=_WEIGHTS)
-    assert drawn == {"recall_at_k": (4, 6, 8, 10, 12, 14), "hit_at_k": (4, 6, 8, 10, 12, 14)}
+    assert drawn == {"recall_at_k": (4, 6, 8, 10)}
 
 
 def test_by_weight_figures_plot_every_k(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
@@ -124,11 +119,11 @@ def test_by_weight_figures_plot_every_k(tmp_path: Path, monkeypatch) -> None:  #
     run_dir = tmp_path / "run"
     _write_run(run_dir, ks=(2, 4, 6))
     render_all(run_dir, weights=_WEIGHTS)
-    assert plotted == {"recall_at_k": [2, 4, 6], "hit_at_k": [2, 4, 6]}
+    assert plotted == {"recall_at_k": [2, 4, 6]}
 
 
-def test_mrr_figure_has_panels_a_to_d_for_k_8_to_14(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
-    """DEVIATIONS.md #275/#277: one MRR figure, panels A-D = K=2/4/6/8."""
+def test_mrr_figure_has_panels_a_to_d_for_k_4_to_10(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    """DEVIATIONS.md #275/#277/#319: one MRR figure, panels A-D = K=4/6/8/10."""
     import matplotlib.pyplot as plt  # noqa: PLC0415
 
     from scripts import plot_mrr_vs_bm25_weight_by_arm as mrr_by_arm  # noqa: PLC0415
@@ -146,9 +141,101 @@ def test_mrr_figure_has_panels_a_to_d_for_k_8_to_14(tmp_path: Path, monkeypatch)
     agg = load_mean_recall(
         run_dir / "per_query_results.jsonl", _WEIGHTS, metric="reciprocal_rank_at_k"
     )
-    mrr_by_arm.plot(agg, (2, 4, 6, 8), tmp_path / "mrr.png")
+    mrr_by_arm.plot(agg, (4, 6, 8, 10), tmp_path / "mrr.png")
     axes = figures[-1].axes
-    assert [ax.get_title() for ax in axes] == ["K=2", "K=4", "K=6", "K=8"]
+    assert [ax.get_title() for ax in axes] == ["K=4", "K=6", "K=8", "K=10"]
+    assert mrr_by_arm._DEFAULT_K_VALUES == "4,6,8,10"
     letters = [t.get_text() for ax in axes for t in ax.texts]
     assert letters == ["A", "B", "C", "D"]
     assert axes[0].get_ylabel() == "Mean Reciprocal Rank (MRR)"
+
+
+def test_each_scorer_gets_its_own_figures_with_the_area_question_arm(
+    tmp_path: Path,
+    monkeypatch,  # noqa: ANN001
+) -> None:
+    """DEVIATIONS.md #311: one figure set per lexical scorer, the Okapi set
+    suffixed `_okapi_bm25`; the area-question arm is a fifth panel / line."""
+    from scripts import plot_mrr_vs_bm25_weight_by_arm as mrr_by_arm  # noqa: PLC0415
+
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    arms = [(l1, l2) for l1 in ("present_only", "all_assessed") for l2 in ("raw", "enriched")]
+    arms.append(("area_question", "raw"))
+    with (run_dir / "per_query_results.jsonl").open("w") as fh:
+        for l3, (l1, l2), w, k in itertools.product(
+            ("bm25_sapbert", "okapi_bm25_sapbert"), arms, _WEIGHTS, (2, 4, 6, 8)
+        ):
+            row = {
+                "level1_condition": l1,
+                "level2_condition": l2,
+                "level3_condition": l3,
+                "bm25_weight": w,
+                "k": k,
+                "recall_at_k": 0.5,
+                "reciprocal_rank_at_k": 0.5 if l3 == "bm25_sapbert" else 0.8,
+                "hit_at_k": 1.0,
+            }
+            fh.write(json.dumps(row) + "\n")
+    drawn: dict[str, list[str]] = {}
+    real_plot = mrr_by_arm.plot
+
+    def _spy(agg, ks, out):  # noqa: ANN001, ANN202
+        drawn[out.name] = sorted(agg.facet.unique())
+        return real_plot(agg, ks, out)
+
+    monkeypatch.setattr(mrr_by_arm, "plot", _spy)
+    names = {p.name for p in render_all(run_dir, weights=_WEIGHTS)}
+    assert "mrr_at_k_vs_bm25_weight_by_arm.png" in names
+    assert "mrr_at_k_vs_bm25_weight_by_arm_okapi_bm25.png" in names
+    assert "recall_at_k_by_bm25_weight_okapi_bm25.png" in names
+    assert len(names) == 6  # recall x2 + MRR, per scorer (no Hit@K since #320)
+    assert all(len(f) == 5 and "Area question only / Raw" in f for f in drawn.values())
+
+
+def test_a_one_scorer_okapi_run_keeps_the_plain_figure_names(tmp_path: Path) -> None:
+    """DEVIATIONS.md #312: Okapi is the default scorer, so a run with only
+    Okapi rows writes the usual file names, not `_okapi_bm25` ones."""
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    arms = [(l1, l2) for l1 in ("present_only", "all_assessed") for l2 in ("raw", "enriched")]
+    with (run_dir / "per_query_results.jsonl").open("w") as fh:
+        for (l1, l2), w, k in itertools.product(arms, _WEIGHTS, (2, 4, 6, 8)):
+            row = {
+                "level1_condition": l1,
+                "level2_condition": l2,
+                "level3_condition": "okapi_bm25_sapbert",
+                "bm25_weight": w,
+                "k": k,
+                "recall_at_k": 0.5,
+                "reciprocal_rank_at_k": 0.5,
+                "hit_at_k": 1.0,
+            }
+            fh.write(json.dumps(row) + "\n")
+    names = {p.name for p in render_all(run_dir, weights=_WEIGHTS)}
+    assert names == {
+        "recall_at_k_by_bm25_weight.png",
+        "recall_at_k_vs_bm25_weight_by_k.png",
+        "mrr_at_k_vs_bm25_weight_by_arm.png",
+    }
+
+
+def test_recall_figures_label_the_y_axis_recall_at_k(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    """DEVIATIONS.md #321: both Recall figures' y-axis reads "Recall at K"."""
+    import matplotlib.pyplot as plt  # noqa: PLC0415
+
+    figures = []
+    real_savefig = plt.Figure.savefig
+
+    def _keep(fig, *a, **kw):  # noqa: ANN001, ANN202
+        figures.append((Path(a[0]).name if a else "", fig))
+        return real_savefig(fig, *a, **kw)
+
+    monkeypatch.setattr(plt.Figure, "savefig", _keep)
+    run_dir = tmp_path / "run"
+    _write_run(run_dir, ks=(4, 6, 8, 10))
+    render_all(run_dir, weights=_WEIGHTS)
+    recall = [fig for name, fig in figures if name.startswith("recall_at_k")]
+    assert len(recall) == 2
+    for fig in recall:
+        assert {ax.get_ylabel() for ax in fig.axes if ax.get_ylabel()} == {"Recall at K"}

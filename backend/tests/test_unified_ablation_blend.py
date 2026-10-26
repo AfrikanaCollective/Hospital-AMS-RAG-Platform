@@ -9,11 +9,15 @@ import pytest
 
 from app.config import get_settings
 from app.eval.unified_ablation.blend import (
+    OkapiBM25,
     blend_bm25_dense,
     blend_bm25_dense_rrf,
     bm25_raw_scores,
     cosine_raw_scores,
+    fetch_okapi_bm25,
+    lexical_query_vector,
 )
+from app.retrieval.sparse import doc_sparse_vector, query_sparse_vector
 from app.retrieval.vectorstore import QdrantVectorStore
 from tests.test_hybrid_retrieve import _seed_chunk
 
@@ -137,3 +141,90 @@ def test_invalid_fusion_setting_is_rejected(monkeypatch: pytest.MonkeyPatch) -> 
     get_settings.cache_clear()
     with pytest.raises(ValueError, match="ABLATION_FUSION"):
         fusion()
+
+
+# ── Okapi BM25 (DEVIATIONS.md #311) ──
+
+
+def _counts(text: str) -> dict[int, float]:
+    v = doc_sparse_vector(text)
+    return dict(zip(v["indices"], v["values"], strict=True))
+
+
+_SHORT = "Sepsis antibiotics duration."
+_LONG = "sepsis " * 20 + " ".join(f"filler{i}" for i in range(200))
+
+
+def test_okapi_bm25_ranks_a_short_specific_chunk_above_a_long_repetitive_one() -> None:
+    """TF x IDF (the collection's sparse search) lets 20 repeats of one word
+    outscore a chunk with both query terms; Okapi BM25 saturates term
+    frequency and normalises by length, so the specific chunk wins."""
+    okapi = OkapiBM25(
+        {"short": _counts(_SHORT), "long": _counts(_LONG), "none": _counts("unrelated text")}
+    )
+    scores = okapi.scores("sepsis antibiotics")
+    assert scores["short"] > scores["long"] > 0
+    assert "none" not in scores  # no shared term: absent, as in bm25_raw_scores
+
+
+def test_bm25_raw_scores_is_the_tf_idf_scorer_okapi_corrects(store: QdrantVectorStore) -> None:
+    _seed_chunk(store, 1, chunk_id="short", text=_SHORT)
+    _seed_chunk(store, 2, chunk_id="long", text=_LONG)
+    _seed_chunk(store, 3, chunk_id="none", text="unrelated text")
+    ids = ["short", "long", "none"]
+    tfidf = bm25_raw_scores(store, "sepsis antibiotics", ids)
+    assert tfidf["long"] > tfidf["short"]
+    okapi = fetch_okapi_bm25(store, ids).scores("sepsis antibiotics")
+    assert okapi["short"] > okapi["long"]
+
+
+def test_fetch_okapi_bm25_reads_the_indexed_counts_of_the_given_chunks_only(
+    store: QdrantVectorStore,
+) -> None:
+    _seed_chunk(store, 1, chunk_id="c1", text="sepsis sepsis antibiotics")
+    _seed_chunk(store, 2, chunk_id="c2", text="sepsis")
+    assert store.sparse_vectors()["c1"] == _counts("sepsis sepsis antibiotics")
+    okapi = fetch_okapi_bm25(store, ["c1"])
+    assert set(okapi.scores("sepsis")) == {"c1"}
+
+
+# ── weighted area question (DEVIATIONS.md #312) ──
+
+
+def test_lexical_query_vector_weights_only_the_area_question_terms() -> None:
+    text = "What about sepsis antibiotics?\n\nThe patient had grunting."
+    q = lexical_query_vector(text, emphasis="What about sepsis antibiotics?", weight=3.0)
+    weights = dict(zip(q["indices"], q["values"], strict=True))
+    by_term = {t: weights[query_sparse_vector(t)["indices"][0]] for t in ("sepsis", "grunting")}
+    assert by_term == {"sepsis": 3.0, "grunting": 1.0}
+    assert lexical_query_vector(text, emphasis="sepsis", weight=1.0) == query_sparse_vector(text)
+    assert lexical_query_vector(text) == query_sparse_vector(text)
+
+
+def test_weighting_the_area_question_moves_okapi_towards_its_terms() -> None:
+    okapi = OkapiBM25(
+        {"area": _counts("sepsis antibiotics duration"), "patient": _counts("grunting cyanosis")}
+    )
+    text = "sepsis antibiotics grunting cyanosis"
+    flat = okapi.scores(text)
+    weighted = okapi.scores(
+        text, query_vector=lexical_query_vector(text, emphasis="sepsis antibiotics", weight=3.0)
+    )
+    assert weighted["area"] / weighted["patient"] == pytest.approx(
+        3 * flat["area"] / flat["patient"]
+    )
+
+
+def test_bm25_raw_scores_uses_the_weighted_query_vector(store: QdrantVectorStore) -> None:
+    _seed_chunk(store, 1, chunk_id="area", text="sepsis antibiotics duration")
+    _seed_chunk(store, 2, chunk_id="patient", text="grunting cyanosis")
+    text = "sepsis antibiotics grunting cyanosis"
+    flat = bm25_raw_scores(store, text, ["area", "patient"])
+    weighted = bm25_raw_scores(
+        store,
+        text,
+        ["area", "patient"],
+        query_vector=lexical_query_vector(text, emphasis="sepsis antibiotics", weight=3.0),
+    )
+    assert weighted["area"] == pytest.approx(3 * flat["area"])
+    assert weighted["patient"] == pytest.approx(flat["patient"])

@@ -132,6 +132,7 @@ def resolve_reference_sets(
 class AreaReferenceScore:
     level1: str
     level2: str
+    level3: str  # lexical scorer (DEVIATIONS.md #311)
     bm25_weight: float
     k: int
     metric: str  # recall | mrr | hit
@@ -163,7 +164,13 @@ def score_rows(
         relevant = reference.get(row.get("question_area") or "")
         if not relevant:
             continue
-        key = (row["level1_condition"], row["level2_condition"], row["bm25_weight"], row["k"])
+        key = (
+            row["level1_condition"],
+            row["level2_condition"],
+            row.get("level3_condition", "bm25_sapbert"),
+            row["bm25_weight"],
+            row["k"],
+        )
         ours[key].append(_metrics(list(row["retrieved_ids"]), relevant))
         theirs[key].append(
             (row["recall_at_k"], row["reciprocal_rank_at_k"], row.get("hit_at_k", 0.0))
@@ -178,8 +185,9 @@ def score_rows(
                 AreaReferenceScore(
                     level1=key[0],
                     level2=key[1],
-                    bm25_weight=key[2],
-                    k=key[3],
+                    level3=key[2],
+                    bm25_weight=key[3],
+                    k=key[4],
                     metric=metric,
                     n=len(values),
                     mean=float(np.mean(values)),

@@ -80,10 +80,11 @@ def test_passages_resolve_by_text_hash_and_fail_when_missing(tmp_path: Path) -> 
         resolve_reference_sets(sets, by_hash)
 
 
-def _row(area: str, retrieved: list[str], k: int = 2) -> dict:
+def _row(area: str, retrieved: list[str], k: int = 2, level3: str = "bm25_sapbert") -> dict:
     return {
         "level1_condition": "present_only",
         "level2_condition": "raw",
+        "level3_condition": level3,
         "bm25_weight": 1.0,
         "k": k,
         "question_area": area,
@@ -103,6 +104,15 @@ def test_scores_use_the_area_set_not_the_run_gold() -> None:
     assert scores["mrr"].mean == pytest.approx(0.75)
     assert scores["hit"].mean == pytest.approx(1.0)
     assert scores["recall"].current_gold_mean == 0.0
+
+
+def test_scores_are_kept_apart_per_lexical_scorer() -> None:
+    """DEVIATIONS.md #311: the two scorers are separate arms, never pooled."""
+    reference = {"assessment": frozenset({"a"})}
+    rows = [_row("assessment", ["a"]), _row("assessment", ["x"], level3="okapi_bm25_sapbert")]
+    scores = {(s.level3, s.metric): s.mean for s in score_rows(rows, reference)}
+    assert scores[("bm25_sapbert", "hit")] == 1.0
+    assert scores[("okapi_bm25_sapbert", "hit")] == 0.0
 
 
 # --- local review page (scripts/area_reference_review.py, DEVIATIONS.md #308) ---

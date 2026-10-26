@@ -17,7 +17,7 @@ import numpy as np
 import pytest
 
 from app.config import get_settings
-from app.eval.ablation_config import ALL_ARMS
+from app.eval.ablation_config import ALL_ARMS, OKAPI_SCORER, PATIENT_LEVEL1, TFIDF_SCORER
 from app.eval.auto_seed import _TOPIC
 from app.eval.model_ablation.ablation import _l2_normalize_rows, fetch_corpus
 from app.eval.model_ablation.encoders import get_sapbert_encoder
@@ -119,9 +119,11 @@ def test_sweep_produces_exactly_the_expected_row_count_for_one_question(
     assert len(rows) == 16  # see the grid comment in _stub_backends above
 
 
-def test_sweep_covers_all_4_arms_and_both_level1_level2_conditions(
+def test_single_topic_question_covers_the_original_4_arms(
     store: QdrantVectorStore,
 ) -> None:
+    """No area, so no `area_question` arm; no Okapi index passed, so only the
+    original scorer (DEVIATIONS.md #311)."""
     question = SweepQuestion(
         question_id="q1",
         text="ignored",
@@ -130,7 +132,11 @@ def test_sweep_covers_all_4_arms_and_both_level1_level2_conditions(
     )
     rows = _sweep(store, questions=[question], record_index={RECORD_ID: RECORD})
     seen_arms = {(r.level1_condition, r.level2_condition, r.level3_condition) for r in rows}
-    expected_arms = {(a.level1, a.level2, a.level3) for a in ALL_ARMS}
+    expected_arms = {
+        (a.level1, a.level2, a.level3)
+        for a in ALL_ARMS
+        if a.level1 in PATIENT_LEVEL1 and a.level3 == TFIDF_SCORER
+    }
     assert seen_arms == expected_arms
 
 
@@ -351,3 +357,167 @@ def test_four_area_question_with_unknown_area_is_skipped(store: QdrantVectorStor
         query_areas=_AREAS,
     )
     assert rows == []
+
+
+# ── area-question arm and Okapi BM25 scorer (DEVIATIONS.md #311) ──
+
+from app.eval.question_gen.areas import build_area_question_only  # noqa: E402
+from app.eval.unified_ablation.blend import fetch_okapi_bm25  # noqa: E402
+
+
+def test_four_area_question_with_okapi_covers_all_10_arms(store: QdrantVectorStore) -> None:
+    okapi = fetch_okapi_bm25(store, fetch_corpus(store).chunk_ids)
+    rows = _sweep(
+        store,
+        questions=[_area_question("assessment")],
+        record_index={RECORD_ID: RECORD},
+        query_areas=_AREAS,
+        okapi=okapi,
+        scorers=(TFIDF_SCORER, OKAPI_SCORER),
+        area_question_arm=True,
+    )
+    seen = {(r.level1_condition, r.level2_condition, r.level3_condition) for r in rows}
+    assert seen == {(a.level1, a.level2, a.level3) for a in ALL_ARMS}
+    # 10 arms x 2 weights x 2 k
+    assert len(rows) == 40
+
+
+def test_area_question_arm_has_no_patient_details(store: QdrantVectorStore) -> None:
+    other_id = uuid.uuid4()
+    other = {**RECORD, "record_id": "SYNREC-OTHER", "vitals": [{"resp_rate_bpm": 30.0}]}
+    questions = [
+        _area_question("assessment"),
+        SweepQuestion(
+            question_id="q-other",
+            text="ignored",
+            gold_chunk_ids=frozenset({"gold-chunk"}),
+            source_record_id=other_id,
+            area="assessment",
+        ),
+    ]
+    rows = _sweep(
+        store,
+        questions=questions,
+        record_index={RECORD_ID: RECORD, other_id: other},
+        query_areas=_AREAS,
+        area_question_arm=True,
+    )
+    stem = build_area_question_only(next(a for a in _AREAS.areas if a.name == "assessment"))
+    texts = {r.query_text for r in rows if r.level1_condition == "area_question"}
+    assert texts == {stem}
+    assert "grunting" not in stem and "65" not in stem
+    assert {r.level2_condition for r in rows if r.level1_condition == "area_question"} == {"raw"}
+
+
+# ── one scorer per run, weighted area question (DEVIATIONS.md #312) ──
+
+
+def test_okapi_only_run_has_the_four_patient_arms_on_okapi(store: QdrantVectorStore) -> None:
+    rows = _sweep(
+        store,
+        questions=[_area_question("assessment")],
+        record_index={RECORD_ID: RECORD},
+        query_areas=_AREAS,
+        okapi=fetch_okapi_bm25(store, fetch_corpus(store).chunk_ids),
+        scorers=(OKAPI_SCORER,),
+        area_question_repeats=3,
+    )
+    seen = {(r.level1_condition, r.level2_condition, r.level3_condition) for r in rows}
+    assert seen == {(l1, l2, OKAPI_SCORER) for l1 in PATIENT_LEVEL1 for l2 in ("raw", "enriched")}
+
+
+def test_okapi_scorer_without_an_index_fails() -> None:
+    with pytest.raises(ValueError, match="OkapiBM25"):
+        next(
+            sweep_questions(
+                [], None, None,  # type: ignore[arg-type]
+                sapbert_encoder=None,  # type: ignore[arg-type]
+                sapbert_chunk_matrix=None,  # type: ignore[arg-type]
+                record_index={}, vocabulary=None, experiment_id="e", k_grid=(2,),
+                scorers=(OKAPI_SCORER,),
+            )
+        )  # fmt: skip
+
+
+def test_area_question_repeats_puts_the_question_in_the_query_that_many_times(
+    store: QdrantVectorStore,
+) -> None:
+    stem = build_area_question_only(next(a for a in _AREAS.areas if a.name == "assessment"))
+    by_repeats = {}
+    for n in (1, 3):
+        rows = _sweep(
+            store,
+            questions=[_area_question("assessment")],
+            record_index={RECORD_ID: RECORD},
+            query_areas=_AREAS,
+            area_question_repeats=n,
+        )
+        texts = {
+            r.query_text
+            for r in rows
+            if (r.level1_condition, r.level2_condition) == ("present_only", "raw")
+        }
+        assert len(texts) == 1
+        by_repeats[n] = texts.pop()
+        assert by_repeats[n].count(stem) == n
+    # the patient details follow the repeated question unchanged
+    assert by_repeats[3].endswith(by_repeats[1].removeprefix(stem))
+
+
+# ── area-scoped enrichment (DEVIATIONS.md #313) ──
+
+from app.records.concepts import Concept  # noqa: E402
+
+# RECORD has resp rate 65 and gestation 34 weeks: both concepts fire on it.
+_VOCAB = ConceptVocabulary(
+    authored_by="test",
+    authored_date="2026-10-26",
+    concepts=(
+        Concept(
+            name="tachypnoea", field="vitals.resp_rate_bpm", operator=">", value=60, source="t"
+        ),
+        Concept(
+            name="preterm",
+            field="encounter.gestational_age_weeks",
+            operator="<",
+            value=37,
+            source="t",
+        ),
+    ),
+)
+
+
+def _enriched_text(store: QdrantVectorStore, area: str, *, scoped: bool) -> str:
+    rows = _sweep(
+        store,
+        questions=[_area_question(area)],
+        record_index={RECORD_ID: RECORD},
+        vocabulary=_VOCAB,
+        query_areas=_AREAS,
+        area_scoped_enrichment=scoped,
+    )
+    texts = {
+        r.query_text
+        for r in rows
+        if (r.level1_condition, r.level2_condition) == ("present_only", "enriched")
+    }
+    assert len(texts) == 1
+    return texts.pop()
+
+
+def test_area_scoped_enrichment_drops_concepts_the_area_does_not_state(
+    store: QdrantVectorStore,
+) -> None:
+    # antibiotic_course lists gestation but no vitals
+    scoped = _enriched_text(store, "antibiotic_course", scoped=True)
+    assert "preterm" in scoped and "tachypnoea" not in scoped
+    # whole-record enrichment (before #313) adds both
+    unscoped = _enriched_text(store, "antibiotic_course", scoped=False)
+    assert "preterm" in unscoped and "tachypnoea" in unscoped
+
+
+def test_area_scoped_enrichment_keeps_concepts_the_area_states(store: QdrantVectorStore) -> None:
+    # assessment lists vitals and gestation: same enrichment either way
+    scoped = _enriched_text(store, "assessment", scoped=True)
+    assert "preterm" in scoped and "tachypnoea" in scoped
+    assert scoped == _enriched_text(store, "assessment", scoped=False)

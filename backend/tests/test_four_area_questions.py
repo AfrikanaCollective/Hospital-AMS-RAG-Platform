@@ -17,6 +17,7 @@ from app.eval import auto_seed
 from app.eval.question_gen.areas import (
     AREA_ORDER,
     QueryAreasNotAttested,
+    area_vocabulary,
     build_area_question,
     load_query_areas,
     reviewer_question_text,
@@ -567,3 +568,37 @@ def test_holdout_and_review_pools_never_select_each_other(query: str, purpose: s
     run(session)
     assert "'four-area-v2'" in session.sql
     assert f"'{purpose}'" in session.sql
+
+
+# ── area-scoped concept vocabulary (DEVIATIONS.md #313) ──
+
+
+def test_area_vocabulary_keeps_only_concepts_on_the_areas_fields() -> None:
+    from app.records.concepts import Concept, ConceptVocabulary  # noqa: PLC0415
+
+    def concept(name: str, field: str) -> Concept:
+        return Concept(name=name, field=field, operator="present", source="t")
+
+    vocab = ConceptVocabulary(
+        authored_by="t",
+        authored_date="2026-10-26",
+        concepts=(
+            concept("fever", "vitals.temperature_c"),
+            concept("apnoea", "examination_findings.apnoea"),
+            concept("prom", "maternal_risk_factors.prom"),
+            concept("preterm", "encounter.gestational_age_weeks"),
+            concept("neonate", "encounter.day_of_life"),
+            concept("lbw", "encounter.birth_weight_g"),
+        ),
+    )
+    areas = {a.name: a for a in load_query_areas(REAL_AREAS).areas}
+
+    def names(area: str) -> set[str]:
+        return {c.name for c in area_vocabulary(vocab, areas[area]).concepts}
+
+    # antibiotic course: age, gestation, weight (current or birth), care setting
+    assert names("antibiotic_course") == {"preterm", "neonate", "lbw"}
+    # the other three list vitals, findings and maternal risk factors, not weight
+    for area in ("assessment", "investigations", "severity_classification"):
+        assert names(area) == {"fever", "apnoea", "prom", "preterm", "neonate"}
+    assert area_vocabulary(vocab, areas["assessment"]).authored_by == "t"

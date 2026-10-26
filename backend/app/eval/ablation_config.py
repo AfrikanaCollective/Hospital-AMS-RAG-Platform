@@ -14,10 +14,10 @@ field all stay structurally the same shape as before — a leaf
 configuration is still `(level1, level2, level3)`, level3 just no longer
 varies.
 
-`ALL_ARMS` is 4 leaf configurations (2 Level-1 x 2 Level-2 x 1 Level-3),
-each swept across all 6 `bm25_weight` values and the full `k` grid — 24
-(level1, level2, bm25_weight) combinations total, `len(k_values())` rows
-each.
+`ALL_ARMS` was 4 leaf configurations (2 Level-1 x 2 Level-2 x 1 Level-3)
+until DEVIATIONS.md #311 added the `area_question` Level-1 condition (raw
+only) and the `okapi_bm25_sapbert` Level-3 scorer: now 10, each swept across
+all 6 `bm25_weight` values and the full `k` grid.
 
 K and `bm25_weight` are read from `app.config.Settings` (never hardcoded)
 — shared by this module and `app.eval.unified_ablation` only; the three
@@ -33,13 +33,32 @@ from typing import Literal, get_args
 
 from app.config import get_settings
 
-Level1Condition = Literal["present_only", "all_assessed"]
+Level1Condition = Literal["present_only", "all_assessed", "area_question"]
 Level2Condition = Literal["enriched", "raw"]
-Level3Condition = Literal["bm25_sapbert"]
+Level3Condition = Literal["bm25_sapbert", "okapi_bm25_sapbert"]
 
 LEVEL1_CONDITIONS: tuple[Level1Condition, ...] = get_args(Level1Condition)
 LEVEL2_CONDITIONS: tuple[Level2Condition, ...] = get_args(Level2Condition)
 LEVEL3_CONDITIONS: tuple[Level3Condition, ...] = get_args(Level3Condition)
+
+# Added 2026-10-21 (DEVIATIONS.md #311):
+# - `area_question`: the area's question alone, no patient details. Four-area
+#   questions only, and `raw` only: enrichment adds the record's concepts,
+#   which would bring patient details back.
+# - `okapi_bm25_sapbert`: the lexical channel scored with standard Okapi BM25
+#   (`unified_ablation.blend.OkapiBM25`) instead of the collection's
+#   TF x IDF sparse search, which has no length normalisation or term
+#   saturation (`app.retrieval.sparse`). `bm25_sapbert` keeps its name so
+#   earlier runs stay comparable; it is the TF x IDF scorer.
+# The patient-detail arms. The Level 1/2/3 summaries and the popularity
+# baseline are computed on these rows only, for one scorer
+# (`summary.core_rows`).
+PATIENT_LEVEL1: tuple[Level1Condition, ...] = ("present_only", "all_assessed")
+TFIDF_SCORER: Level3Condition = "bm25_sapbert"
+OKAPI_SCORER: Level3Condition = "okapi_bm25_sapbert"
+# Since DEVIATIONS.md #312 a run uses one lexical scorer, Okapi by default
+# (`ABLATION_LEXICAL_SCORER`), and the area-question arm is opt-in.
+LEXICAL_SCORERS: dict[str, Level3Condition] = {"okapi": OKAPI_SCORER, "tfidf": TFIDF_SCORER}
 
 
 @dataclass(frozen=True)
@@ -65,7 +84,8 @@ ALL_ARMS: tuple[AblationArm, ...] = tuple(
     for l1 in LEVEL1_CONDITIONS
     for l2 in LEVEL2_CONDITIONS
     for l3 in LEVEL3_CONDITIONS
-)  # 4 = 2 x 2 x 1, generated -- never hand-enumerated (proposal §3.4)
+    if not (l1 == "area_question" and l2 == "enriched")
+)  # 10 = (2 x 2 + 1) x 2, generated -- never hand-enumerated (proposal §3.4)
 
 
 def k_values() -> tuple[int, ...]:
@@ -101,3 +121,37 @@ def mrr_k() -> int:
     (not renamed to something metric-neutral) -- a deliberate minimal-diff
     choice; it now doubles as the recall@k headline k too."""
     return get_settings().ablation_mrr_k
+
+
+def lexical_scorer() -> Level3Condition:
+    """The run's lexical channel as its `level3_condition` (DEVIATIONS.md
+    #312); anything but `okapi`/`tfidf` is a config error."""
+    name = get_settings().ablation_lexical_scorer
+    if name not in LEXICAL_SCORERS:
+        raise ValueError(
+            f"ABLATION_LEXICAL_SCORER must be one of {tuple(LEXICAL_SCORERS)}, got {name!r}"
+        )
+    return LEXICAL_SCORERS[name]
+
+
+def area_question_repeats() -> int:
+    """How many times a four-area query carries its area question
+    (DEVIATIONS.md #312); at least 1."""
+    n = get_settings().ablation_area_question_repeats
+    if n < 1:
+        raise ValueError(f"ABLATION_AREA_QUESTION_REPEATS must be >= 1, got {n}")
+    return n
+
+
+ENRICHMENT_SCOPES = ("area", "record")
+
+
+def enrichment_scope() -> str:
+    """`area` or `record` (DEVIATIONS.md #313): which concepts Level-2
+    enrichment may add to a four-area query."""
+    scope = get_settings().ablation_enrichment_scope
+    if scope not in ENRICHMENT_SCOPES:
+        raise ValueError(
+            f"ABLATION_ENRICHMENT_SCOPE must be one of {ENRICHMENT_SCOPES}, got {scope!r}"
+        )
+    return scope

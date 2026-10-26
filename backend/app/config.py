@@ -369,6 +369,20 @@ class Settings(BaseSettings):
     # rank, DEVIATIONS.md #227). `ablation_rrf_k` is the RRF damping constant.
     ablation_fusion: str = "minmax"  # minmax | rrf
     ablation_rrf_k: int = 60
+    # Lexical channel of the unified ablation (DEVIATIONS.md #312): `okapi`
+    # (Okapi BM25 over the indexed term counts, the default since #312) or
+    # `tfidf` (the collection's TF x IDF sparse search, the scorer of every
+    # run before #312). One scorer per run.
+    ablation_lexical_scorer: str = "okapi"  # okapi | tfidf
+    # Four-area queries carry the area question this many times (SapBERT
+    # reads it repeated; the lexical channel weights its terms this many
+    # times a patient-detail term). 1 = the pre-#312 queries. DEVIATIONS.md #312.
+    ablation_area_question_repeats: int = 3
+    # Which concepts Level-2 enrichment may add to a four-area query
+    # (DEVIATIONS.md #313): `area` (only concepts on a field the area's
+    # question states, the default) or `record` (any concept the whole record
+    # matches, every run before #313).
+    ablation_enrichment_scope: str = "area"  # area | record
     # Target count for `app.eval.auto_seed.run_ablation_holdout_generation`
     # (DEVIATIONS.md #199, operator request 2026-09-23) -- a de-identified
     # record used here is durably excluded from every other consumer of the

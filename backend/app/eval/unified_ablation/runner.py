@@ -4,7 +4,7 @@
 **Restructured 2026-09-23** (operator request, DEVIATIONS.md #201): Level 3
 is now a single continuous BM25/SapBERT weighted-rank-fusion sweep — MedCPT
 and RRF fusion (proposal §11, Option B) are dropped entirely, not merely
-unused. `_QueryChannelScores` no longer carries a MedCPT channel;
+unused. `_QueryChannelScores` (removed in DEVIATIONS.md #311) no longer carried a MedCPT channel;
 `get_medcpt_encoders`/`combine_dense_scores`/`rrf_combine_scores` are gone.
 
 Reuses, unchanged: `model_ablation.ablation.fetch_corpus`/`Corpus`,
@@ -20,6 +20,24 @@ Reuses, unchanged: `model_ablation.ablation.fetch_corpus`/`Corpus`,
 One real BM25 query + one SapBERT encode per (query, Level-1, Level-2)
 combination — 4 combinations per query — shared across every
 `bm25_weight`/`k` row derived from them, not recomputed per row.
+
+**Changed 2026-10-21 (DEVIATIONS.md #312):** one lexical scorer per run,
+Okapi BM25 by default (`ABLATION_LEXICAL_SCORER=tfidf` for the original);
+four-area queries carry the area question `ABLATION_AREA_QUESTION_REPEATS`
+times (default 3); the `area_question` arm is opt-in.
+
+**Changed 2026-10-26 (DEVIATIONS.md #313):** Level-2 enrichment of a
+four-area query adds only concepts on a field the area's question states
+(`ABLATION_ENRICHMENT_SCOPE=area`, default; `record` for the earlier
+whole-record enrichment).
+
+**Extended 2026-10-21 (DEVIATIONS.md #311):** a third Level-1 condition,
+`area_question` (the area's question alone, no patient details; four-area
+questions only, `raw` only), and a second Level-3 scorer,
+`okapi_bm25_sapbert` (Okapi BM25 for the lexical channel instead of the
+collection's TF x IDF sparse search), when an `OkapiBM25` index is passed.
+Each query text is still encoded once; the Okapi scores are computed in
+memory from the same indexed term counts.
 """
 
 from __future__ import annotations
@@ -33,7 +51,18 @@ from sqlalchemy import select
 
 from app.db.models.eval import EvalQuestion
 from app.eval.ablation_config import ALL_ARMS as _ALL_ARMS
-from app.eval.ablation_config import bm25_weight_values, fusion, k_values, rrf_k
+from app.eval.ablation_config import (
+    OKAPI_SCORER,
+    TFIDF_SCORER,
+    Level3Condition,
+    area_question_repeats,
+    bm25_weight_values,
+    enrichment_scope,
+    fusion,
+    k_values,
+    lexical_scorer,
+    rrf_k,
+)
 from app.eval.auto_seed import _TOPIC, FOUR_AREA_TEMPLATE
 from app.eval.deidentified_source import load_deidentified_records
 from app.eval.metrics import hit_at_k, mrr, precision_recall_at_k
@@ -44,7 +73,13 @@ from app.eval.orchestration_ablation.augment import (
     load_synthetic_record_index,
     resolve_source_record,
 )
-from app.eval.question_gen.areas import QueryAreas, build_area_question
+from app.eval.question_gen.areas import (
+    QueryArea,
+    QueryAreas,
+    area_vocabulary,
+    build_area_question,
+    build_area_question_only,
+)
 from app.eval.question_gen.deterministic import (
     build_deterministic_narrative,
     build_present_only_narrative,
@@ -52,10 +87,13 @@ from app.eval.question_gen.deterministic import (
 )
 from app.eval.retrieval_tuning.sweep import SweepQuestion, fetch_calibration_questions
 from app.eval.unified_ablation.blend import (
+    OkapiBM25,
     blend_bm25_dense,
     blend_bm25_dense_rrf,
     bm25_raw_scores,
     cosine_raw_scores,
+    fetch_okapi_bm25,
+    lexical_query_vector,
 )
 from app.eval.unified_ablation.per_query import PerQueryResult
 from app.schemas.enums import ExpectedOutcome, Provenance
@@ -65,6 +103,7 @@ if TYPE_CHECKING:
 
     from app.records.concepts import ConceptVocabulary
     from app.retrieval.vectorstore import QdrantVectorStore
+    from app.schemas.record import PatientRecord
 
 _LEVEL1_BUILDERS = {
     "present_only": build_present_only_narrative,
@@ -138,16 +177,50 @@ def _load_record_index(session: Session, records_dir: str | None) -> dict[uuid.U
     return {**synthetic, **deidentified}
 
 
-class _QueryChannelScores:
-    """BM25/SapBERT raw scores for one already-built query text — computed
-    once, reused across every `bm25_weight` swept for this (query, Level-1,
-    Level-2) combination's text."""
-
-    __slots__ = ("bm25", "sapbert")
-
-    def __init__(self, bm25: dict[str, float], sapbert: dict[str, float]):
-        self.bm25 = bm25
-        self.sapbert = sapbert
+def _query_texts(  # noqa: PLR0913
+    record: PatientRecord,
+    area: QueryArea | None,
+    topic: str,
+    vocabulary: ConceptVocabulary | None,
+    *,
+    question_repeats: int = 1,
+    area_question_arm: bool = False,
+    area_scoped_enrichment: bool = False,
+) -> list[tuple[str, str, str, str]]:
+    """(level1, level2, query text, enriched text) for every Level-1 x
+    Level-2 text of one question; a four-area question carries its area
+    question `question_repeats` times (DEVIATIONS.md #312), and with
+    `area_question_arm` also gets `area_question/raw` (#311). With
+    `area_scoped_enrichment` a four-area question is enriched only from
+    concepts on its area's fields (#313)."""
+    texts: list[tuple[str, str, str, str]] = []
+    record_dict = record.model_dump(mode="json")
+    if vocabulary is not None and area is not None and area_scoped_enrichment:
+        vocabulary = area_vocabulary(vocabulary, area)
+    for level1, builder in _LEVEL1_BUILDERS.items():
+        # The SAME topic for both Level-1 branches (DEVIATIONS.md #190/
+        # #191), so the only thing that differs between them is
+        # present/absent handling, per the comparability requirement
+        # (proposal §III).
+        if area is not None:
+            base_text = build_area_question(
+                record_dict,
+                area,
+                include_absent=level1 == "all_assessed",
+                question_repeats=question_repeats,
+            )
+        else:
+            base_text = builder(record_dict, topic=topic)
+        enriched_text = base_text
+        if vocabulary is not None:
+            enriched_text = build_arm_c_query(base_text, vocabulary, record).text
+        texts.append((level1, "raw", base_text, enriched_text))
+        texts.append((level1, "enriched", enriched_text, enriched_text))
+    if area is not None and area_question_arm:
+        # No patient details, so nothing to enrich from the record (#311).
+        stem = build_area_question_only(area)
+        texts.append(("area_question", "raw", stem, stem))
+    return texts
 
 
 def sweep_questions(
@@ -164,6 +237,11 @@ def sweep_questions(
     fusion_method: str = "minmax",
     rrf_damping: int = 60,
     query_areas: QueryAreas | None = None,
+    okapi: OkapiBM25 | None = None,
+    scorers: tuple[Level3Condition, ...] = (TFIDF_SCORER,),
+    area_question_repeats: int = 1,
+    area_question_arm: bool = False,
+    area_scoped_enrichment: bool = False,
 ) -> Iterator[PerQueryResult]:
     """Pure sweep over already-fetched `questions`/`corpus` — no I/O beyond
     the encoders/`store` callers already hold open, no Postgres session.
@@ -191,7 +269,28 @@ def sweep_questions(
     (`question_gen.areas.build_area_question`): `all_assessed` keeps
     assessed-absent findings, `present_only` drops them. An area with no
     findings in its facts (antibiotic course) gives identical text for both.
-    A four-area question whose area isn't in `query_areas` is skipped."""
+    A four-area question whose area isn't in `query_areas` is skipped.
+
+    `scorers` names the lexical channel(s) to rank with: `bm25_sapbert`
+    (TF x IDF, Qdrant's sparse search) and/or `okapi_bm25_sapbert` (Okapi
+    BM25, needs `okapi`). A run uses one since DEVIATIONS.md #312 (Okapi by
+    default, `run_unified_ablation`); the defaults here keep the pre-#311
+    behaviour for callers that pass nothing.
+
+    `area_question_repeats` (#312): a four-area query carries its area
+    question that many times; SapBERT encodes the repeated text and the
+    lexical channel weights the area question's terms by the same factor
+    (`blend.lexical_query_vector`), since a term-presence query ignores
+    repetition. `area_question_arm` (#311, opt-in since #312) adds the
+    `area_question/raw` condition: the area's question with no patient
+    details, identical for every question in the area.
+
+    `area_scoped_enrichment` (#313): enrich a four-area query only with
+    concepts on a field its area's question states
+    (`question_gen.areas.area_vocabulary`); off keeps whole-record
+    enrichment, the behaviour before #313 and of the single-topic pool."""
+    if OKAPI_SCORER in scorers and okapi is None:
+        raise ValueError("the okapi_bm25_sapbert scorer needs an OkapiBM25 index")
     areas_by_name = {a.name: a for a in query_areas.areas} if query_areas else {}
     for question in questions:
         gold = set(question.gold_chunk_ids)
@@ -209,41 +308,42 @@ def sweep_questions(
         if question.area and area is None:
             continue
 
-        for level1, builder in _LEVEL1_BUILDERS.items():
-            # The SAME topic for both Level-1 branches (DEVIATIONS.md #190/
-            # #191), so the only thing that differs between them is
-            # present/absent handling, per the comparability requirement
-            # (proposal §III).
-            record_dict = record.model_dump(mode="json")
-            if area is not None:
-                base_text = build_area_question(
-                    record_dict, area, include_absent=level1 == "all_assessed"
+        emphasis = build_area_question_only(area) if area is not None else None
+        for level1, level2, query_text, enriched_text in _query_texts(
+            record,
+            area,
+            topic,
+            vocabulary,
+            question_repeats=area_question_repeats,
+            area_question_arm=area_question_arm,
+            area_scoped_enrichment=area_scoped_enrichment,
+        ):
+            sapbert = cosine_raw_scores(
+                sapbert_encoder.encode([query_text])[0], sapbert_chunk_matrix, corpus.chunk_ids
+            )
+            qvec = lexical_query_vector(
+                query_text, emphasis=emphasis, weight=float(area_question_repeats)
+            )
+            lexical: dict[Level3Condition, dict[str, float]] = {}
+            if TFIDF_SCORER in scorers:
+                lexical[TFIDF_SCORER] = bm25_raw_scores(
+                    store, query_text, corpus.chunk_ids, query_vector=qvec
                 )
-            else:
-                base_text = builder(record_dict, topic=topic)
-
-            enriched_text = base_text
-            if vocabulary is not None:
-                enriched_text = build_arm_c_query(base_text, vocabulary, record).text
-
-            level2_texts = {"raw": base_text, "enriched": enriched_text}
-
-            for level2, query_text in level2_texts.items():
-                bm25 = bm25_raw_scores(store, query_text, corpus.chunk_ids)
-                sapbert_qvec = sapbert_encoder.encode([query_text])[0]
-                scores = _QueryChannelScores(
-                    bm25=bm25,
-                    sapbert=cosine_raw_scores(sapbert_qvec, sapbert_chunk_matrix, corpus.chunk_ids),
+            if okapi is not None and OKAPI_SCORER in scorers:
+                lexical[OKAPI_SCORER] = okapi.scores(query_text, query_vector=qvec)
+            for level3, bm25 in lexical.items():
+                arm = next(
+                    a
+                    for a in _ALL_ARMS
+                    if (a.level1, a.level2, a.level3) == (level1, level2, level3)
                 )
-
-                arm = next(a for a in _ALL_ARMS if a.level1 == level1 and a.level2 == level2)
                 for weight in bm25_weight_values():
                     if fusion_method == "rrf":
                         ranking = blend_bm25_dense_rrf(
-                            scores.bm25, scores.sapbert, bm25_weight=weight, rrf_k=rrf_damping
+                            bm25, sapbert, bm25_weight=weight, rrf_k=rrf_damping
                         )
                     else:
-                        ranking = blend_bm25_dense(scores.bm25, scores.sapbert, bm25_weight=weight)
+                        ranking = blend_bm25_dense(bm25, sapbert, bm25_weight=weight)
                     first_rank = _first_relevant_rank(ranking, gold)
                     for k in k_grid:
                         top_k = ranking[:k]
@@ -277,6 +377,7 @@ def run_unified_ablation(
     records_dir: str | None = None,
     question_set: str = "four_area",
     query_areas: QueryAreas | None = None,
+    area_question_arm: bool = False,
 ) -> Iterator[PerQueryResult]:
     """Thin orchestrator: fetch questions/corpus/records from the real
     Postgres session + Qdrant store, then delegate to `sweep_questions` (the
@@ -299,6 +400,8 @@ def run_unified_ablation(
         ]
     else:
         raise ValueError(f"unknown question_set {question_set!r}")
+    scorer = lexical_scorer()  # fails on a bad ABLATION_LEXICAL_SCORER before encoding
+    scope = enrichment_scope()  # likewise ABLATION_ENRICHMENT_SCOPE (#313)
     corpus: Corpus = fetch_corpus(store)
 
     sapbert_encoder = get_sapbert_encoder()
@@ -323,4 +426,9 @@ def run_unified_ablation(
         fusion_method=fusion(),
         rrf_damping=rrf_k(),
         query_areas=query_areas,
+        okapi=fetch_okapi_bm25(store, corpus.chunk_ids) if scorer == OKAPI_SCORER else None,
+        scorers=(scorer,),
+        area_question_repeats=area_question_repeats(),
+        area_question_arm=area_question_arm,
+        area_scoped_enrichment=scope == "area",
     )

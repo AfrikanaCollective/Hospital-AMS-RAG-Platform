@@ -1,0 +1,66 @@
+/app/app/retrieval/vectorstore.py:91: UserWarning: Api key is used with an insecure connection.
+  else QdrantClient(url=url, api_key=api_key or None)
+2026-10-26 07:54:11 [warning  ] SAPBERT_MODEL_ID='cambridgeltl/SapBERT-from-PubMedBERT-fulltext' is an UNVERIFIED placeholder (repo id and pooling method not re-checked against the model's current card — PHASE2-EMBEDDING-ABLATION-PROPOSAL.md §6). Confirm before trusting a real (non-stub) run's numbers, then set the corresponding *_VERIFIED=true.
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Loading weights:   0%|          | 0/199 [00:00<?, ?it/s]Loading weights: 100%|██████████| 199/199 [00:00<00:00, 15811.07it/s]
+2026-10-26 07:54:28 [warning  ] SECRETS_BACKEND=file: using a local DEV KEY at ./secrets/dev_kek.bin. DEV KEY — not for real data. This deployment must not touch real PHI.
+[unified-ablation] 223920 per-query-result row(s) across 10 k value(s) and 6 bm25_weight value(s)...
+[unified-ablation] wrote results/ablation/20261026T075410Z-e78b8cf6/configuration.json
+[unified-ablation] wrote results/ablation/20261026T075410Z-e78b8cf6/per_query_results.jsonl
+[unified-ablation] Level 1 delta (present-only - all-assessed) Recall@12: -0.016 [-0.019, -0.012], p=0.0000
+[unified-ablation] Level 2 delta (present_only, enriched - raw) Recall@12: +0.029 [+0.024, +0.033], p=0.0000
+[unified-ablation] Level 2 delta (all_assessed, enriched - raw) Recall@12: +0.018 [+0.015, +0.021], p=0.0000
+[unified-ablation] Level 3 delta (present_only/raw, bm25_weight=1.0 - bm25_weight=0.0) Recall@12: +0.342 [+0.329, +0.356], p=0.0000
+[unified-ablation] Level 3 delta (present_only/enriched, bm25_weight=1.0 - bm25_weight=0.0) Recall@12: +0.313 [+0.301, +0.325], p=0.0000
+[unified-ablation] Level 3 delta (all_assessed/raw, bm25_weight=1.0 - bm25_weight=0.0) Recall@12: +0.324 [+0.312, +0.336], p=0.0000
+[unified-ablation] Level 3 delta (all_assessed/enriched, bm25_weight=1.0 - bm25_weight=0.0) Recall@12: +0.300 [+0.288, +0.312], p=0.0000
+[unified-ablation] Level 3 full grid: Recall@k computed for 6 bm25_weight value(s) x 10 k value(s) = 60 points (pooled across Level 1 x Level 2) -- see statistical_summary.json
+[unified-ablation] Does BM25 weighting help at all? best bm25_weight=0.6 (selected AFTER seeing the data) vs. bm25_weight=1.0 (pure BM25), Recall@12: +0.013 [+0.007, +0.019], p=0.0000 -- POST-HOC: the weight was picked as the max of 6 empirical means, so this CI/p-value understates the true uncertainty of 'does the best of these weights beat BM25' (multiple-comparisons / winner's-curse caveat -- see BestWeightVsBM25's own docstring).
+[unified-ablation] Popularity baseline (query-blind, leave-one-out) @12: Recall 0.667, MRR 0.803, Hit 1.000
+[unified-ablation]   recall@12: 8/24 arm(s) significantly above the baseline, 11 below; best all_assessed/enriched/w=0.6 +0.051 [+0.040, +0.061]
+[unified-ablation]   mrr@12: 10/24 arm(s) significantly above the baseline, 12 below; best present_only/raw/w=1.0 +0.070 [+0.047, +0.092]
+[unified-ablation]   hit@12: 0/24 arm(s) significantly above the baseline, 4 below; best present_only/raw/w=0.2 +0.000 [+0.000, +0.000]
+[unified-ablation] wrote results/ablation/20261026T075410Z-e78b8cf6/statistical_summary.json
+[popularity-baseline] K=2: baseline Recall 0.187, MRR 0.787, Hit 0.931; arms: recall 12 above / 10 below, mrr 10 above / 12 below, hit 0 above / 12 below
+[popularity-baseline] K=4: baseline Recall 0.356, MRR 0.797, Hit 0.966; arms: recall 9 above / 9 below, mrr 10 above / 12 below, hit 13 above / 8 below
+[popularity-baseline] K=6: baseline Recall 0.457, MRR 0.801, Hit 0.985; arms: recall 10 above / 8 below, mrr 10 above / 12 below, hit 10 above / 4 below
+[popularity-baseline] K=8: baseline Recall 0.544, MRR 0.802, Hit 0.995; arms: recall 11 above / 10 below, mrr 10 above / 12 below, hit 0 above / 4 below
+[popularity-baseline] K=10: baseline Recall 0.603, MRR 0.803, Hit 0.999; arms: recall 11 above / 9 below, mrr 10 above / 12 below, hit 0 above / 4 below
+[popularity-baseline] K=12: baseline Recall 0.667, MRR 0.803, Hit 1.000; arms: recall 8 above / 11 below, mrr 10 above / 12 below, hit 0 above / 4 below
+[popularity-baseline] K=14: baseline Recall 0.732, MRR 0.803, Hit 1.000; arms: recall 2 above / 14 below, mrr 10 above / 12 below, hit 0 above / 4 below
+[popularity-baseline] K=16: baseline Recall 0.781, MRR 0.803, Hit 1.000; arms: recall 0 above / 19 below, mrr 10 above / 12 below, hit 0 above / 4 below
+[popularity-baseline] K=18: baseline Recall 0.819, MRR 0.803, Hit 1.000; arms: recall 0 above / 22 below, mrr 10 above / 12 below, hit 0 above / 3 below
+[popularity-baseline] K=20: baseline Recall 0.856, MRR 0.803, Hit 1.000; arms: recall 0 above / 23 below, mrr 10 above / 12 below, hit 0 above / 0 below
+[unified-ablation] wrote results/ablation/20261026T075410Z-e78b8cf6/arm_vs_popularity_baseline.csv
+[unified-ablation] wrote results/ablation/20261026T075410Z-e78b8cf6/recall_at_k_by_bm25_weight.png
+[unified-ablation] wrote results/ablation/20261026T075410Z-e78b8cf6/recall_at_k_vs_bm25_weight_by_k.png
+[unified-ablation] wrote results/ablation/20261026T075410Z-e78b8cf6/hit_at_k_by_bm25_weight.png
+[unified-ablation] wrote results/ablation/20261026T075410Z-e78b8cf6/hit_at_k_vs_bm25_weight_by_k.png
+[unified-ablation] wrote results/ablation/20261026T075410Z-e78b8cf6/mrr_at_k_vs_bm25_weight_by_arm.png
+EXIT=0
+[area-reference] all_assessed/enriched/okapi_bm25_sapbert/w=0.0 recall@12 0.269 [0.260, 0.278] (own gold 0.374)
+[area-reference] all_assessed/enriched/okapi_bm25_sapbert/w=0.0 mrr@12 0.699 [0.679, 0.719] (own gold 0.398)
+[area-reference] all_assessed/enriched/okapi_bm25_sapbert/w=0.0 hit@12 1.000 [1.000, 1.000] (own gold 0.962)
+[area-reference] all_assessed/enriched/okapi_bm25_sapbert/w=1.0 recall@12 0.450 [0.440, 0.461] (own gold 0.674)
+[area-reference] all_assessed/enriched/okapi_bm25_sapbert/w=1.0 mrr@12 0.987 [0.982, 0.992] (own gold 0.859)
+[area-reference] all_assessed/enriched/okapi_bm25_sapbert/w=1.0 hit@12 1.000 [1.000, 1.000] (own gold 0.999)
+[area-reference] all_assessed/raw/okapi_bm25_sapbert/w=0.0 recall@12 0.244 [0.237, 0.252] (own gold 0.353)
+[area-reference] all_assessed/raw/okapi_bm25_sapbert/w=0.0 mrr@12 0.656 [0.633, 0.679] (own gold 0.371)
+[area-reference] all_assessed/raw/okapi_bm25_sapbert/w=0.0 hit@12 1.000 [1.000, 1.000] (own gold 0.966)
+[area-reference] all_assessed/raw/okapi_bm25_sapbert/w=1.0 recall@12 0.456 [0.445, 0.467] (own gold 0.677)
+[area-reference] all_assessed/raw/okapi_bm25_sapbert/w=1.0 mrr@12 0.994 [0.990, 0.997] (own gold 0.863)
+[area-reference] all_assessed/raw/okapi_bm25_sapbert/w=1.0 hit@12 1.000 [1.000, 1.000] (own gold 0.999)
+[area-reference] present_only/enriched/okapi_bm25_sapbert/w=0.0 recall@12 0.274 [0.265, 0.282] (own gold 0.369)
+[area-reference] present_only/enriched/okapi_bm25_sapbert/w=0.0 mrr@12 0.692 [0.672, 0.713] (own gold 0.379)
+[area-reference] present_only/enriched/okapi_bm25_sapbert/w=0.0 hit@12 1.000 [1.000, 1.000] (own gold 0.968)
+[area-reference] present_only/enriched/okapi_bm25_sapbert/w=1.0 recall@12 0.473 [0.461, 0.486] (own gold 0.682)
+[area-reference] present_only/enriched/okapi_bm25_sapbert/w=1.0 mrr@12 0.991 [0.987, 0.995] (own gold 0.862)
+[area-reference] present_only/enriched/okapi_bm25_sapbert/w=1.0 hit@12 1.000 [1.000, 1.000] (own gold 0.999)
+[area-reference] present_only/raw/okapi_bm25_sapbert/w=0.0 recall@12 0.227 [0.221, 0.233] (own gold 0.329)
+[area-reference] present_only/raw/okapi_bm25_sapbert/w=0.0 mrr@12 0.666 [0.644, 0.688] (own gold 0.368)
+[area-reference] present_only/raw/okapi_bm25_sapbert/w=0.0 hit@12 1.000 [1.000, 1.000] (own gold 0.969)
+[area-reference] present_only/raw/okapi_bm25_sapbert/w=1.0 recall@12 0.472 [0.459, 0.485] (own gold 0.672)
+[area-reference] present_only/raw/okapi_bm25_sapbert/w=1.0 mrr@12 0.999 [0.998, 1.000] (own gold 0.873)
+[area-reference] present_only/raw/okapi_bm25_sapbert/w=1.0 hit@12 1.000 [1.000, 1.000] (own gold 1.000)
+[area-reference] wrote results/ablation/20261026T075410Z-e78b8cf6/area_reference_scores.csv and area_reference_summary.json
+SCORE_EXIT=0

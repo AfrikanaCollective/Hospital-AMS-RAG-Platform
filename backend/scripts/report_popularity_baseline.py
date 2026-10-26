@@ -27,6 +27,7 @@ from pathlib import Path
 from app.eval.unified_ablation.per_query import PerQueryResult, read_per_query_results
 from app.eval.unified_ablation.summary import (
     PopularityBaseline,
+    core_rows,
     popularity_report_rows,
     summarize_popularity_baseline_by_k,
 )
@@ -79,7 +80,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("run_dir", type=Path, help="results/ablation/<run_id> directory")
     args = parser.parse_args(argv)
     config = json.loads((args.run_dir / "configuration.json").read_text(encoding="utf-8"))
-    rows = read_per_query_results(args.run_dir / "per_query_results.jsonl")
+    # The patient-detail arms on the run's scorer (DEVIATIONS.md #311, #312).
+    rows = core_rows(
+        read_per_query_results(args.run_dir / "per_query_results.jsonl"),
+        config.get("lexical_scorer"),
+    )
     out = write_popularity_report(
         args.run_dir,
         rows,

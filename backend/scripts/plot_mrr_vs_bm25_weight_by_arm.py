@@ -1,13 +1,14 @@
 """CLI: python -m scripts.plot_mrr_vs_bm25_weight_by_arm RUN_DIR
-[--out FILE] [--k-values 2,4,6,8] [--bm25-weight-values 0.0,0.2,...]
+[--out FILE] [--k-values 4,6,8,10] [--bm25-weight-values 0.0,0.2,...]
 (PRD-112 / ARCH-043 — supplementary figure for a unified ablation run).
 
 Companion to `scripts/plot_recall_by_bm25_weight.py`: mean reciprocal rank
 (MRR@K, the per-query `reciprocal_rank_at_k` — the ablation's secondary
 metric) vs. BM25 score weight, one line per Level-1 x Level-2 arm
-(Present-only/All-assessed x Raw/Enriched). One panel per K, lettered A, B,
-C, D in K order, titled K=2, K=4, K=6, K=8 by default (operator request,
-DEVIATIONS.md #275/#277; it was a single panel at `ABLATION_MRR_K` before).
+(Present-only/All-assessed x Raw/Enriched, plus the dashed "Area question
+only / Raw" line since DEVIATIONS.md #311). One panel per K, lettered A, B,
+C, D in K order, titled K=4, K=6, K=8, K=10 by default (operator request,
+DEVIATIONS.md #275/#277, K=2 -> K=10 in #319; it was a single panel at `ABLATION_MRR_K` before).
 Output is an 18 x 18 cm, 300 dpi PNG written next to the input
 (`mrr_at_k_vs_bm25_weight_by_arm.png` by default).
 
@@ -40,18 +41,23 @@ from app.eval.ablation_config import bm25_weight_values  # noqa: E402
 from scripts.plot_recall_by_bm25_weight import (  # noqa: E402
     _CM,
     _DPI,
-    _FACET_ORDER,
     _FIGSIZE_CM,
+    SCORER_SUFFIX,
+    facet_order,
     load_mean_recall,
+    select_scorer,
+    with_suffix,
 )
 
 _DEFAULT_OUT_NAME = "mrr_at_k_vs_bm25_weight_by_arm.png"
 # One panel per K, lettered A, B, C, D in this order (DEVIATIONS.md #275).
-_DEFAULT_K_VALUES = "2,4,6,8"
+_DEFAULT_K_VALUES = "4,6,8,10"
 _PANEL_LETTERS = "ABCD"
-# Categorical slots 1-4 (blue, orange, aqua, yellow), validated as a set.
-_ARM_PALETTE = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100"]
-_ARM_MARKERS = ["o", "s", "^", "D"]
+# Categorical slots 1-4 (blue, orange, aqua, yellow), validated as a set,
+# plus a dark purple for the area-question arm (DEVIATIONS.md #311), which
+# is also the only arm drawn dashed.
+_ARM_PALETTE = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#5b3a8c"]
+_ARM_MARKERS = ["o", "s", "^", "D", "v"]
 
 
 def plot(agg: pd.DataFrame, k_values: tuple[int, ...], out_path: Path) -> None:
@@ -63,6 +69,10 @@ def plot(agg: pd.DataFrame, k_values: tuple[int, ...], out_path: Path) -> None:
     agg["panel"] = agg.k.map(lambda k: f"K={k}")
     panel_order = [f"K={k}" for k in k_values]
     weights = sorted(agg.bm25_weight.unique())
+    facets = facet_order(agg)
+    palette = _ARM_PALETTE[: len(facets)]
+    markers = _ARM_MARKERS[: len(facets)]
+    dashes = [(1, 0)] * min(len(facets), 4) + [(4, 2)] * (len(facets) - 4)
 
     sns.set_theme(style="whitegrid", context="paper")
     g = sns.relplot(
@@ -70,12 +80,12 @@ def plot(agg: pd.DataFrame, k_values: tuple[int, ...], out_path: Path) -> None:
         x="bm25_weight",
         y="reciprocal_rank_at_k",
         hue="facet",
-        hue_order=_FACET_ORDER,
-        palette=_ARM_PALETTE,
+        hue_order=facets,
+        palette=palette,
         style="facet",
-        style_order=_FACET_ORDER,
-        markers=_ARM_MARKERS,
-        dashes=False,
+        style_order=facets,
+        markers=markers,
+        dashes=dashes,
         col="panel",
         col_order=panel_order,
         col_wrap=min(2, len(k_values)),
@@ -111,10 +121,17 @@ def main(argv: list[str] | None = None) -> int:
         "--k-values",
         type=str,
         default=_DEFAULT_K_VALUES,
-        help="one panel per K, lettered A-D in this order (default: 2,4,6,8)",
+        help="one panel per K, lettered A-D in this order (default: 4,6,8,10)",
     )
     parser.add_argument(
         "--bm25-weight-values", type=str, default=None, help="comma-separated, e.g. 0.0,0.5,1.0"
+    )
+    parser.add_argument(
+        "--scorer",
+        choices=tuple(SCORER_SUFFIX),
+        default=None,
+        help="lexical scorer rows to plot when a run has two (DEVIATIONS.md #311); "
+        "default: the run's only scorer, or TF x IDF",
     )
     args = parser.parse_args(argv)
     if args.bm25_weight_values is not None:
@@ -130,7 +147,8 @@ def main(argv: list[str] | None = None) -> int:
     if missing:
         raise SystemExit(f"no rows in {args.run_dir} for k value(s) {missing}")
 
-    out_path = args.out or args.run_dir / _DEFAULT_OUT_NAME
+    agg, suffix_as = select_scorer(agg, args.scorer)
+    out_path = args.out or args.run_dir / with_suffix(_DEFAULT_OUT_NAME, suffix_as)
     plot(agg, k_values, out_path)
     print(out_path)
     return 0

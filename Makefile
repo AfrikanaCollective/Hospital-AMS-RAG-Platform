@@ -115,5 +115,5 @@ recall-by-bm25-weight-plot: ## Recall@K x BM25-weight 2x2 facet PNG (18x18cm @ 3
 	$(BE) $(RESOLVE_ABLATION_RUN) python -m scripts.plot_recall_by_bm25_weight "results/ablation/$$run_id" --metric "$(METRIC)"
 
 K_VALUES ?=
-recall-vs-bm25-weight-by-k-plot: ## Recall@K vs BM25-weight, one line per K, 2x2 facet PNG (18x18cm @ 300dpi) from an existing unified-ablation run; RUN_ID=<run_id> (default: latest), K_VALUES=4,6,8,10,12,14 (default), METRIC=hit plots Hit@K instead; no pip install — needs pandas+seaborn in the active env
+recall-vs-bm25-weight-by-k-plot: ## Recall@K vs BM25-weight, one line per K, 2x2 facet PNG (18x18cm @ 300dpi) from an existing unified-ablation run; RUN_ID=<run_id> (default: latest), K_VALUES=4,6,8,10 (default), METRIC=hit plots Hit@K instead; no pip install — needs pandas+seaborn in the active env
 	$(BE) $(RESOLVE_ABLATION_RUN) python -m scripts.plot_recall_vs_bm25_weight_by_k "results/ablation/$$run_id" --k-values "$(K_VALUES)" --metric "$(METRIC)"

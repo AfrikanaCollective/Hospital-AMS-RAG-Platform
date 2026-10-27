@@ -57,11 +57,11 @@ def test_the_attested_table_loads() -> None:
     table = load_triage_mortality(REAL_MORTALITY)
     assert set(table.mortality) == set(TRIAGE_CATEGORIES)
     assert table.mortality == {
-        "Critical": ">60%",
-        "Substantial": ">45%",
-        "Moderate": "~9%",
+        "Critical": "~68%",
+        "Substantial": "~42%",
+        "Moderate": "~10%",
         "Low": "~3%",
-        "Minimal": "<1%",
+        "Minimal": "~1%",
     }
     assert "10.1371/journal.pone.0359212" in table.url
 
@@ -72,7 +72,7 @@ def test_the_narrative_uses_the_agreed_wording() -> None:
         "This newborn was assigned triage category Moderate based on the information "
         "available at the time of admission. In the PLOS ONE study "
         "(doi:10.1371/journal.pone.0359212), newborns in this category had a mortality "
-        "rate of ~9%. How strongly do you agree with this triage category, given the "
+        "rate of ~10%. How strongly do you agree with this triage category, given the "
         "clinical features shown?"
     )
 

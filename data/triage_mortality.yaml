@@ -8,11 +8,11 @@
 # is filled in (no TODO_CONFIRM); otherwise the triage question cannot be
 # generated or served.
 #
-# `mortality` is shown exactly as written here (">60%", "~9%", ...).
+# `mortality` is shown exactly as written here ("~68%", "~10%", ...).
 
 attested_by: "Timothy Tuti"
 attested_role: "Primary Investigator"
-attested_date: "2026-10-14"
+attested_date: "2026-10-26"
 
 source:
   # Read in the narrative as "In <citation>, newborns in this category ..."
@@ -20,10 +20,14 @@ source:
   url: "https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0359212"
 
 # Ordered from highest to lowest risk. Names must match the dataset's
-# `triage_category` values exactly.
+# `triage_category` values exactly. Figures are the in-hospital mortality of
+# each cluster in the study's DEVELOPMENT cohort (Table 3: 67.8%, 42.47%,
+# 9.56%, 2.86%, 0.98%), rounded; the extract's 8 hospitals are that cohort's
+# hospitals. Replaces the 2026-10-14 figures (">60%", ">45%", "~9%", "~3%",
+# "<1%"), which mixed the development and validation cohorts (DEVIATIONS.md #322).
 categories:
-  Critical:    { mortality: ">60%" }
-  Substantial: { mortality: ">45%" }
-  Moderate:    { mortality: "~9%" }
+  Critical:    { mortality: "~68%" }
+  Substantial: { mortality: "~42%" }
+  Moderate:    { mortality: "~10%" }
   Low:         { mortality: "~3%" }
-  Minimal:     { mortality: "<1%" }
+  Minimal:     { mortality: "~1%" }

@@ -4048,3 +4048,11 @@ not retroactively. When in doubt, log it.
 - **Requirement ID(s):** PRD-112, ARCH-043.
 - **Change:** `scripts/plot_recall_by_bm25_weight.METRIC_LABELS["recall_at_k"]` "Recall@K" -> "Recall at K" (shared by both scripts). Figures of run `20261026T075410Z-e78b8cf6` re-rendered. Test in `tests/test_ablation_figures.py`.
 - **Reversible?:** yes.
+
+### 322. Triage-agreement mortality figures: development-cohort values
+- **Date / phase:** 2026-10-26. While drafting the manuscript, the figures in `data/triage_mortality.yaml` (#299: Critical ">60%", Substantial ">45%", Moderate "~9%", Low "~3%", Minimal "<1%") were checked against the cited study (Tuti et al., PLoS One 2026;21(9):e0359212, Table 3). "Substantial >45%" did not hold for the development cohort (42.47%), and "Minimal <1%" did not hold for the external-validation cohort (3.06%). Operator: "use the development-cohort mortality figures"; the extract's 8 hospitals are the development cohort's hospitals.
+- **Requirement ID(s):** PRD-114, ARCH-046.
+- **Change:** figures -> Critical "~68%", Substantial "~42%", Moderate "~10%", Low "~3%", Minimal "~1%" (development cohort: 67.8%, 42.47%, 9.56%, 2.86%, 0.98%); `attested_date` 2026-10-26, attester unchanged (Timothy Tuti, Primary Investigator). `tests/test_triage_review.py` updated to the new values. **Judgment calls (mine):** rounded to whole percent with "~", matching the file's existing style; the citation text and the agreed narrative wording are unchanged.
+- **Effect on the queue:** none needed. `GET /review-queue/{id}` reads the table on every request, so the 200 assessment items show the new figures once the `api` container sees the file (read-only bind mount). No ratings existed (0 rating rounds), so no rater saw the old figures in a completed rating. The `triage_mortality_sha256` stored on each item at generation (#303) still records the old table; it is provenance only and is not compared at serve time.
+- **Provenance:** `data/PROVENANCE.json` pins this file's hash, so `make provenance-check` reports it as changed until the operator re-pins (`make provenance`). Not re-pinned here.
+- **Reversible?:** yes (restore the 2026-10-14 values).

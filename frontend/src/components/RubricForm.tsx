@@ -50,6 +50,7 @@ export default function RubricForm({
   initial,
   onChange,
   submitLabel = "Submit rating",
+  readOnly = false,
 }: {
   candidateAnswer?: string | null;
   triageReview?: TriageReview | null;
@@ -58,6 +59,8 @@ export default function RubricForm({
   initial?: Partial<RatingDraftState>;
   onChange?: (state: RatingDraftState) => void;
   submitLabel?: string;
+  // A preview account (DEVIATIONS.md #323): every step works, submit never does.
+  readOnly?: boolean;
 }) {
   const [domains, setDomains] = useState<RubricDomain[]>([]);
   const [scores, setScores] = useState<Record<string, number>>(initial?.scores ?? {});
@@ -233,10 +236,10 @@ export default function RubricForm({
             type="button"
             variant="primary"
             onClick={() => formRef.current?.requestSubmit()}
-            disabled={!complete || busy}
+            disabled={!complete || busy || readOnly}
             className="flex-1"
           >
-            {busy ? "Submitting…" : submitLabel}
+            {readOnly ? "Preview: not submitted" : busy ? "Submitting…" : submitLabel}
           </Button>
         ) : (
           <Button

@@ -1,0 +1,91 @@
+# Task: Draft manuscript sections from this codebase
+
+You've been helping me build the analysis in this repository. Now help me turn it into manuscript text for a peer-reviewed journal: Abstract, Background/Introduction, Methods, and Results. Every methodological claim and every number must trace back to the code or its outputs. Do not invent anything.
+
+## Study context (fill in / correct as needed)
+- Working title: Evaluation of a retrieval-augmented large language model approach to guideline-grounded answers for newborns with possible serious bacterial infection at hospital admission in Kenya (PI, 2026-10-27)
+- Scope (Option A, decided 2026-10-26; replaces the earlier ablation-only scope): one paper. PRIMARY = the multi-rater clinician evaluation of the pipeline's guideline-grounded answers (800-item triage-stratified review queue, 200 records, 11-domain PATH rubric per query area). SECONDARY = inter-rater agreement (Krippendorff's alpha), the accept decision (full/partial accept, reject, out of scope; added 2026-10-26), triage agreement, and the offline retrieval ablation (PRD-112 / ARCH-043; exploratory). The Hospital RAG Platform's other capabilities are context only. Background and Methods can be drafted now; primary Results and the Abstract wait for the ratings.
+- Human ratings (in progress): no ratings yet. Until rating is complete, keep clearly marked placeholders for the primary results (e.g., `[PLACEHOLDER: clinician ratings — results to be added when rating is complete]`); do not describe the rating as completed or report any numbers for it.
+- Wording: say "guideline-grounded answers", never "advice". Describe queries as "questions generated from routine records": each record produces one templated question per query area.
+- Topic: umbrella = suspected neonatal infection / sepsis; the four query areas (assessment, investigations, severity classification, antibiotic course) are facets of it. Findings stratified by query area.
+- Target journal: BMC Medical Informatics and Decision Making; word limits: abstract [350], main text [4000]
+- Abstract format: [structured: Background / Methods / Results / Conclusions]
+- Study design: An offline evaluation study of a retrieval-augmented generation platform using retrospectively collected, de-identified routine newborn-unit records, comprising (1) an exploratory ablation of retrieval query construction (933 holdout records; configuration chosen on the same pool, so exploratory) and (2) a cross-sectional multi-rater clinician evaluation of system-generated answers [PLACEHOLDER: ratings collected prospectively from clinicians; 200 review-queue records / 800 items, disjoint from the holdout records; pre-specify domains, scale and agreement statistic before rating starts]. Offline: no answer reached clinicians caring for the patients and no patient was affected. KEMRI/SERU approval KEMRI/SERU/CGMR-C/307/4901 covers clinician raters, and a rater consent process is in place (confirmed by the PI).
+- Reporting guideline to follow: TRIPOD-LLM (https://www.nature.com/articles/s41591-024-03425-5, https://media.springernature.com/original/springer-static/esm/art%3A10.1038%2Fs41591-024-03425-5/MediaObjects/41591_2024_3425_MOESM3_ESM.pdf)
+- Data source and setting: [e.g., registry name, sites, country, years]
+- LLM details: Qwen3.6:35b, Q4_K_M quantisation, served locally through Ollama behind the BRIDGE LLM Gateway (fallback routing available; code: https://github.com/AfrikanaCollective/BRIDGE_LLM_Gateway), Ollama version 0.32.14. Used for answer synthesis and citation verification when the holdout gold sets were generated (2026-10-15/16); every gold-generating answer came from Qwen3.6:35b (no fallback model used, confirmed by the PI). Gateway release/1.0; LLM served on an NVIDIA H200 GPU. Gateway-fixed settings: num_ctx 32768 (larger requests rejected), think = false (fixed in the provider), stream = false. The platform's code sets no temperature, top-p, max tokens or seed. [TODO: confirm whether the gateway sets temperature/top-p/seed or leaves Ollama's model defaults.] Retrieval-ablation encoders (SapBERT) ran on CPU (Intel Core i9-14900KF) in the api container (no GPU visible to it).
+- Ethics approval: KEMRI Scientific and Ethics Review Unit (SERU, Protocol number: KEMRI/SERU/CGMR-C/307/4901)
+- Primary research question / hypothesis: exploratory, no prespecified hypothesis. Research question: how do clinicians rate the guideline-grounded answers of a RAG pipeline restricted to local clinical guidelines, for questions about suspected neonatal infection / sepsis generated from routinely collected, de-identified newborn-unit records? Primary outcome: clinician ratings on the 11 domains of the PATH LLM evaluation rubric (5-point Likert, 1 = worst; rubric text in code verified verbatim against https://media.path.org/documents/LLM_Playbook_final.pdf on 2026-10-26), per query area. Analysis (decided 2026-10-26, to be prespecified before rating starts): (a) descriptive — full score distribution per domain x query area, median (IQR) in tables; (b) primary estimate — probability of a rating >=4 per domain x query area from a multilevel Bayesian cumulative-logit model (brms), fixed effects domain x query area, random intercepts for rater and source record, individual (not averaged) ratings modelled; (c) agreement — ordinal Krippendorff's alpha per domain. All 11 domains carry equal weight in the paper (the code's four "required" domains are not headlined). Approach follows Mwaniki et al. BMJ Digit Health AI 2026, doi:10.1136/bmjdh-2026-000081 (PMC13528382), adapted: 3 independent raters, no consensus/tie-break, no comparator source. [TODO: brms priors, chains/iterations, convergence criteria.]
+- Funding (PI, 2026-10-26): Wellcome Trust Early Career Research Fellowship (#227562/Z/23/Z) awarded to TT; additional support from a Wellcome Trust core grant to the KEMRI-Wellcome Trust Research Programme (#092654). Funders had no role in study design, data collection and analysis, decision to publish, or preparation of the manuscript.
+- Competing interests (PI, 2026-10-26): none.
+- Patient and public involvement (PI, 2026-10-26): none.
+- Patient consent (PI, 2026-10-26): individual patient consent waived by the ethics committee (KEMRI/SERU).
+- Registration/protocol (PI, 2026-10-26): study not registered; no protocol published.
+- Data availability (PI, 2026-10-26): restricted; requests to the KEMRI-Wellcome Trust Research Programme Data Governance Committee (dgc@kemri-wellcome.org). Code: https://github.com/AfrikanaCollective/Hospital-AMS-RAG-Platform.
+- Triage category (PI, 2026-10-26): assigned from Tuti T et al. PLoS One 2026;21(9):e0359212 (LCA mortality-risk clusters of pSBI signs at admission; CIN, 21 hospitals in 14 counties, Jan 2022-Dec 2024).
+- Extract (PI, 2026-10-26): triage categories assigned by applying the Tuti et al. 2026 LCA model; extract limited to neonates with >=1 pSBI sign at admission (all records are suspected infections).
+- Qwen release (PI, 2026-10-26): Qwen3.6:35B released 16 April 2026; used without fine-tuning. [TODO: training-data cut-off.]
+- Code availability (PI, 2026-10-26): manuscript/ stays gitignored, so the code statement covers the platform and the ablation only; manuscript summary scripts are not public.
+- Sites (PI, 2026-10-26): 8 CIN hospitals = the development-cohort hospitals of Tuti et al. 2026. Triage mortality shown to raters changed to development-cohort figures (~68/~42/~10/~3/~1%; DEVIATIONS #322).
+- Admission dates (PI, 2026-10-26): January 2021 to December 2024 (extract), wider than the triage study's Jan 2022-Dec 2024 cohort.
+- Prompts (PI, 2026-10-26): not tuned on study records; included verbatim as Additional file 2 (manuscript/06_supplement_S2_prompts.md). No sentence about 2021 admissions vs the triage model's 2022-2024 development period.
+- Extract selection (PI, 2026-10-26): from the 8 hospitals, admissions with >30% missing across 14 features (floppy, irritability, difficulty eating, apnoea, cyanosis, lower chest indrawing, grunting, crackles, bulging fontanelle, convulsions, capillary refill >=3 s, temperature category, tachypnoea RR>59, hypoxia) dropped; unique feature combinations kept; 300 sampled per mortality-risk cluster with a fixed seed -> 1,500 records.
+- Extract counts (PI, 2026-10-27): 44,626 admissions with >=1 pSBI sign (Jan 2021-Dec 2024); 237 excluded for >30% missing -> 44,389; 7,994 = one admission kept per unique feature combination (PI, 2026-10-27); 1,500 sampled (18.76% of 7,994), seed 20261013.
+- Citation style: [Vancouver]
+
+## Step 1 — Inventory before writing (no prose yet)
+Read the repository and produce `manuscript/00_inventory.md` containing:
+1. **Pipeline map**: the order in which scripts/notebooks run, from raw data to final outputs, with file paths.
+2. **Data and cohort**: data sources, inclusion/exclusion criteria as implemented in code (with file:line references), and the sample size at each filtering step (needed for a flow diagram).
+3. **Variables**: outcome(s), exposure(s)/predictors, covariates, and how each is derived, coded, categorized, or transformed.
+4. **Missing data handling**: exclusion, imputation (method, number of imputations, variables in the model), etc.
+5. **Statistical/analytic methods**: every model or test actually run — model type, specification, link function, random effects, adjustment sets, interaction terms, multiple-comparison corrections, significance thresholds, CIs, sensitivity and subgroup analyses. For ML: splits, cross-validation scheme, hyperparameter tuning, calibration, performance metrics, and how leakage is prevented.
+6. **Software**: language and package versions (from lockfiles, `sessionInfo()`, `requirements.txt`, `renv.lock`, `environment.yml`, etc.) and random seeds.
+7. **Outputs**: every table, figure, and results file the code produces, with path and what it contains.
+8. **Discrepancies and gaps**: anything inconsistent (e.g., a covariate defined but unused, two versions of an analysis, outputs that look stale relative to the code), and anything a reviewer would expect that I haven't done.
+
+Then stop and show me the inventory and a short list of questions. Wait for my answers before drafting.
+
+## Step 2 — Verify the numbers
+- Prefer results from existing output files. If outputs are missing or older than the code that produces them, tell me and ask before re-running anything.
+- Build `manuscript/numbers.md`: a table of every number that will appear in the text (N, %, means/SDs, medians/IQRs, effect estimates, 95% CIs, p-values, AUCs, etc.), each with its source file and location, or the script that computes it.
+- Recompute derived values (percentages, differences) rather than doing mental arithmetic, and check that totals add up across tables.
+
+## Step 3 — Draft the sections
+Write to `manuscript/` as separate Markdown files (`01_abstract.md`, `02_background.md`, `03_methods.md`, `04_results.md`).
+
+**Methods**
+- Organize by the reporting guideline's checklist items, with subheadings (e.g., Study design and setting; Participants; Variables; Data sources; Statistical analysis; Sensitivity analyses; Software and reproducibility; Ethics).
+- Describe what the code does, in enough detail to replicate it, in past tense and plain scientific prose. Don't mention function names or file paths in the text.
+- State software and key package versions, and include a data/code availability statement placeholder.
+
+**Results**
+- Follow the order of the Methods: participant flow → baseline characteristics → primary outcome → secondary outcomes → sensitivity/subgroup analyses.
+- Report effect estimates with 95% CIs, and exact p-values (p<0.001 for small values), using consistent decimal places.
+- Refer to tables and figures by number ("Table 1", "Figure 2"), and include a numbered list of proposed table/figure titles and legends mapped to their output files.
+- Report findings only. No interpretation, causal language beyond what the design supports, or discussion.
+
+**Background**
+- 3–5 paragraphs: burden/importance → what is known → the specific gap → study aim/hypothesis.
+- **Do not fabricate references.** Where a claim needs support, insert `[CITE: description of the needed evidence]`. You may suggest search terms, but never write author names, years, or DOIs you haven't verified from a file I've provided.
+
+**Abstract**
+- Write it last, from the finished Methods and Results. Every number in it must match `numbers.md`. Stay within the word limit, and report the count.
+
+## Rules throughout
+- If the code and my description disagree, the code wins, and you flag the conflict.
+- Use `[TODO: ...]` for anything you can't determine from the repo (ethics numbers, funding, recruitment dates, clinical context).
+- Don't overstate: match causal language to the design, and call exploratory analyses exploratory.
+- Don't modify analysis code without asking. If you find a bug that would change results, stop and tell me.
+- At the end, produce `manuscript/checklist.md`: the reporting guideline's items, each marked as addressed (with section) or missing.
+- Qwen citation (PI, 2026-10-27): Qwen Team, 'Qwen3.6-35B-A3B: Agentic Coding Power, Now Open to All', April 2026, https://qwen.ai/blog?id=qwen3.6-35b-a3b. Training-data summary: https://qwen.ai/training-data-summary (client-rendered; cut-off not yet read).
+- Model label (PI, 2026-10-27): qwen3.6:35b is Qwen3.6-35B-A3B; manuscript keeps the qwen3.6:35b label.
+- Scripts (PI, 2026-10-27): do not state that manuscript scripts are available on request.
+- Gateway defaults (PI, 2026-10-27): temperature 0.0, top-p 1.0, num_predict 4096, seed 42, top-k 1; overridable per request (platform does not override).
+- Decoding wording (PI, 2026-10-27): top-k 1 confirmed as a gateway default; describe as "greedy decoding", not "deterministic".
+- Training-data cut-off (PI, 2026-10-27): not explicitly published for Qwen3.6 models; manuscript says the developers have not published one.
+- Percentages (PI, 2026-10-27): all reported percentages to two decimal places (half-up), recomputed from counts. Design thresholds (30% missing, 15% overlap, 5% SpO2 tolerance), the 95% CI/CrI level and the rater-facing rounded mortality figures (~68%...) stay as written.
+- Triage features shown (PI, 2026-10-27): the assessment question shows only assessed findings (present or absent), not all 14 LCA features.
+- Triage-agreement analysis (PI, 2026-10-27): brms cumulative-logit, score ~ triage_category + (1|rater) + (1|record); report P(score>=4) per category with 95% CrI; sensitivity with category-specific effects (cs()); alpha ordinal plus observed % agreement; between-category comparisons exploratory.
+- brms fitting (PI request, 2026-10-27): priors student_t(3,0,2.5) thresholds, normal(0,1.5) b, half-student_t(3,0,2.5) sd; 4 chains x 4,000 iter (2,000 warm-up); Rhat<=1.01, ESS>=400, no divergences (adapt_delta 0.95->0.99); prior sensitivity normal(0,5) on b; cs() sensitivity uses acat family. Priors confirmed (PI, 2026-10-27); seed 20261027. Software versions TODO.
+- By-hospital breakdown (PI, 2026-10-27): do not add a sentence explaining its absence (TRIPOD-LLM 16b stays partly addressed). Records have no hospital field.

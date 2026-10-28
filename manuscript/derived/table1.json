@@ -1,0 +1,498 @@
+{
+ "dataset_id": "newborn_nbu_2021",
+ "checks": {
+  "unresolved_ids": {
+   "all_ingested": 0,
+   "review_queue": 0,
+   "holdout": 0,
+   "holdout_analysed": 0,
+   "holdout_excluded_no_gold": 0
+  },
+  "review_holdout_overlap": 0,
+  "analysed_subset_of_holdout": true
+ },
+ "sets": {
+  "all_ingested": {
+   "n_records": 1500,
+   "sex": {
+    "Female": {
+     "n": 613,
+     "pct": 40.86666666666667
+    },
+    "Male": {
+     "n": 883,
+     "pct": 58.86666666666667
+    },
+    "Not recorded": {
+     "n": 4,
+     "pct": 0.26666666666666666
+    }
+   },
+   "triage_category": {
+    "Critical": {
+     "n": 300,
+     "pct": 20.0
+    },
+    "Substantial": {
+     "n": 300,
+     "pct": 20.0
+    },
+    "Moderate": {
+     "n": 300,
+     "pct": 20.0
+    },
+    "Low": {
+     "n": 300,
+     "pct": 20.0
+    },
+    "Minimal": {
+     "n": 300,
+     "pct": 20.0
+    }
+   },
+   "care_setting": {
+    "NBU": {
+     "n": 1500,
+     "pct": 100.0
+    }
+   },
+   "vitals_snapshots_per_record": {
+    "0": 1,
+    "1": 1499
+   },
+   "day_of_life": {
+    "n": 1500,
+    "missing": 0,
+    "median": 1.0,
+    "q1": 1.0,
+    "q3": 1.0
+   },
+   "gestational_age_weeks": {
+    "n": 1368,
+    "missing": 132,
+    "median": 38.0,
+    "q1": 32.0,
+    "q3": 39.0
+   },
+   "birth_weight_g": {
+    "n": 1500,
+    "missing": 0,
+    "median": 2675.0,
+    "q1": 1630.0,
+    "q3": 3200.0
+   },
+   "temperature_c": {
+    "n": 1281,
+    "missing": 219,
+    "median": 36.5,
+    "q1": 35.4,
+    "q3": 37.4
+   },
+   "heart_rate_bpm": {
+    "n": 1286,
+    "missing": 214,
+    "median": 137.0,
+    "q1": 123.0,
+    "q3": 150.0
+   },
+   "resp_rate_bpm": {
+    "n": 1198,
+    "missing": 302,
+    "median": 58.5,
+    "q1": 48.0,
+    "q3": 68.0
+   },
+   "spo2_percent": {
+    "n": 1171,
+    "missing": 329,
+    "median": 93.0,
+    "q1": 87.0,
+    "q3": 96.0
+   }
+  },
+  "review_queue": {
+   "n_records": 200,
+   "sex": {
+    "Female": {
+     "n": 83,
+     "pct": 41.5
+    },
+    "Male": {
+     "n": 117,
+     "pct": 58.5
+    }
+   },
+   "triage_category": {
+    "Critical": {
+     "n": 40,
+     "pct": 20.0
+    },
+    "Substantial": {
+     "n": 40,
+     "pct": 20.0
+    },
+    "Moderate": {
+     "n": 40,
+     "pct": 20.0
+    },
+    "Low": {
+     "n": 40,
+     "pct": 20.0
+    },
+    "Minimal": {
+     "n": 40,
+     "pct": 20.0
+    }
+   },
+   "care_setting": {
+    "NBU": {
+     "n": 200,
+     "pct": 100.0
+    }
+   },
+   "vitals_snapshots_per_record": {
+    "1": 200
+   },
+   "day_of_life": {
+    "n": 200,
+    "missing": 0,
+    "median": 1.0,
+    "q1": 1.0,
+    "q3": 1.0
+   },
+   "gestational_age_weeks": {
+    "n": 182,
+    "missing": 18,
+    "median": 38.0,
+    "q1": 32.0,
+    "q3": 39.0
+   },
+   "birth_weight_g": {
+    "n": 200,
+    "missing": 0,
+    "median": 2700.0,
+    "q1": 1597.5,
+    "q3": 3200.0
+   },
+   "temperature_c": {
+    "n": 176,
+    "missing": 24,
+    "median": 36.5,
+    "q1": 35.650000000000006,
+    "q3": 37.2
+   },
+   "heart_rate_bpm": {
+    "n": 177,
+    "missing": 23,
+    "median": 136.0,
+    "q1": 124.0,
+    "q3": 148.0
+   },
+   "resp_rate_bpm": {
+    "n": 167,
+    "missing": 33,
+    "median": 60.0,
+    "q1": 49.5,
+    "q3": 68.0
+   },
+   "spo2_percent": {
+    "n": 170,
+    "missing": 30,
+    "median": 93.0,
+    "q1": 88.0,
+    "q3": 96.0
+   }
+  },
+  "holdout": {
+   "n_records": 980,
+   "sex": {
+    "Female": {
+     "n": 398,
+     "pct": 40.61224489795919
+    },
+    "Male": {
+     "n": 578,
+     "pct": 58.97959183673469
+    },
+    "Not recorded": {
+     "n": 4,
+     "pct": 0.40816326530612246
+    }
+   },
+   "triage_category": {
+    "Critical": {
+     "n": 178,
+     "pct": 18.163265306122447
+    },
+    "Substantial": {
+     "n": 214,
+     "pct": 21.836734693877553
+    },
+    "Moderate": {
+     "n": 198,
+     "pct": 20.20408163265306
+    },
+    "Low": {
+     "n": 209,
+     "pct": 21.3265306122449
+    },
+    "Minimal": {
+     "n": 181,
+     "pct": 18.46938775510204
+    }
+   },
+   "care_setting": {
+    "NBU": {
+     "n": 980,
+     "pct": 100.0
+    }
+   },
+   "vitals_snapshots_per_record": {
+    "1": 980
+   },
+   "day_of_life": {
+    "n": 980,
+    "missing": 0,
+    "median": 1.0,
+    "q1": 1.0,
+    "q3": 1.0
+   },
+   "gestational_age_weeks": {
+    "n": 897,
+    "missing": 83,
+    "median": 38.0,
+    "q1": 32.0,
+    "q3": 39.0
+   },
+   "birth_weight_g": {
+    "n": 980,
+    "missing": 0,
+    "median": 2675.0,
+    "q1": 1753.75,
+    "q3": 3200.0
+   },
+   "temperature_c": {
+    "n": 873,
+    "missing": 107,
+    "median": 36.4,
+    "q1": 35.4,
+    "q3": 37.1
+   },
+   "heart_rate_bpm": {
+    "n": 890,
+    "missing": 90,
+    "median": 138.0,
+    "q1": 122.0,
+    "q3": 151.75
+   },
+   "resp_rate_bpm": {
+    "n": 824,
+    "missing": 156,
+    "median": 60.0,
+    "q1": 48.0,
+    "q3": 68.0
+   },
+   "spo2_percent": {
+    "n": 801,
+    "missing": 179,
+    "median": 93.0,
+    "q1": 86.0,
+    "q3": 96.0
+   }
+  },
+  "holdout_analysed": {
+   "n_records": 933,
+   "sex": {
+    "Female": {
+     "n": 380,
+     "pct": 40.72883172561629
+    },
+    "Male": {
+     "n": 550,
+     "pct": 58.949624866023576
+    },
+    "Not recorded": {
+     "n": 3,
+     "pct": 0.3215434083601286
+    }
+   },
+   "triage_category": {
+    "Critical": {
+     "n": 170,
+     "pct": 18.220793140407288
+    },
+    "Substantial": {
+     "n": 206,
+     "pct": 22.079314040728832
+    },
+    "Moderate": {
+     "n": 184,
+     "pct": 19.721329046087888
+    },
+    "Low": {
+     "n": 196,
+     "pct": 21.007502679528404
+    },
+    "Minimal": {
+     "n": 177,
+     "pct": 18.971061093247588
+    }
+   },
+   "care_setting": {
+    "NBU": {
+     "n": 933,
+     "pct": 100.0
+    }
+   },
+   "vitals_snapshots_per_record": {
+    "1": 933
+   },
+   "day_of_life": {
+    "n": 933,
+    "missing": 0,
+    "median": 1.0,
+    "q1": 1.0,
+    "q3": 1.0
+   },
+   "gestational_age_weeks": {
+    "n": 851,
+    "missing": 82,
+    "median": 38.0,
+    "q1": 32.0,
+    "q3": 39.0
+   },
+   "birth_weight_g": {
+    "n": 933,
+    "missing": 0,
+    "median": 2680.0,
+    "q1": 1755.0,
+    "q3": 3200.0
+   },
+   "temperature_c": {
+    "n": 834,
+    "missing": 99,
+    "median": 36.4,
+    "q1": 35.4,
+    "q3": 37.175000000000004
+   },
+   "heart_rate_bpm": {
+    "n": 851,
+    "missing": 82,
+    "median": 138.0,
+    "q1": 122.0,
+    "q3": 152.0
+   },
+   "resp_rate_bpm": {
+    "n": 787,
+    "missing": 146,
+    "median": 59.0,
+    "q1": 48.0,
+    "q3": 68.0
+   },
+   "spo2_percent": {
+    "n": 762,
+    "missing": 171,
+    "median": 93.0,
+    "q1": 86.0,
+    "q3": 96.0
+   }
+  },
+  "holdout_excluded_no_gold": {
+   "n_records": 47,
+   "sex": {
+    "Female": {
+     "n": 18,
+     "pct": 38.297872340425535
+    },
+    "Male": {
+     "n": 28,
+     "pct": 59.57446808510638
+    },
+    "Not recorded": {
+     "n": 1,
+     "pct": 2.127659574468085
+    }
+   },
+   "triage_category": {
+    "Critical": {
+     "n": 8,
+     "pct": 17.02127659574468
+    },
+    "Substantial": {
+     "n": 8,
+     "pct": 17.02127659574468
+    },
+    "Moderate": {
+     "n": 14,
+     "pct": 29.78723404255319
+    },
+    "Low": {
+     "n": 13,
+     "pct": 27.659574468085108
+    },
+    "Minimal": {
+     "n": 4,
+     "pct": 8.51063829787234
+    }
+   },
+   "care_setting": {
+    "NBU": {
+     "n": 47,
+     "pct": 100.0
+    }
+   },
+   "vitals_snapshots_per_record": {
+    "1": 47
+   },
+   "day_of_life": {
+    "n": 47,
+    "missing": 0,
+    "median": 1.0,
+    "q1": 1.0,
+    "q3": 1.0
+   },
+   "gestational_age_weeks": {
+    "n": 46,
+    "missing": 1,
+    "median": 37.5,
+    "q1": 32.0,
+    "q3": 38.75
+   },
+   "birth_weight_g": {
+    "n": 47,
+    "missing": 0,
+    "median": 2600.0,
+    "q1": 1610.0,
+    "q3": 3072.5
+   },
+   "temperature_c": {
+    "n": 39,
+    "missing": 8,
+    "median": 36.3,
+    "q1": 35.3,
+    "q3": 36.8
+   },
+   "heart_rate_bpm": {
+    "n": 39,
+    "missing": 8,
+    "median": 136.0,
+    "q1": 120.0,
+    "q3": 147.5
+   },
+   "resp_rate_bpm": {
+    "n": 37,
+    "missing": 10,
+    "median": 60.0,
+    "q1": 43.0,
+    "q3": 66.0
+   },
+   "spo2_percent": {
+    "n": 39,
+    "missing": 8,
+    "median": 94.0,
+    "q1": 90.0,
+    "q3": 98.0
+   }
+  }
+ }
+}

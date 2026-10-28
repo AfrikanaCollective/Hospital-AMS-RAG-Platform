@@ -83,8 +83,12 @@ function RateCase({ resultId }: { resultId: string }) {
     [resultId],
   );
 
+  const preview = view?.mode === "preview";
+
   const onChange = useCallback(
     (state: RatingDraftState) => {
+      // A preview account saves nothing (DEVIATIONS.md #323).
+      if (preview) return;
       // A draft starts with the first score or comment, not on opening.
       if (!Object.keys(state.scores).length && !state.comment.trim()) return;
       window.clearTimeout(timer.current);
@@ -98,7 +102,7 @@ function RateCase({ resultId }: { resultId: string }) {
         );
       }, SAVE_DELAY_MS);
     },
-    [resultId],
+    [resultId, preview],
   );
 
   const submit = async (submission: RatingSubmission) => {
@@ -124,6 +128,12 @@ function RateCase({ resultId }: { resultId: string }) {
 
   const inQueue = view?.items.some((i) => i.result_id === resultId) ?? false;
   const position = view?.items.findIndex((i) => i.result_id === resultId) ?? -1;
+  // A preview account steps through cases without rating them.
+  const prevId = preview && position > 0 ? view.items[position - 1].result_id : null;
+  const nextId =
+    preview && position >= 0 && position < view.items.length - 1
+      ? view.items[position + 1].result_id
+      : null;
 
   return (
     <section>
@@ -162,12 +172,28 @@ function RateCase({ resultId }: { resultId: string }) {
           <div className="flex flex-wrap items-center gap-2">
             <AreaBadge area={detail.query_area} />
             <span className="text-[12px] text-ink-muted">
-              {view.mode === "batch" && view.batch
-                ? `Your batch: ${view.batch.done + 1} of ${view.batch.total}`
-                : view.mode === "in_progress"
-                  ? `Started by others: ${position + 1} of ${view.items.length}`
-                  : "Half-finished rating"}
+              {preview
+                ? `Preview: case ${position + 1} of ${view.items.length}, nothing is saved`
+                : view.mode === "batch" && view.batch
+                  ? `Your batch: ${view.batch.done + 1} of ${view.batch.total}`
+                  : view.mode === "in_progress"
+                    ? `Started by others: ${position + 1} of ${view.items.length}`
+                    : "Half-finished rating"}
             </span>
+            {preview && (
+              <span className="ml-auto flex gap-3 text-[14px]">
+                {prevId && (
+                  <Link className="text-accent-strong underline" to={`/review/${prevId}`}>
+                    ← Previous case
+                  </Link>
+                )}
+                {nextId && (
+                  <Link className="text-accent-strong underline" to={`/review/${nextId}`}>
+                    Next case →
+                  </Link>
+                )}
+              </span>
+            )}
           </div>
           {detail.question && (
             <p className="text-ink-muted italic">
@@ -198,6 +224,7 @@ function RateCase({ resultId }: { resultId: string }) {
             onChange={onChange}
             onSubmit={submit}
             submitLabel="Submit & next"
+            readOnly={preview}
           />
         </div>
       )}

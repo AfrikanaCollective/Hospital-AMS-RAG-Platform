@@ -4056,3 +4056,16 @@ not retroactively. When in doubt, log it.
 - **Effect on the queue:** none needed. `GET /review-queue/{id}` reads the table on every request, so the 200 assessment items show the new figures once the `api` container sees the file (read-only bind mount). No ratings existed (0 rating rounds), so no rater saw the old figures in a completed rating. The `triage_mortality_sha256` stored on each item at generation (#303) still records the old table; it is provenance only and is not compared at serve time.
 - **Provenance:** `data/PROVENANCE.json` pins this file's hash, so `make provenance-check` reports it as changed until the operator re-pins (`make provenance`). Not re-pinned here.
 - **Reversible?:** yes (restore the 2026-10-14 values).
+
+### 323. Preview accounts: browse every review case without being assigned one
+- **Date / phase:** 2026-10-28. Operator: "The account reviewer1@example.dev should be able to open and scroll through review tasks, but the tasks should never be recorded as assigned to reviewer1@example.dev." Then "yes, go ahead" to the proposed design.
+- **Requirement ID(s):** PRD-042, ARCH §14.2 (extends #294).
+- **Why:** opening `/review` as `reviewer1@example.dev` wrote a 12-item batch (`eval.review_batch_item`, 10:18 UTC). Those were the 12 oldest open cases. Because fresh items are picked fewest-assignments first, every real reviewer would have been given the other 788 before them, and reviewer1 could never be offered them again.
+- **What:** new setting `REVIEW_PREVIEW_EMAILS` (comma-separated, case-insensitive; empty by default, `reviewer1@example.dev` in the dev `.env`). For a listed account, `build_queue_view` returns `mode = "preview"` with every open result, oldest first, and writes nothing (no lock, batch, or draft). `save_draft` and `check_may_rate` raise `PreviewAccountError`, which the routes turn into 403, and `load_draft` returns nothing. The rating page steps through every rubric step but never saves; it shows "Preview: case N of M, nothing is saved" with Previous/Next case links, and the submit button reads "Preview: not submitted" and stays disabled. The queue page lists every open case.
+- **Judgment calls:**
+  - Identified by email in config, not a new role or a DB flag: no migration, and the operator named the account by email. The cost is one `iam.user` lookup per queue call.
+  - Preview sees every open case, including ones other reviewers have started, because the purpose is to look at the whole queue. It never sees other raters' scores (`GET /review-queue/{id}` is unchanged).
+  - Ratings are refused outright, not stored and excluded later, so the 3-distinct-rater rule and IRR can never include a preview rating.
+- **Data change:** the 12 `eval.review_batch_item` rows for `reviewer1@example.dev` (batch 1, no ratings or drafts) deleted after the new code was live. Assignment writes no audit event, so there is no audit row to reconcile.
+- **Verified:** 5 new tests (`test_preview_account_*` in `tests/test_review_assignment.py` and `tests/test_review_queue_routes.py`; `test_submit_rating_refused_for_a_preview_account` in `tests/test_rubric_routes.py`); full suite 1,142 passed; mypy unchanged from HEAD (12 pre-existing errors); frontend `tsc` and `eslint` clean.
+- **Reversible?:** yes (empty the setting; no schema change).

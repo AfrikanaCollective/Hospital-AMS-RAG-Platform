@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 from functools import lru_cache
+from typing import Literal
 from urllib.parse import urlparse
 
 from pydantic import Field
@@ -69,28 +70,14 @@ class Settings(BaseSettings):
     llm_max_retries: int = 2
 
     # ── embeddings / reranker (ARCH-004 / ARCH-012 / PRD-103) ──
-    embedding_backend: str = "stub"  # local | gateway | stub
-    # Format depends on embedding_backend: a HuggingFace repo id when "local"
-    # (e.g. BAAI/bge-large-en-v1.5); the gateway's own model tag when
-    # "gateway" (e.g. qllama/bge-large-en-v1.5:latest per DEVIATIONS.md #42) —
-    # these are NOT interchangeable strings for the same underlying model.
-    embedding_model_id: str = (
-        "BAAI/bge-large-en-v1.5"  # UNVERIFIED placeholder (local-backend format)
-    )
+    # local | stub. Embeddings never go through the gateway (DEVIATIONS.md
+    # #324): any other value fails at startup.
+    embedding_backend: Literal["local", "stub"] = "stub"
+    # A HuggingFace repo id, e.g. BAAI/bge-large-en-v1.5.
+    embedding_model_id: str = "BAAI/bge-large-en-v1.5"  # UNVERIFIED placeholder
     embedding_model_verified: bool = False
     embedding_query_prefix: str = ""
     embedding_doc_prefix: str = ""
-    # Separate from llm_gateway_url: the embedding gateway may be a different
-    # base URL/service than the chat-completion gateway (DEVIATIONS.md #42).
-    # Implemented (DEVIATIONS.md #103): app.ingestion.embed's "gateway" branch.
-    embedding_gateway_url: str = ""
-    embedding_gateway_api_key: str = ""
-    # Same self-signed/internal-CA support as llm_gateway_ca_bundle, for the
-    # (possibly different) embedding gateway (DEVIATIONS.md #103).
-    embedding_gateway_ca_bundle: str = ""
-    # Same SNI/hostname-verification override as llm_gateway_sni_hostname,
-    # for the embedding gateway (DEVIATIONS.md #103).
-    embedding_gateway_sni_hostname: str = ""
     reranker_backend: str = "stub"
     reranker_model_id: str = "BAAI/bge-reranker-v2-m3"  # UNVERIFIED placeholder
     reranker_model_verified: bool = False

@@ -4,12 +4,12 @@ Run by the `llm-gateway` docker-compose service under the `dev`/`full` profiles.
 Real deployments drop this service and point LLM_GATEWAY_URL at the actual
 self-hosted gateway.
 
-`/v1/chat/completions` and `/v1/embeddings` mirror the real, operator-supplied
-gateway's actual (non-OpenAI-shaped) response shapes —
-`{"model", "content", ...}` and `{"model", "embeddings", ...}` respectively —
-confirmed live against that gateway (DEVIATIONS.md #103, correcting an
-earlier, never-actually-verified OpenAI-shaped assumption, DEVIATIONS.md
-#42/#44 for background). `/v1/rerank` is this stub's own invention: the real
+`/v1/chat/completions` mirrors the real, operator-supplied gateway's actual
+(non-OpenAI-shaped) response shape, `{"model", "content", ...}`, confirmed
+live against that gateway (DEVIATIONS.md #103, correcting an earlier,
+never-actually-verified OpenAI-shaped assumption, DEVIATIONS.md #42/#44 for
+background). There is no `/v1/embeddings`: embeddings never go
+through the gateway (DEVIATIONS.md #324). `/v1/rerank` is this stub's own invention: the real
 gateway has no rerank endpoint at all (RERANKER_BACKEND never uses "gateway",
 DEVIATIONS.md #44), so nothing production-facing depends on this route's
 exact shape.
@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from fastapi import FastAPI, Request
 
-from app.llm.stub import stub_chat, stub_embed, stub_rerank
+from app.llm.stub import stub_chat, stub_rerank
 
 app = FastAPI(title="LLM gateway (dev stub)")
 
@@ -33,14 +33,6 @@ async def healthz() -> dict[str, str]:
 async def chat(body: dict) -> dict:
     r = stub_chat(system=body.get("system", ""), messages=body.get("messages", []))
     return {"model": r.model_id, "content": r.text, "finish_reason": "stop", "usage": r.usage}
-
-
-@app.post("/v1/embeddings")
-async def embeddings(body: dict) -> dict:
-    raw_input = body.get("input", [])
-    texts = [raw_input] if isinstance(raw_input, str) else raw_input
-    vecs = stub_embed(texts)
-    return {"model": body.get("model", ""), "embeddings": vecs}
 
 
 @app.post("/v1/rerank")

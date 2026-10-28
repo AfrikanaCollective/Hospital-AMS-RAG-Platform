@@ -1,15 +1,14 @@
 """Embedding backend dispatch (ARCH-004). `local` is dependency-injected in
-tests (DEVIATIONS.md #51) — no real model download. `gateway` is exercised
-offline via httpx.MockTransport (DEVIATIONS.md #103), matching
-tests/test_llm_gateway.py's pattern — no real network call."""
+tests (DEVIATIONS.md #51) — no real model download. There is no `gateway`
+backend (DEVIATIONS.md #324)."""
 
 from __future__ import annotations
 
 import json
 
-import httpx
 import numpy as np
 import pytest
+from pydantic import ValidationError
 
 import app.ingestion.embed as embed_mod
 from app.config import get_settings
@@ -90,93 +89,13 @@ def test_local_backend_returns_json_serializable_native_floats(
         embed_mod._get_local_model.cache_clear()
 
 
-def _gateway_with_transport(handler) -> None:
-    """Monkeypatch-free helper: point _GATEWAY_CLIENT_BUILDER at a client
-    wired to httpx.MockTransport, mirroring tests/test_llm_gateway.py's
-    _gateway_with_transport (no real network call)."""
-    embed_mod._GATEWAY_CLIENT_BUILDER = lambda url, ca_bundle, timeout: httpx.Client(  # noqa: ARG005
-        base_url=url, transport=httpx.MockTransport(handler)
-    )
-    embed_mod._get_gateway_client.cache_clear()
-
-
-def test_gateway_backend_posts_model_and_input_returns_embeddings(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/v1/embeddings"
-        payload = json.loads(request.read())
-        assert payload["model"] == "qllama/bge-large-en-v1.5:latest"
-        assert payload["input"] == ["passage: chunk text"]
-        return httpx.Response(
-            200,
-            json={
-                "id": "abc",
-                "model": "qllama/bge-large-en-v1.5:latest",
-                "backend_used": "ollama-primary",
-                "embeddings": [[0.1, 0.2, 0.3]],
-            },
-        )
-
-    _gateway_with_transport(handler)
+def test_gateway_backend_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    """DEVIATIONS.md #324: embeddings never go through the gateway; the old
+    setting fails at startup instead of silently falling back."""
     monkeypatch.setenv("EMBEDDING_BACKEND", "gateway")
-    monkeypatch.setenv("EMBEDDING_MODEL_ID", "qllama/bge-large-en-v1.5:latest")
-    monkeypatch.setenv("EMBEDDING_GATEWAY_URL", "https://gateway.example")
-    monkeypatch.setenv("EMBEDDING_DOC_PREFIX", "passage: ")
     get_settings.cache_clear()
     try:
-        vecs = embed_texts(["chunk text"], is_query=False)
-        assert vecs == [[0.1, 0.2, 0.3]]
+        with pytest.raises(ValidationError, match="embedding_backend"):
+            get_settings()
     finally:
         get_settings.cache_clear()
-        embed_mod._GATEWAY_CLIENT_BUILDER = embed_mod._build_gateway_client
-        embed_mod._get_gateway_client.cache_clear()
-
-
-def test_gateway_backend_sends_bearer_auth_when_api_key_set(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    seen = {}
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        seen["auth"] = request.headers.get("authorization")
-        return httpx.Response(200, json={"model": "m", "embeddings": [[1.0]]})
-
-    _gateway_with_transport(handler)
-    monkeypatch.setenv("EMBEDDING_BACKEND", "gateway")
-    monkeypatch.setenv("EMBEDDING_GATEWAY_URL", "https://gateway.example")
-    monkeypatch.setenv("EMBEDDING_GATEWAY_API_KEY", "secret-token")
-    get_settings.cache_clear()
-    try:
-        embed_texts(["x"])
-        assert seen["auth"] == "Bearer secret-token"
-    finally:
-        get_settings.cache_clear()
-        embed_mod._GATEWAY_CLIENT_BUILDER = embed_mod._build_gateway_client
-        embed_mod._get_gateway_client.cache_clear()
-
-
-def test_gateway_backend_sends_sni_hostname_extension_when_set(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """DEVIATIONS.md #103: same SNI/hostname-verification override as
-    LLMGateway, for reaching a self-hosted embedding gateway via
-    host.docker.internal against a cert issued for "localhost"."""
-    seen = {}
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        seen["sni_hostname"] = request.extensions.get("sni_hostname")
-        return httpx.Response(200, json={"model": "m", "embeddings": [[1.0]]})
-
-    _gateway_with_transport(handler)
-    monkeypatch.setenv("EMBEDDING_BACKEND", "gateway")
-    monkeypatch.setenv("EMBEDDING_GATEWAY_URL", "https://gateway.example")
-    monkeypatch.setenv("EMBEDDING_GATEWAY_SNI_HOSTNAME", "localhost")
-    get_settings.cache_clear()
-    try:
-        embed_texts(["x"])
-        assert seen["sni_hostname"] == "localhost"
-    finally:
-        get_settings.cache_clear()
-        embed_mod._GATEWAY_CLIENT_BUILDER = embed_mod._build_gateway_client
-        embed_mod._get_gateway_client.cache_clear()

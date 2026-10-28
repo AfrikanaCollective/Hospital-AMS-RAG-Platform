@@ -116,8 +116,7 @@ services:
       # Operator-curated per-area reference sets (DEVIATIONS.md #307); read by
       # scripts.score_area_reference. Read-only: draft it on the host.
       - ./data/area_reference_sets.yaml:/app/data/area_reference_sets.yaml:ro
-      # Read-only: an optional extra CA cert for LLM_GATEWAY_CA_BUNDLE /
-      # EMBEDDING_GATEWAY_CA_BUNDLE, e.g. a self-signed cert on an operator's
+      # Read-only: an optional extra CA cert for LLM_GATEWAY_CA_BUNDLE, e.g. a self-signed cert on an operator's
       # own gateway (DEVIATIONS.md #103). Gitignored (deploy/tls/*.pem); the
       # directory is mounted even when empty so no build/rebuild is needed
       # just to add a cert later.

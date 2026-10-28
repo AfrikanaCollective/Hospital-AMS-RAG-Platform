@@ -1,6 +1,6 @@
 """Embedding backend selection (ARCH-004; PRD-103).
 
-`EMBEDDING_BACKEND` = local | gateway | stub. Dense embeddings for chunks and
+`EMBEDDING_BACKEND` = local | stub. Dense embeddings for chunks and
 queries; L2-normalized, cosine. Query/doc instruction prefixes applied if the
 configured model needs them. Dense dimension is read from the model at startup
 and asserted against the Qdrant collection (`app.retrieval.vectorstore`).
@@ -14,16 +14,8 @@ injection (`_LOCAL_MODEL_LOADER` is monkeypatchable) rather than against
 `BAAI/bge-large-en-v1.5` itself. Confirm with a real load before relying on
 this backend for a demo.
 
-`gateway` (DEVIATIONS.md #103, implementing what #42 scaffolded):
-`POST {embedding_gateway_url}/v1/embeddings`, Bearer auth via
-`embedding_gateway_api_key`, `embedding_model_id` as the gateway's own model
-tag (e.g. `qllama/bge-large-en-v1.5:latest` — NOT a HuggingFace repo id in
-this mode, see `Settings.embedding_model_id`'s docstring). Response is
-`{"model", "embeddings": [[float, ...], ...], ...}` — confirmed live against
-a real operator-supplied gateway, NOT the OpenAI `data: [{"embedding"}]`
-shape (the same wrong assumption DEVIATIONS.md #103 also corrected in
-`app.llm.gateway`). TLS verified by default; `embedding_gateway_ca_bundle`
-adds one more trusted CA for a self-signed/internal-CA gateway.
+There is no gateway backend (DEVIATIONS.md #324): embeddings are always
+computed in-process, as the reranker is (#44).
 """
 
 from __future__ import annotations
@@ -32,9 +24,7 @@ from collections.abc import Iterable
 from functools import lru_cache
 from typing import Protocol
 
-import httpx
-
-from app.config import Settings, get_settings
+from app.config import get_settings
 from app.llm.stub import stub_embed
 
 
@@ -66,48 +56,6 @@ def _get_local_model(model_id: str) -> _EncodesTexts:
     return _LOCAL_MODEL_LOADER(model_id)
 
 
-def _build_gateway_client(url: str, ca_bundle: str, timeout: float) -> httpx.Client:
-    return httpx.Client(base_url=url, timeout=timeout, verify=ca_bundle or True)
-
-
-# Indirection point for tests: replace with a fake client (e.g. built on
-# httpx.MockTransport) to avoid a real network call, matching
-# _LOCAL_MODEL_LOADER's pattern above.
-_GATEWAY_CLIENT_BUILDER = _build_gateway_client
-
-
-@lru_cache
-def _get_gateway_client(url: str, ca_bundle: str, timeout: float) -> httpx.Client:
-    return _GATEWAY_CLIENT_BUILDER(url, ca_bundle, timeout)
-
-
-def _embed_via_gateway(texts: list[str], settings: Settings) -> list[list[float]]:
-    client = _get_gateway_client(
-        settings.embedding_gateway_url,
-        settings.embedding_gateway_ca_bundle,
-        settings.llm_timeout_seconds,
-    )
-    headers = (
-        {"Authorization": f"Bearer {settings.embedding_gateway_api_key}"}
-        if settings.embedding_gateway_api_key
-        else {}
-    )
-    extensions = (
-        {"sni_hostname": settings.embedding_gateway_sni_hostname}
-        if settings.embedding_gateway_sni_hostname
-        else {}
-    )
-    resp = client.post(
-        "/v1/embeddings",
-        json={"model": settings.embedding_model_id, "input": texts},
-        headers=headers,
-        extensions=extensions,
-    )
-    resp.raise_for_status()
-    data = resp.json()
-    return [list(v) for v in data["embeddings"]]
-
-
 def embed_texts(texts: list[str], *, is_query: bool = False) -> list[list[float]]:
     settings = get_settings()
     backend = settings.embedding_backend
@@ -120,12 +68,10 @@ def embed_texts(texts: list[str], *, is_query: bool = False) -> list[list[float]
         vectors = model.encode(prepared, normalize_embeddings=True)
         # `.encode()` returns numpy float32 elements; cast to native Python
         # float so every downstream consumer gets the same plain-float shape
-        # the "gateway"/"stub" branches already return (DEVIATIONS.md #118) —
+        # the "stub" branch already returns (DEVIATIONS.md #118) —
         # a numpy.float32 survives Qdrant's client encoding but is rejected
         # outright by a plain `json.dumps` (e.g. an `EvalQuestion.generator_meta`
         # JSONB write), found live via app.eval.auto_seed persisting an
         # embedding straight into that column.
         return [[float(x) for x in v] for v in vectors]
-    if backend == "gateway":
-        return _embed_via_gateway(prepared, settings)
     raise NotImplementedError(f"Unknown EMBEDDING_BACKEND={backend!r} (ARCH-004)")

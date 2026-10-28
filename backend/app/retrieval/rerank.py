@@ -15,9 +15,8 @@ singleton at API startup rather than on first request is `app.main`'s job
 for offline unit tests; confirm with a real load of `BAAI/bge-reranker-v2-m3`
 before relying on this for a demo.
 
-"gateway" implementer: same settings.embedding_gateway_* pattern as ARCH-004
-applies here if/when the gateway exposes a rerank endpoint -- see
-DEVIATIONS.md #43 for why that isn't assumed for this gateway.
+There is no "gateway" backend: the gateway has no rerank endpoint
+(DEVIATIONS.md #43/#44).
 """
 
 from __future__ import annotations

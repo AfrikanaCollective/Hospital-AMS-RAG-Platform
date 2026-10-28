@@ -4069,3 +4069,14 @@ not retroactively. When in doubt, log it.
 - **Data change:** the 12 `eval.review_batch_item` rows for `reviewer1@example.dev` (batch 1, no ratings or drafts) deleted after the new code was live. Assignment writes no audit event, so there is no audit row to reconcile.
 - **Verified:** 5 new tests (`test_preview_account_*` in `tests/test_review_assignment.py` and `tests/test_review_queue_routes.py`; `test_submit_rating_refused_for_a_preview_account` in `tests/test_rubric_routes.py`); full suite 1,142 passed; mypy unchanged from HEAD (12 pre-existing errors); frontend `tsc` and `eslint` clean.
 - **Reversible?:** yes (empty the setting; no schema change).
+
+### 324. Gateway embedding backend removed
+- **Date / phase:** 2026-10-28. Operator: "remove the option of switching EMBEDDING_BACKEND to gateway", after a pre-deploy check found the gateway's `POST /v1/embeddings` returning 503.
+- **Requirement ID(s):** ARCH-004, PRD-103 (reverses the `gateway` branch added in #103; this deployment already ran `local` since #117).
+- **What:** `EMBEDDING_BACKEND` is now `local` | `stub` only, typed as a `Literal` in `app/config.py`, so `gateway` (or any other value) fails at startup instead of being accepted. Removed: the gateway branch of `app/ingestion/embed.py`, the `EMBEDDING_GATEWAY_URL` / `_API_KEY` / `_CA_BUNDLE` / `_SNI_HOSTNAME` settings, the dev stub's `/v1/embeddings` route, and the three gateway tests in `tests/test_embed.py` (replaced by `test_gateway_backend_is_rejected`). `.env.example`, README, ARCHITECTURE(-ESSENTIALS) and TRACEABILITY updated; the four `EMBEDDING_GATEWAY_*` lines were removed from the local `.env` (its key duplicated `LLM_GATEWAY_API_KEY`).
+- **Judgment calls:**
+  - Fail at startup rather than fall back to `local` silently: a deployment that still says `gateway` should find out, not embed with a model it did not configure.
+  - `EMBEDDING_MODEL_ID` is now documented as a HuggingFace repo id only; the gateway's model-tag format no longer applies.
+  - Chat completions and the vision endpoint still go through the gateway; only embeddings changed.
+- **No data change:** the Qdrant corpus was already embedded with `local` (#117).
+- **Reversible?:** yes, by reverting this change (git history keeps the gateway branch).

@@ -8,6 +8,7 @@ import uuid
 import pytest
 
 from app.rubric.assignment import (
+    PreviewAccountError,
     QueueRuleError,
     build_queue_view,
     check_may_rate,
@@ -199,3 +200,40 @@ def test_draft_whose_item_is_archived_by_others_is_removed_with_a_notice() -> No
     v = view(s)
     assert v.draft_dropped and v.mode == "batch" and batch[0] not in v.result_ids
     assert ME not in s.drafts and load_draft(s, ME) is None
+
+
+# ── preview accounts (DEVIATIONS.md #323) ──
+
+
+def test_preview_account_sees_every_open_item_and_is_never_assigned_one() -> None:
+    s = FakeStore(30)
+    s.preview.add(ME)
+    s.rate(OTHERS[0], s.results[4])
+    for other in OTHERS:
+        s.rate(other, s.results[7])  # archived
+    v = view(s)
+    assert v.mode == "preview"
+    assert v.result_ids == [r for r in s.results if r != s.results[7]]
+    assert s.items == [] and s.drafts == {}
+
+
+def test_preview_account_does_not_change_what_reviewers_are_given() -> None:
+    with_preview = FakeStore(20)
+    with_preview.preview.add(OTHERS[2])
+    view(with_preview, OTHERS[2])
+    without = FakeStore(20)
+    without.results = with_preview.results
+    without.created = with_preview.created
+    without.ratings = {r: set() for r in without.results}
+    assert view(with_preview).result_ids == view(without).result_ids
+
+
+def test_preview_account_cannot_draft_or_rate() -> None:
+    s = FakeStore(5)
+    s.preview.add(ME)
+    with pytest.raises(PreviewAccountError):
+        save_draft(s, ME, s.results[0], {"scores": {}}, batch_size=12)
+    with pytest.raises(PreviewAccountError):
+        check_may_rate(s, ME, s.results[0], batch_size=12)
+    assert load_draft(s, ME) is None
+    assert s.items == [] and s.drafts == {}

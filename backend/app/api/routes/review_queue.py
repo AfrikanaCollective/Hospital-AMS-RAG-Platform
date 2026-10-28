@@ -17,6 +17,10 @@ GET  /review-queue/{result_id}     (reviewer) -> result + citations for rating (
 GET  /review-queue/draft           (reviewer) -> the reviewer's one half-finished rating, or 404
 PUT  /review-queue/draft           (reviewer) -> save it (only for an item the queue offers)
 
+A preview account (`REVIEW_PREVIEW_EMAILS`, DEVIATIONS.md #323) is listed
+every open result (`mode = "preview"`) with no batch written, and gets 403
+on a draft save or a rating.
+
 **Since DEVIATIONS.md #294** the list is `app.rubric.assignment`'s: items
 other reviewers started first, then the reviewer's own batch of fresh
 items, and while a draft exists only the draft's item. The response is an
@@ -59,6 +63,7 @@ from app.eval.triage import (
     triage_review_payload,
 )
 from app.rubric.assignment import (
+    PreviewAccountError,
     QueueRuleError,
     QueueStore,
     build_queue_view,
@@ -166,6 +171,8 @@ async def put_draft(
             body.payload,
             batch_size=get_settings().review_batch_size,
         )
+    except PreviewAccountError as exc:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, str(exc)) from exc
     except QueueRuleError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
     return {"result_id": str(body.result_id)}

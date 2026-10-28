@@ -282,6 +282,10 @@ class Settings(BaseSettings):
     # Fresh results given to a reviewer at a time once no items started by
     # other reviewers are left for them (DEVIATIONS.md #294).
     review_batch_size: int = 12
+    # Comma-separated accounts (emails) that may open every queued case but
+    # are never assigned one and cannot save a draft or a rating, so they do
+    # not change what real reviewers are given (DEVIATIONS.md #323).
+    review_preview_emails: str = ""
     # Failed password / admin sign-ins (DEVIATIONS.md #283): this many failures
     # within the window lock the account (or, per IP, the address) until the
     # window ends.
@@ -380,6 +384,12 @@ class Settings(BaseSettings):
     ablation_holdout_target_count: int = 10_000
 
     # ── derived ──
+    @property
+    def preview_emails(self) -> frozenset[str]:
+        return frozenset(
+            e.strip().lower() for e in self.review_preview_emails.split(",") if e.strip()
+        )
+
     @property
     def fallback_model_ids(self) -> list[str]:
         return [m.strip() for m in self.model_id_fallbacks.split(",") if m.strip()]

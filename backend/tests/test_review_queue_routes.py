@@ -334,3 +334,24 @@ def test_queue_and_item_show_the_query_area(client: TestClient) -> None:
     assert rows[str(no_question.id)]["query_area"] is None
     item = client.get(f"/api/review-queue/{with_area.id}").json()
     assert item["query_area"] == "antibiotic_course"
+
+
+def test_preview_account_lists_every_open_case_and_cannot_save(client: TestClient) -> None:
+    """DEVIATIONS.md #323: listed, never assigned, 403 on a draft save."""
+    results = [
+        Result(id=uuid.uuid4(), provenance="auto_generated", queue_state="open") for _ in range(15)
+    ]
+    store = _store_for(results)
+    store.preview.add(RATER_ID)
+    fastapi_app.dependency_overrides[get_db] = lambda: _FakeSession(results, [])
+    fastapi_app.dependency_overrides[get_queue_store] = lambda: store
+
+    body = client.get("/api/review-queue").json()
+    assert body["mode"] == "preview" and body["batch"] is None
+    assert [i["result_id"] for i in body["items"]] == [str(r.id) for r in results]
+    put = client.put(
+        "/api/review-queue/draft", json={"result_id": str(results[0].id), "payload": {}}
+    )
+    assert put.status_code == 403
+    assert client.get("/api/review-queue/draft").status_code == 404
+    assert store.items == [] and store.drafts == {}

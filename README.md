@@ -1540,7 +1540,11 @@ On **Review** a reviewer is offered cases other reviewers have started
 first, then their own batch of `REVIEW_BATCH_SIZE` (12) fresh cases, kept
 until all are rated; each case opens on its own page (`/review/<id>`) with
 "Submit & next". A half-finished rating is saved as they go and must be
-submitted before another case (DEVIATIONS.md #294). Five wrong
+submitted before another case (DEVIATIONS.md #294). Accounts listed in
+`REVIEW_PREVIEW_EMAILS` see every open case instead, with "Previous case" /
+"Next case" links, but are never assigned one and cannot save or submit a
+rating, so they do not affect what real reviewers get (DEVIATIONS.md #323).
+Five wrong
 passwords within 15 minutes lock an account for the rest of that window
 (DEVIATIONS.md #283). Before
 reviewers can use it:
@@ -1635,6 +1639,7 @@ All config is via environment variables / `.env` (secrets via
 | `REVIEWER_CONSENT_PATH` | `data/reviewer_consent.yaml` | operator-attested consent text; registration stays closed until it is attested |
 | `TRIAGE_MORTALITY_PATH` | `data/triage_mortality.yaml` | operator-attested mortality per triage category for the triage-agreement question (ARCH-046); fails closed while any field is missing or `TODO_CONFIRM` |
 | `REVIEW_BATCH_SIZE` | `12` | fresh review cases given to a reviewer at a time, once no cases started by other reviewers are left for them (DEVIATIONS.md #294) |
+| `REVIEW_PREVIEW_EMAILS` | *(empty)* | comma-separated preview accounts: they can open and step through every open review case but are never assigned one, and draft saves and ratings are refused (403) (DEVIATIONS.md #323) |
 | `REVIEWER_MAX_RESUBMISSIONS` | `2` | resubmissions a rejected reviewer may make (2 = up to three submissions in all; 0 = the first rejection is final) (DEVIATIONS.md #286) |
 | `SIGNIN_MAX_FAILURES_PER_ACCOUNT` / `SIGNIN_MAX_FAILURES_PER_IP` / `SIGNIN_WINDOW_SECONDS` | `5` / `20` / `900` | failed email + password and admin sign-ins: reaching the limit within the window locks that account (or IP address) until the window ends; sign-in then returns 429 with `Retry-After`. Counters are in Redis (falls back to in-process if Redis is down) (DEVIATIONS.md #283) |
 | `PATIENT_RECORD_VECTORS_ENABLED` | `false` | keep off unless deliberately enabling record vectorization |

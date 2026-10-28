@@ -29,6 +29,7 @@ from app.api.deps import Principal, get_db, principal_uuid, require_role
 from app.config import get_settings
 from app.db.models.eval import IRRScore, RatingRound, Result, RubricRating
 from app.rubric.assignment import (
+    PreviewAccountError,
     QueueRuleError,
     QueueStore,
     SqlQueueStore,
@@ -72,6 +73,8 @@ async def submit_rating_route(
     # draft's item (DEVIATIONS.md #294).
     try:
         check_may_rate(store, rater_id, rid, batch_size=get_settings().review_batch_size)
+    except PreviewAccountError as exc:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, str(exc)) from exc
     except QueueRuleError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
     try:

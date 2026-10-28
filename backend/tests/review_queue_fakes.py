@@ -30,6 +30,7 @@ class FakeStore:
         self.ratings: dict[uuid.UUID, set[uuid.UUID]] = {r: set() for r in self.results}
         self.items: list[_Item] = []
         self.drafts: dict[uuid.UUID, RatingDraft] = {}
+        self.preview: set[uuid.UUID] = set()  # preview accounts (DEVIATIONS.md #323)
 
     # helpers for tests
     def rate(self, rater: uuid.UUID, result: uuid.UUID) -> None:
@@ -38,6 +39,9 @@ class FakeStore:
             self.archived.add(result)
 
     # QueueStore
+    def is_preview(self, rater_id: uuid.UUID) -> bool:
+        return rater_id in self.preview
+
     def lock(self, rater_id: uuid.UUID) -> None:
         pass
 

@@ -1,5 +1,7 @@
 # --- project ---
 prompt.txt
+manuscript.txt
+manuscript/
 
 # --- secrets / local config ---
 .env

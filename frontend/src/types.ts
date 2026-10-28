@@ -154,7 +154,9 @@ export interface QueueResult {
 // first ("in_progress"), then the reviewer's own batch ("batch"); while a
 // half-finished rating exists, only its item ("draft").
 export interface ReviewQueueView {
-  mode: "draft" | "in_progress" | "batch" | "empty";
+  // "preview": a preview account (DEVIATIONS.md #323) is listed every open
+  // case and can save nothing.
+  mode: "draft" | "in_progress" | "batch" | "empty" | "preview";
   items: QueueResult[];
   draft_result_id: string | null;
   /** The draft's item was archived by others before it was submitted. */

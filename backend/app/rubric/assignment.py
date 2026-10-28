@@ -22,6 +22,11 @@ Operator rules, 2026-10-12, replacing the plain #113 queue for reviewers:
    removed only by submitting it, or (forced, with a notice) if its result
    is archived by others first.
 
+Preview accounts (`REVIEW_PREVIEW_EMAILS`, DEVIATIONS.md #323) are outside
+these rules: they are offered every open result, oldest first, and nothing
+is written for them (no batch, no draft), so they never change what real
+reviewers are given; they may not save a draft or a rating.
+
 `plan_queue` is the pure rule (unit-tested without a database);
 `build_queue_view` applies it through a `QueueStore`.
 """
@@ -37,6 +42,7 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 from sqlalchemy import func, select, text
 
+from app.config import get_settings
 from app.crypto.provider import get_crypto
 from app.db.models.eval import (
     RatingDraft,
@@ -45,6 +51,7 @@ from app.db.models.eval import (
     ReviewBatchItem,
     rating_draft_aad,
 )
+from app.db.models.iam import User
 from app.rubric.workflow import (
     _MAX_IN_PROGRESS_ROUNDS,
     QueueCandidate,
@@ -55,7 +62,7 @@ from app.rubric.workflow import (
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
-Mode = Literal["draft", "in_progress", "batch", "empty"]
+Mode = Literal["draft", "in_progress", "batch", "empty", "preview"]
 
 # The draft payload is the rubric form's own state; capped so a client
 # cannot park arbitrary data in it.
@@ -64,6 +71,10 @@ MAX_DRAFT_BYTES = 20_000
 
 class QueueRuleError(ValueError):
     """The reviewer may not rate or draft this result now."""
+
+
+class PreviewAccountError(QueueRuleError):
+    """A preview account may look at cases but never draft or rate them."""
 
 
 @dataclass(frozen=True)
@@ -136,6 +147,7 @@ def plan_queue(
 
 
 class QueueStore(Protocol):
+    def is_preview(self, rater_id: uuid.UUID) -> bool: ...
     def lock(self, rater_id: uuid.UUID) -> None: ...
     def candidates(self, rater_id: uuid.UUID) -> list[QueueCandidate]: ...
     def current_batch(self, rater_id: uuid.UUID) -> tuple[int, list[uuid.UUID]]: ...
@@ -159,6 +171,13 @@ class QueueStore(Protocol):
 class SqlQueueStore:
     def __init__(self, session: Session) -> None:
         self.session = session
+
+    def is_preview(self, rater_id: uuid.UUID) -> bool:
+        emails = get_settings().preview_emails
+        if not emails:
+            return False
+        email = self.session.execute(select(User.email).where(User.id == rater_id)).scalar()
+        return email is not None and email.lower() in emails
 
     def lock(self, rater_id: uuid.UUID) -> None:
         # Two tabs refreshing at once must not both create a batch.
@@ -299,6 +318,10 @@ def _check_draft(store: QueueStore, rater_id: uuid.UUID) -> tuple[RatingDraft | 
 
 def build_queue_view(store: QueueStore, rater_id: uuid.UUID, *, batch_size: int) -> QueueView:
     """Apply the rules, writing any batch changes they call for."""
+    if store.is_preview(rater_id):
+        # Read only: every open result, oldest first; nothing written.
+        picks = sorted(store.candidates(rater_id), key=lambda c: c.created_at)
+        return QueueView(mode="preview", result_ids=[c.result_id for c in picks])
     store.lock(rater_id)
     draft, dropped = _check_draft(store, rater_id)
     if draft is not None:
@@ -342,6 +365,8 @@ def check_may_rate(
     (queued) result must be one the reviewer's queue offers now. A result
     not yet queued keeps its old path (a first rating opens it, ARCH §14.2),
     and an archived one is refused by `submit_rating` itself."""
+    if store.is_preview(rater_id):
+        raise PreviewAccountError("preview account: ratings are not saved")
     view = build_queue_view(store, rater_id, batch_size=batch_size)
     if view.draft_result_id is not None and view.draft_result_id != result_id:
         raise QueueRuleError("finish and submit your saved rating first")
@@ -363,6 +388,8 @@ def save_draft(
     raw = json.dumps(payload, separators=(",", ":")).encode("utf-8")
     if len(raw) > MAX_DRAFT_BYTES:
         raise QueueRuleError("draft too large")
+    if store.is_preview(rater_id):
+        raise PreviewAccountError("preview account: ratings are not saved")
     view = build_queue_view(store, rater_id, batch_size=batch_size)
     if view.draft_result_id is not None and view.draft_result_id != result_id:
         raise QueueRuleError("finish and submit your saved rating first")
@@ -379,6 +406,8 @@ def save_draft(
 
 
 def load_draft(store: QueueStore, rater_id: uuid.UUID) -> tuple[uuid.UUID, dict[str, Any]] | None:
+    if store.is_preview(rater_id):
+        return None
     draft, _ = _check_draft(store, rater_id)
     if draft is None:
         return None

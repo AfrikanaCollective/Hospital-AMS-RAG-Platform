@@ -84,6 +84,16 @@ function QueueHeading({
       </div>
     );
   }
+  if (view.mode === "preview")
+    return (
+      <div className="mt-3">
+        <h3 className="text-[15px] font-semibold text-ink">Preview: every open case</h3>
+        <p className="text-[13px] text-ink-muted">
+          {view.items.length} cases. This account can open and step through any of them, but is
+          never assigned one and cannot save or submit a rating.
+        </p>
+      </div>
+    );
   if (view.mode === "in_progress")
     return (
       <div className="mt-3">

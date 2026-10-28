@@ -297,7 +297,9 @@ Distinctness enforced by `rating_round` UNIQUE `(result_id, rater_id)` +
 duplicate-account detection. Hard/adversarial cases go in the **same** queue.
 Per reviewer (DEVIATIONS.md #294): items others started come first; then a
 batch of up to 12 fresh items, kept until done; one half-finished rating
-at most, which must be submitted before any other item.
+at most, which must be submitted before any other item. Preview accounts
+(`REVIEW_PREVIEW_EMAILS`, #323) see every open item, are never assigned one,
+and cannot draft or rate.
 
 **Triage-stratified queue + triage question (ARCH-046, PRD-114).** The queue
 is 40 records per `triage_category` (Critical/Substantial/Moderate/Low/

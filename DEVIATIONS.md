@@ -4080,3 +4080,10 @@ not retroactively. When in doubt, log it.
   - Chat completions and the vision endpoint still go through the gateway; only embeddings changed.
 - **No data change:** the Qdrant corpus was already embedded with `local` (#117).
 - **Reversible?:** yes, by reverting this change (git history keeps the gateway branch).
+
+### 325. `RERANKER_MODEL_VERIFIED=true` for this deployment
+- **Date / phase:** 2026-10-29. Operator: "set RERANKER_MODEL_VERIFIED to true".
+- **Requirement ID(s):** ARCH-012, PRD-103 (closes the flag left open in #44/#51 for this deployment).
+- **Evidence:** pre-deploy check on 2026-10-28 in the running `api` container: `RERANKER_BACKEND=local` loaded `BAAI/bge-reranker-v2-m3` from real weights and scored a made-up pair correctly (relevant passage 0.999, irrelevant 0.0).
+- **What:** the local, gitignored `.env` only; `.env.example` stays `false` so a new deployment still has to confirm its own model. The startup "UNVERIFIED placeholder" warning for the reranker stops.
+- **Reversible?:** yes (set it back to `false`).
